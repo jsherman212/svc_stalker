@@ -137,8 +137,6 @@ int main(int argc, char **argv, const char **envp){
         return 1;
     }
 
-    printf("module data %p\n", module_data);
-
     err = pongo_init_bulk_upload(pongo_device);
 
     if(err < 0){
@@ -178,13 +176,13 @@ int main(int argc, char **argv, const char **envp){
         return 1;
     }
     
-    /* err = pongo_send_command(pongo_device, "bootx\n"); */
+    err = pongo_send_command(pongo_device, "bootx\n");
 
-    /* if(err < 0){ */
-    /*     printf("pongo_send_command: %s\n", libusb_error_name(err)); */
-    /*     libusb_exit(NULL); */
-    /*     return 1; */
-    /* } */
+    if(err < 0){
+        printf("pongo_send_command: %s\n", libusb_error_name(err));
+        libusb_exit(NULL);
+        return 1;
+    }
 
     libusb_exit(NULL);
 

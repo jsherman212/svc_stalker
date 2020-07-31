@@ -34,22 +34,27 @@ static void stalker_fatal(void){
     panic("stalker: fatal error\n");
 }
 
+static void write_blr(uint32_t reg, uint64_t from, uint64_t to){
+    uint32_t *cur = (uint32_t *)from;
+
+    /* movz */
+    *(cur++) = (uint32_t)(0xd2800000 | ((to & 0xffff) << 5) | reg);
+    /* movk */
+    *(cur++) = (uint32_t)(0xf2800000 | (1 << 21) | (((to >> 16) & 0xffff) << 5) | reg);
+    /* movk */
+    *(cur++) = (uint32_t)(0xf2800000 | (2 << 21) | (((to >> 32) & 0xffff) << 5) | reg);
+    /* movk */
+    *(cur++) = (uint32_t)(0xf2800000 | (3 << 21) | (((to >> 48) & 0xffff) << 5) | reg);
+    /* blr */
+    *(cur++) = (uint32_t)(0xd63f0000 | (reg << 5));
+}
+
 #define IS_B_NE(opcode) ((opcode & 0xff000001) == 0x54000001)
 
 static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         void *cacheable_stream){
-    /* print_register(va_for_ptr(mh_execute_header) - kernel_slide); */
-    /* return true; */
-    struct segment_command_64 *__TEXT_EXEC = macho_get_segment(mh_execute_header,
-            "__TEXT_EXEC");
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
 
-    /* print_register((__TEXT_EXEC->vmaddr + ((uint64_t)__TEXT_EXEC - (uint64_t)opcode_stream))); */
-    /* print_register((uint64_t)__TEXT_EXEC - (uint64_t)opcode_stream); */
-    /* print_register(ptr_for_va((uint64_t)opcode_stream - (uint64_t)__TEXT_EXEC)); */
-    /* print_register(opcode_stream); */
-    /* return true; */
-    
     /* so far, we've matched these successfully:
      *  LDR Wn, [X19, #0x88]
      *  MRS Xn, TPIDR_EL1
@@ -66,7 +71,8 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
      *  B.NE xxx
      *
      * right above where opcode_stream points. LDR Wn, [X19] is where we'll
-     * write the branch to our hook.
+     * write the branch to our hook. These instructions serve as sanity checks
+     * that don't ever seem to hold.
      */
 
     opcode_stream--;
@@ -126,18 +132,17 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     /* don't need anymore */
     xnu_pf_disable_patch(patch);
 
+    uint64_t branch_from = (uint64_t)opcode_stream;
+
     /* now we need to find exception_triage. We can do this by going forward
      * until we hit a BRK, as it's right after the call to exception_triage
      * and it's the only BRK in sleh_synchronous.
      */
     uint32_t instr_limit = 1000;
-    /* bool found_exception_triage = true; */
 
     while((*opcode_stream & 0xffe0001f) != 0xd4200000){
-        /* print_register(*opcode_stream); */
-
         if(instr_limit-- == 0){
-            puts("couldn't find exception_triage");
+            puts("svc_stalker: sleh_synchronous_patcher: couldn't find exception_triage");
             return false;
         }
 
@@ -146,34 +151,36 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
     opcode_stream--;
 
-    int32_t imm26 = bits(*opcode_stream, 0, 25);
-    imm26 = sign_extend(imm26 << 2, 28);
-    uint64_t exception_triage_addr = (int32_t)imm26 + va_for_ptr(opcode_stream);
+    int32_t imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28);
+    uint64_t exception_triage_addr = imm26 + va_for_ptr(opcode_stream);
 
-    puts("sleh_synchronous_patcher: found exception_triage:");
-    print_register(exception_triage_addr);
-    /* print_register(kernel_slide); */
+    puts("svc_stalker: sleh_synchronous_patcher: found exception_triage");
     
-    /* we're gonna put our replacement code inside of the empty space right
+    /* we're gonna put our handle_svc hook inside of the empty space right
      * before the end of __TEXT_EXEC that forces it to be page aligned
      */
+    struct segment_command_64 *__TEXT_EXEC = macho_get_segment(mh_execute_header,
+            "__TEXT_EXEC");
     struct section_64 *last_TEXT_EXEC_sect = (struct section_64 *)(__TEXT_EXEC + 1);
 
     /* go to last section */
     for(uint32_t i=0; i<__TEXT_EXEC->nsects-1; i++)
         last_TEXT_EXEC_sect++;
 
-    puts(last_TEXT_EXEC_sect->sectname);
-
-    uint64_t last_TEXT_EXEC_sect_end = last_TEXT_EXEC_sect->addr +
-        last_TEXT_EXEC_sect->size;
+    uint64_t last_TEXT_EXEC_sect_end = last_TEXT_EXEC_sect->addr + last_TEXT_EXEC_sect->size;
     uint64_t __TEXT_EXEC_end = __TEXT_EXEC->vmaddr + __TEXT_EXEC->vmsize;
-
     uint64_t num_free_instrs = (__TEXT_EXEC_end - last_TEXT_EXEC_sect_end) / sizeof(uint32_t);
-    print_register(num_free_instrs);
 
-    // TODO check if free instrs can satify the amount of instrs in the handle_svc replacement
+    uint32_t *scratch_space = ptr_for_va(last_TEXT_EXEC_sect_end);
+    print_register((uint64_t)scratch_space);
 
+    /* write the branch to our handle_svc hook */
+    write_blr(8, branch_from, last_TEXT_EXEC_sect_end);
+    /* there's an extra B.NE after the five instrs we overwrote, so NOP it out */
+    *(uint32_t *)(branch_from + (4*6)) = 0xd503201f;
+
+
+    *scratch_space = 0x55667788;
 
     return true;
 }
