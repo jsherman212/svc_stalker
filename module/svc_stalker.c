@@ -14,67 +14,13 @@ static uint64_t kernel_slide;
 #define va_for_ptr(ptr) (va_for_sa(sa_for_ptr(ptr)))
 #define pa_for_ptr(ptr) (sa_for_ptr(ptr) - gBootArgs->virtBase + gBootArgs->physBase)
 
-#define UCHAR_MAX 255
-
-/* thanks @xerub */
-static unsigned char * boyermoore_horspool_memmem(const unsigned char* haystack,
-        size_t hlen, const unsigned char* needle, size_t nlen) {
-    size_t last, scan = 0;
-    size_t bad_char_skip[UCHAR_MAX + 1]; /* Officially called:
-                                          * bad character shift */
-
-    /* Sanity checks on the parameters */
-    if (nlen <= 0 || !haystack || !needle)
-        return NULL;
-
-    /* ---- Preprocess ---- */
-    /* Initialize the table to default value */
-    /* When a character is encountered that does not occur
-     * in the needle, we can safely skip ahead for the whole
-     * length of the needle.
-     */
-    for (scan = 0; scan <= UCHAR_MAX; scan = scan + 1)
-        bad_char_skip[scan] = nlen;
-
-    /* C arrays have the first byte at [0], therefore:
-     * [nlen - 1] is the last byte of the array. */
-    last = nlen - 1;
-
-    /* Then populate it with the analysis of the needle */
-    for (scan = 0; scan < last; scan = scan + 1)
-        bad_char_skip[needle[scan]] = last - scan;
-
-    /* ---- Do the matching ---- */
-
-    /* Search the haystack, while the needle can still be within it. */
-    while (hlen >= nlen)
-    {
-        /* scan from the end of the needle */
-        for (scan = last; haystack[scan] == needle[scan]; scan = scan - 1)
-            if (scan == 0) /* If the first byte matches, we've found it. */
-                return (void *)haystack;
-
-        /* otherwise, we need to skip some bytes and start again.
-           Note that here we are getting the skip value based on the last byte
-           of needle, no matter where we didn't match. So if needle is: "abcd"
-           then we are skipping based on 'd' and that value will be 4, and
-           for "abcdd" we again skip on 'd' but the value will be only 1.
-           The alternative of pretending that the mismatched character was
-           the last character is slower in the normal case (E.g. finding
-           "abcd" in "...azcd..." gives 4 by using 'd' but only
-           4-2==2 using 'z'. */
-        hlen     -= bad_char_skip[haystack[last]];
-        haystack += bad_char_skip[haystack[last]];
-    }
-
-    return NULL;
-}
-
 static void stalker_fatal(void){
     /* puts("failed: spinning forever"); */
     /* for(;;); */
     panic("stalker: fatal error\n");
 }
+
+#define IS_B_NE(opcode) ((opcode & 0xff000001) == 0x54000001)
 
 static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         void *cacheable_stream){
@@ -85,13 +31,81 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
      *  MRS Xn, TPIDR_EL1
      *  MOV Wn, 0xFFFFFFFF
      *  
-     * these will be an entrypoint to finding where I need to write the
-     * branch to our handle_svc hook
+     * these will be an entrypoint to finding where we need to write the
+     * branch to our handle_svc replacement. If we're in the right place,
+     * we should find
+     *  LDR Wn, [X19]
+     *  CMP Wn, 0x15
+     *  B.NE xxx
+     *  LDRB Wn, [X19, n]
+     *  TST Wn, 0xc
+     *  B.NE xxx
+     *
+     * right above where opcode_stream points. LDR Wn, [X19] is where we'll
+     * write the branch to our replacement.
      */
 
-    for(int i=-10; i<10; i++){
-        print_register(opcode_stream[i]);
+    /* for(int i=0; i<3; i++){ */
+    /*     print_register(opcode_stream[i]); */
+    /* } */
+
+
+    opcode_stream--;
+
+    /* not B.NE xxx? */
+    if(!IS_B_NE(*opcode_stream)){
+        puts("sleh_synchronous_patcher: Not b.ne, opcode:");
+        print_register(*opcode_stream);
+        return false;
     }
+
+    opcode_stream--;
+
+    /* not TST Wn, 0xc? */
+    if((*opcode_stream & 0xfffffc1f) != 0x721e041f){
+        puts("sleh_synchronous_patcher: Not tst Wn, 0xc, opcode:");
+        print_register(*opcode_stream);
+        return false;
+    }
+
+    opcode_stream--;
+
+    /* not LDRB Wn, [X19, n]? */
+    if((*opcode_stream & 0xffc003e0) != 0x39400260){
+        puts("sleh_synchronous_patcher: Not ldrb Wn, [x19, n], opcode:");
+        print_register(*opcode_stream);
+        return false;
+    }
+
+    opcode_stream--;
+
+    /* not B.NE xxx? */
+    if(!IS_B_NE(*opcode_stream)){
+        puts("sleh_synchronous_patcher: Not b.ne, opcode:");
+        print_register(*opcode_stream);
+        return false;
+    }
+
+    opcode_stream--;
+
+    /* not CMP Wn, 0x15? */
+    if((*opcode_stream & 0xfffffc1f) != 0x7100541f){
+        puts("sleh_synchronous_patcher: Not cmp Wn, 0x15, opcode:");
+        print_register(*opcode_stream);
+        return false;
+    }
+
+    opcode_stream--;
+
+    /* not LDR Wn, [X19]? */
+    if((*opcode_stream & 0xffffffe0) != 0xb9400260){
+        puts("sleh_synchronous_patcher: Not ldr Wn, [x19], opcode:");
+        print_register(*opcode_stream);
+        return false;
+    }
+
+    /* if we're still here, we found where we need to write the branch */
+
 
     return true;
 }
@@ -153,8 +167,11 @@ static void stalker_apply_patches(const char *cmd, char *args){
 
 
     xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
+    /* xnu_pf_maskmatch(patchset, sleh_synchronous_patcher_match, */
+    /*         sleh_synchronous_patcher_masks, num_matches, true, sleh_synchronous_patcher); */
+    // XXX so failures aren't fatal while testing
     xnu_pf_maskmatch(patchset, sleh_synchronous_patcher_match,
-            sleh_synchronous_patcher_masks, num_matches, true, sleh_synchronous_patcher);
+            sleh_synchronous_patcher_masks, num_matches, false, sleh_synchronous_patcher);
     xnu_pf_emit(patchset);
     xnu_pf_apply(xnu_pf_segment(mh_execute_header, "__TEXT_EXEC"), patchset);
     xnu_pf_patchset_destroy(patchset);
