@@ -2,6 +2,20 @@
 
 static void (*next_preboot_hook)(void);
 
+static uint64_t bits(uint64_t number, uint64_t start, uint64_t end){
+    uint64_t amount = (end - start) + 1;
+    uint64_t mask = (((uint64_t)1 << amount) - 1) << start;
+
+    return (number & mask) >> start;
+}
+
+static uint64_t sign_extend(uint64_t number, uint32_t numbits){
+    if(number & ((uint64_t)1 << (numbits - 1)))
+        return number | ~(((uint64_t)1 << numbits) - 1);
+
+    return number;
+}
+
 static struct mach_header_64 *mh_execute_header;
 static uint64_t kernel_slide;
 
@@ -24,7 +38,17 @@ static void stalker_fatal(void){
 
 static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         void *cacheable_stream){
+    /* print_register(va_for_ptr(mh_execute_header) - kernel_slide); */
+    /* return true; */
+    struct segment_command_64 *__TEXT_EXEC = macho_get_segment(mh_execute_header,
+            "__TEXT_EXEC");
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
+
+    /* print_register((__TEXT_EXEC->vmaddr + ((uint64_t)__TEXT_EXEC - (uint64_t)opcode_stream))); */
+    /* print_register((uint64_t)__TEXT_EXEC - (uint64_t)opcode_stream); */
+    /* print_register(ptr_for_va((uint64_t)opcode_stream - (uint64_t)__TEXT_EXEC)); */
+    /* print_register(opcode_stream); */
+    /* return true; */
     
     /* so far, we've matched these successfully:
      *  LDR Wn, [X19, #0x88]
@@ -32,7 +56,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
      *  MOV Wn, 0xFFFFFFFF
      *  
      * these will be an entrypoint to finding where we need to write the
-     * branch to our handle_svc replacement. If we're in the right place,
+     * branch to our handle_svc hook. If we're in the right place,
      * we should find
      *  LDR Wn, [X19]
      *  CMP Wn, 0x15
@@ -42,7 +66,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
      *  B.NE xxx
      *
      * right above where opcode_stream points. LDR Wn, [X19] is where we'll
-     * write the branch to our replacement.
+     * write the branch to our hook.
      */
 
     opcode_stream--;
@@ -99,15 +123,40 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         return false;
     }
 
-    /* if we're still here, we found where we need to write the branch */
+    /* don't need anymore */
     xnu_pf_disable_patch(patch);
 
+    /* now we need to find exception_triage. We can do this by going forward
+     * until we hit a BRK, as it's right after the call to exception_triage
+     * and it's the only BRK in sleh_synchronous.
+     */
+    uint32_t instr_limit = 1000;
+    /* bool found_exception_triage = true; */
+
+    while((*opcode_stream & 0xffe0001f) != 0xd4200000){
+        /* print_register(*opcode_stream); */
+
+        if(instr_limit-- == 0){
+            puts("couldn't find exception_triage");
+            return false;
+        }
+
+        opcode_stream++;
+    }
+
+    opcode_stream--;
+
+    int32_t imm26 = bits(*opcode_stream, 0, 25);
+    imm26 = sign_extend(imm26 << 2, 28);
+    uint64_t exception_triage_addr = (int32_t)imm26 + va_for_ptr(opcode_stream);
+
+    puts("sleh_synchronous_patcher: found exception_triage:");
+    print_register(exception_triage_addr);
+    /* print_register(kernel_slide); */
+    
     /* we're gonna put our replacement code inside of the empty space right
      * before the end of __TEXT_EXEC that forces it to be page aligned
      */
-    struct segment_command_64 *__TEXT_EXEC = macho_get_segment(mh_execute_header,
-            "__TEXT_EXEC");
-
     struct section_64 *last_TEXT_EXEC_sect = (struct section_64 *)(__TEXT_EXEC + 1);
 
     /* go to last section */
