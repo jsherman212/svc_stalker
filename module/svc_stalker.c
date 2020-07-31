@@ -45,11 +45,6 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
      * write the branch to our replacement.
      */
 
-    /* for(int i=0; i<3; i++){ */
-    /*     print_register(opcode_stream[i]); */
-    /* } */
-
-
     opcode_stream--;
 
     /* not B.NE xxx? */
@@ -105,6 +100,30 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     }
 
     /* if we're still here, we found where we need to write the branch */
+    xnu_pf_disable_patch(patch);
+
+    /* we're gonna put our replacement code inside of the empty space right
+     * before the end of __TEXT_EXEC that forces it to be page aligned
+     */
+    struct segment_command_64 *__TEXT_EXEC = macho_get_segment(mh_execute_header,
+            "__TEXT_EXEC");
+
+    struct section_64 *last_TEXT_EXEC_sect = (struct section_64 *)(__TEXT_EXEC + 1);
+
+    /* go to last section */
+    for(uint32_t i=0; i<__TEXT_EXEC->nsects-1; i++)
+        last_TEXT_EXEC_sect++;
+
+    puts(last_TEXT_EXEC_sect->sectname);
+
+    uint64_t last_TEXT_EXEC_sect_end = last_TEXT_EXEC_sect->addr +
+        last_TEXT_EXEC_sect->size;
+    uint64_t __TEXT_EXEC_end = __TEXT_EXEC->vmaddr + __TEXT_EXEC->vmsize;
+
+    uint64_t num_free_instrs = (__TEXT_EXEC_end - last_TEXT_EXEC_sect_end) / sizeof(uint32_t);
+    print_register(num_free_instrs);
+
+    // TODO check if free instrs can satify the amount of instrs in the handle_svc replacement
 
 
     return true;
@@ -112,40 +131,6 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
 static void stalker_apply_patches(const char *cmd, char *args){
     puts("inside stalker_apply_patches");
-
-    /* struct segment_command_64 *__TEXT = macho_get_segment(mh_execute_header, */
-    /*         "__TEXT"); */
-
-    /* if(!__TEXT){ */
-    /*     puts("stalker_apply_patches: couldn't get __TEXT segment"); */
-    /*     return; */
-    /*     /1* stalker_fatal(); *1/ */
-    /* } */
-
-    /* struct section_64 *__cstring = macho_get_section(__TEXT, "__cstring"); */
-
-    /* if(!__cstring){ */
-    /*     puts("stalker_apply_patches: couldn't get __cstring section"); */
-    /*     return; */
-    /*     /1* stalker_fatal(); *1/ */
-    /* } */
-
-    /* uint64_t cstring_start = __cstring->addr; */
-    /* uint64_t cstring_end = cstring_start + __cstring->size; */
-
-
-    /* print_register(cstring_start); */
-    /* print_register(cstring_end); */
-
-    /* print_register(strlen("Invalid SVC_64 context")); */
-
-    /* return; */
-    /* uint64_t invalid_svc64_context = boyermoore_horspool_memmem(va_for_ptr(__cstring->addr), */
-    /*         __cstring->size, (uint8_t *)"Invalid SVC_64 context", */
-    /*         strlen("Invalid SVC_64 context")); */
-
-    /* puts("invalid_svc64_context:"); */
-    /* print_register(invalid_svc64_context); */
 
     uint64_t sleh_synchronous_patcher_match[] = {
         0xb9408a60,     /* LDR Wn, [X19, #0x88] (trap_no = saved_state.__x[16] */
@@ -161,10 +146,6 @@ static void stalker_apply_patches(const char *cmd, char *args){
         0xffffffe0,     /* ignore Xn in MRS */
         0xffffffe0,     /* ignore Wn in MOV */
     };
-
-    /* const size_t num_masks = sizeof(sleh_synchronous_patcher_masks) / */ 
-    /*     sizeof(*sleh_synchronous_patcher_masks); */
-
 
     xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
     /* xnu_pf_maskmatch(patchset, sleh_synchronous_patcher_match, */
