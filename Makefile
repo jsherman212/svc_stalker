@@ -1,4 +1,4 @@
-TARGET_DIRS=loader
+TARGET_DIRS=loader module
 
 all : $(TARGET_DIRS)
 

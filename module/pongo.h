@@ -21,11 +21,16 @@
 //  This file is part of pongoOS.
 //
 
+#ifndef PONGOH
+#define PONGOH
 #include <mach-o/loader.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <stdint.h>
 
 #define DT_KEY_LEN 0x20
 
@@ -37,7 +42,6 @@ struct Boot_Video {
 	unsigned long	v_height;	/* Height */
 	unsigned long	v_depth;	/* Pixel Depth and other parameters */
 };
-
 typedef struct boot_args {
 	uint16_t		Revision;			/* Revision of boot_args structure */
 	uint16_t		Version;			/* Version of boot_args structure */
@@ -85,18 +89,29 @@ struct memmap {
     uint64_t size;
 };
 
-/* Device Tree manipulation */
+extern volatile char gBootFlag;
+#define BOOT_FLAG_DEFAULT 0
+#define BOOT_FLAG_HARD 1
+#define BOOT_FLAG_HOOK 2
+#define BOOT_FLAG_LINUX 3
+#define BOOT_FLAG_RAW 4
+
+typedef uint64_t lock;
+extern void lock_take(lock* lock); // takes a lock spinning initially but after being pre-empted once it will start yielding until it acquires it
+extern void lock_take_spin(lock* lock); // takes a lock spinning until it acquires it
+extern void lock_release(lock* lock); // releases ownership on a lock
 
 extern int dt_check(void* mem, uint32_t size, uint32_t* offp);
 extern int dt_parse(dt_node_t* node, int depth, uint32_t* offp, int (*cb_node)(void*, dt_node_t*), void* cbn_arg, int (*cb_prop)(void*, dt_node_t*, int, const char*, void*, uint32_t), void* cbp_arg);
 extern dt_node_t* dt_find(dt_node_t* node, const char* name);
 extern void* dt_prop(dt_node_t* node, const char* key, uint32_t* lenp);
+extern void* dt_get_prop(const char* device, const char* prop, uint32_t* size);
 extern struct memmap* dt_alloc_memmap(dt_node_t* node, const char* name);
-extern uint32_t dt_get_u32_prop(const char* device, const char* prop);
-extern uint64_t dt_get_u64_prop(const char* device, const char* prop);
-extern uint64_t dt_get_u64_prop_i(const char* device, const char* prop, uint32_t idx);
-
-/* Task management */
+extern void task_yield_asserted();
+extern void _task_yield();
+extern uint8_t * loader_xfer_recv_data;
+extern uint32_t loader_xfer_recv_count;
+extern uint32_t autoboot_count;
 
 #define TASK_CAN_CRASH 1
 #define TASK_LINKED 2
@@ -106,7 +121,6 @@ extern uint64_t dt_get_u64_prop_i(const char* device, const char* prop, uint32_t
 #define TASK_HAS_EXITED 32
 #define TASK_WAS_LINKED 64
 #define TASK_HAS_CRASHED 128
-
 struct event {
 	struct task* task_head;
 };
@@ -129,63 +143,13 @@ struct task {
     uint32_t pid;
     struct task* eq_next;
     uint64_t anchor[0];
-    uint64_t t_flags;
+    uint64_t t_flags; // task-specific flags, not used by task subsystem if not for internal tasks
     char name[32];
     uint32_t flags;
     struct task* next;
     struct task* prev;
     void (*crash_callback)();
 };
-
-extern void task_switch_irq(struct task* to_task);
-extern void task_exit_irq();
-extern void task_switch(struct task* to_task);
-extern void task_link(struct task* to_task);
-extern void task_unlink(struct task* to_task);
-extern void task_irq_dispatch(uint32_t intr);
-extern void task_yield_asserted();
-extern void task_register_unlinked(struct task* task, void (*entry)());
-extern void register_irq_handler(uint16_t irq_v, struct task* irq_handler);
-
-/* Core functions */
-
-struct pongo_exports {
-    const char* name;
-    void * value;
-};
-
-extern void panic(const char* string);
-extern void spin(uint32_t usec);
-extern uint64_t get_ticks();
-extern void usleep(uint32_t usec);
-extern void sleep(uint32_t sec);
-extern volatile uint8_t get_el(void);
-extern void cache_invalidate(void *address, size_t size);
-extern void cache_clean_and_invalidate(void *address, size_t size);
-extern void clock_gate(uint64_t addr, char val);
-extern void disable_preemption();
-extern void enable_preemption();
-extern void enable_interrupts();
-extern void disable_interrupts();
-
-
-/* Shell */
-
-extern void command_putc(char val);
-extern void command_puts(const char* val);
-extern void command_register(const char* name, const char* desc, void (*cb)(const char* cmd, char* args));
-extern char* command_tokenize(char* str, uint32_t strbufsz);
-extern void queue_rx_string(char* string);
-
-/* WDT */
-
-extern void wdt_reset();
-extern void wdt_enable();
-extern void wdt_disable();
-
-/* Global variables */
-
-extern void (*preboot_hook)();
 extern boot_args * gBootArgs;
 extern void* gEntryPoint;
 extern dt_node_t *gDeviceTree;
@@ -194,10 +158,156 @@ extern uint64_t gPMGRBase;
 extern char* gDevType;
 extern void* ramdisk_buf;
 extern uint32_t ramdisk_size;
-extern uint32_t autoboot_count;
-extern uint8_t * loader_xfer_recv_data;
-extern uint32_t loader_xfer_recv_count;
 
-/* Why is this there? Apple and AAPCS varargs ABIs are incompatible. This is temporary until that's worked around. */
-void printf32(const char* str, uint32_t x);
+typedef struct xnu_pf_range {
+    uint64_t va;
+    uint64_t size;
+    uint8_t* cacheable_base;
+    uint8_t* device_base;
+} xnu_pf_range_t;
 
+struct xnu_pf_patchset;
+
+typedef struct xnu_pf_patch {
+    bool (*pf_callback)(struct xnu_pf_patch* patch, void* cacheable_stream);
+    bool is_required;
+    bool has_fired;
+    bool should_match;
+    uint32_t pfjit_stolen_opcode;
+    uint32_t pfjit_max_emit_size;
+    uint32_t* (*pf_emit)(struct xnu_pf_patch* patch, struct xnu_pf_patchset *patchset,uint32_t* insn, uint32_t** insn_stream_end, uint8_t access_type);
+    void (*pf_match)(struct xnu_pf_patch* patch, uint8_t access_type, void* preread, void* cacheable_stream);
+    struct xnu_pf_patch* next_patch;
+    uint32_t* pfjit_entry;
+    uint32_t* pfjit_exit;
+    uint8_t pf_data[0];
+
+    //            patch->pf_match(XNU_PF_ACCESS_32BIT, reads, &stream[index], &dstream[index]);
+
+} xnu_pf_patch_t;
+
+typedef struct xnu_pf_patchset {
+    xnu_pf_patch_t* patch_head;
+    void* jit_matcher;
+    uint8_t accesstype;
+    uint64_t p0;
+} xnu_pf_patchset_t;
+
+#define XNU_PF_ACCESS_8BIT 0x8
+#define XNU_PF_ACCESS_16BIT 0x10
+#define XNU_PF_ACCESS_32BIT 0x20
+#define XNU_PF_ACCESS_64BIT 0x40
+#define TICKS_IN_1MS 24000
+extern uint64_t xnu_slide_value(struct mach_header_64* header);
+extern struct mach_header_64* xnu_header();
+extern xnu_pf_range_t* xnu_pf_range_from_va(uint64_t va, uint64_t size);
+extern xnu_pf_range_t* xnu_pf_segment(struct mach_header_64* header, char* segment_name);
+extern xnu_pf_range_t* xnu_pf_section(struct mach_header_64* header, void* segment, char* section_name);
+extern xnu_pf_range_t* xnu_pf_all(struct mach_header_64* header);
+extern xnu_pf_range_t* xnu_pf_all_x(struct mach_header_64* header);
+extern void xnu_pf_disable_patch(xnu_pf_patch_t* patch);
+extern void xnu_pf_enable_patch(xnu_pf_patch_t* patch);
+extern struct segment_command_64* macho_get_segment(struct mach_header_64* header, const char* segname);
+extern struct section_64 *macho_get_section(struct segment_command_64 *seg, const char *name);
+extern struct mach_header_64* xnu_pf_get_first_kext(struct mach_header_64* kheader);
+
+extern xnu_pf_patch_t* xnu_pf_ptr_to_data(xnu_pf_patchset_t* patchset, uint64_t slide, xnu_pf_range_t* range, void* data, size_t datasz, bool required, bool (*callback)(struct xnu_pf_patch* patch, void* cacheable_stream));
+extern xnu_pf_patch_t* xnu_pf_maskmatch(xnu_pf_patchset_t* patchset, uint64_t* matches, uint64_t* masks, uint32_t entryc, bool required, bool (*callback)(struct xnu_pf_patch* patch, void* cacheable_stream));
+extern void xnu_pf_emit(xnu_pf_patchset_t* patchset); // converts a patchset to JIT
+extern void xnu_pf_apply(xnu_pf_range_t* range, xnu_pf_patchset_t* patchset);
+extern xnu_pf_patchset_t* xnu_pf_patchset_create(uint8_t pf_accesstype);
+extern void xnu_pf_patchset_destroy(xnu_pf_patchset_t* patchset);
+extern void* xnu_va_to_ptr(uint64_t va);
+extern uint64_t xnu_ptr_to_va(void* ptr);
+extern struct mach_header_64* xnu_pf_get_kext_header(struct mach_header_64* kheader, const char* kext_bundle_id);
+extern void xnu_pf_apply_each_kext(struct mach_header_64* kheader, xnu_pf_patchset_t* patchset);
+
+#define kCacheableView 0x400000000ULL
+#define MAGIC_BASE 0x818000000ULL
+struct pongo_exports {
+    const char* name;
+    void * value;
+};
+#define EXPORT_SYMBOL(x) {.name = ""#x, .value = x}
+#define EXPORT_SYMBOL_P(x) {.name = ""#x, .value = (void*)&x}
+
+void pongo_entry(uint64_t* kernel_args, void* entryp, void (*exit_to_el1_image)(void* boot_args, void* boot_entry_point));
+int pongo_fiq_handler();
+extern void (*preboot_hook)();
+extern void (*rdload_hook)();
+extern void task_register_coop(struct task* task, void (*entry)()); // registers a cooperative task
+extern void task_register_preempt_irq(struct task* task, void (*entry)(), int irq_id); // registers an irq handler
+extern void task_register_irq(struct task* task, void (*entry)(), int irq_id); // registers an irq handler
+extern void task_register(struct task* task, void (*entry)()); // register a preempt task
+extern void task_yield();
+extern void task_wait();
+extern void task_exit();
+extern void event_wait_asserted(struct event* ev);
+extern void event_wait(struct event* ev);
+extern void event_fire(struct event* ev);
+extern void* alloc_static(uint32_t size); // memory returned by this will be added to the xnu static region, thus will persist after xnu boot
+
+extern struct event command_handler_iter;
+
+extern void* memmem(const void* big, unsigned long blength, const void* little, unsigned long llength);
+extern void* memstr(const void* big, unsigned long blength, const char* little);
+extern void* memstr_partial(const void* big, unsigned long blength, const char* little);
+
+extern uint64_t scheduler_ticks;
+extern void print_register(uint64_t value);
+void print_hex_number(uint64_t value);
+extern volatile void invalidate_icache();
+extern struct task* task_current();
+extern char preemption_should_skip_beat();
+extern void task_switch_irq(struct task* to_task);
+extern void task_exit_irq();
+extern void task_switch(struct task* to_task);
+extern void task_link(struct task* to_task);
+extern void task_unlink(struct task* to_task);
+extern void task_irq_dispatch(uint32_t intr);
+extern void task_yield_asserted();
+extern void task_register_unlinked(struct task* task, void (*entry)());
+extern void task_suspend_self();
+extern _Noreturn void panic(const char* string);
+extern void pmgr_reset();
+extern void spin(uint32_t usec);
+extern void task_set_sched_head(struct task* task);
+extern void enable_interrupts();
+extern void disable_interrupts();
+extern uint64_t get_ticks();
+extern void usleep(uint32_t usec);
+extern void sleep(uint32_t sec);
+extern uint32_t dt_get_u32_prop(const char* device, const char* prop);
+extern uint64_t dt_get_u64_prop(const char* device, const char* prop);
+extern uint64_t dt_get_u64_prop_i(const char* device, const char* prop, uint32_t idx);
+extern void unmask_interrupt(uint32_t reg);
+extern void mask_interrupt(uint32_t reg);
+extern _Noreturn void wdt_reset();
+extern void wdt_enable();
+extern void wdt_disable();
+extern bool linux_can_boot();
+extern void linux_prep_boot();
+extern void linux_boot();
+extern void command_in_char(char val);
+extern void command_putc(char val);
+extern void command_puts(const char* val);
+extern void command_print(const char* val);
+extern void command_register(const char* name, const char* desc, void (*cb)(const char* cmd, char* args));
+extern char* command_tokenize(char* str, uint32_t strbufsz);
+extern volatile uint8_t get_el(void);
+#define STDOUT_BUFLEN 512
+extern void fetch_stdoutbuf(char* to, int* len);
+extern uint64_t vatophys(uint64_t kvaddr);
+extern void cache_invalidate(void *address, size_t size);
+extern void cache_clean_and_invalidate(void *address, size_t size);
+extern void cache_clean(void *address, size_t size);
+extern void register_irq_handler(uint16_t irq_v, struct task* irq_handler);
+extern void clock_gate(uint64_t addr, char val);
+extern void disable_preemption();
+extern void enable_preemption();
+extern void* alloc_contig(uint32_t size);
+extern void task_suspend_self_asserted();
+extern void command_execute(char* cmd);
+extern void queue_rx_string(char* string);
+extern void command_unregister(const char* name);
+#endif

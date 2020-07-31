@@ -1,5 +1,5 @@
 CC=clang
-CFLAGS=-g -framework CoreFoundation -framework IOKit
+CFLAGS=-g -framework CoreFoundation
 LDFLAGS=-lusb-1.0
 
 TARGET=loader
@@ -7,4 +7,4 @@ TARGET=loader
 SOURCES=loader.c
 
 $(TARGET) : $(SOURCES)
-	$(CC) $(CFLAGS) $(LDFLAGS) $(SOURCES) -o loader
+	$(CC) $(CFLAGS) $(LDFLAGS) $(SOURCES) -o $(TARGET)
