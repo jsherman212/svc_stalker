@@ -14,23 +14,23 @@ _main:
     add x29, sp, STACK-0x10
 
     ; XXX do not move this adr
-    adr x9, CACHE_START
-    str x9, [sp, CACHE_START]
-    ldr x10, [x9, EXCEPTION_TRIAGE_CACHEOFF]
-    str x10, [sp, EXCEPTION_TRIAGE_FPTR]
+    adr x19, CACHE_START
+    str x19, [sp, OFFSET_CACHE_PTR]
+    ldr x20, [x19, EXCEPTION_TRIAGE_CACHEOFF]
+    str x20, [sp, EXCEPTION_TRIAGE_FPTR]
+
+    ; TODO re-implement the sanity checks we overwrote
 
 
     ; XXX for testing
-    ldr x9, [sp, CACHE_START]
-    ldr x9, [x9, EXCEPTION_TRIAGE_CACHEOFF]
-    ldr x10, [sp, EXCEPTION_TRIAGE_FPTR]
-    ;ldr x9, [x9]
-    ;ldr x9, [x9]
+    ;ldr x9, [sp, OFFSET_CACHE_PTR]
+    ;ldr x9, [x9, EXCEPTION_TRIAGE_CACHEOFF]
+    ;ldr x10, [sp, EXCEPTION_TRIAGE_FPTR]
 
 
 
 
-    brk 0
+    ;brk 0
 
 
     ldp x29, x30, [sp, STACK-0x10]
