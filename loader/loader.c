@@ -109,8 +109,6 @@ int main(int argc, char **argv, const char **envp){
     }
 
     char *module_path = argv[1];
-    /* printf("module path '%s'\n", module_path); */
-
     struct stat st = {0};
     
     if(stat(module_path, &st)){

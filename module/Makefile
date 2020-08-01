@@ -6,5 +6,6 @@ TARGET=svc_stalker
 
 SOURCES=svc_stalker.c
 
-$(TARGET) : $(SOURCES)
+$(TARGET) : $(SOURCES) handle_svc_hook.s
+	./hookgen.pl
 	$(CC) $(CFLAGS) $(SOURCES) -o $(TARGET)
