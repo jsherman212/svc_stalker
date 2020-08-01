@@ -14,11 +14,11 @@ printf(HEADER "#define DO_HANDLE_SVC_PATCHES \\\n");
 
 my $curlabel;
 # space used for caching offsets will also be counted as instructions
-#my $cache_space = 0x48;
-#my $instr_count = $cache_space / 4;
+my $cache_space = 0x8;
+my $instr_count = $cache_space / 4;
 
 # testing, iphone 8 13.6
-my $curkaddr = 0xFFFFFFF0156B7230;# + $cache_space;
+my $curkaddr = 0xFFFFFFF0156B7230 + $cache_space;
 
 while(my $line = <DISFILE>){
     chomp($line);
