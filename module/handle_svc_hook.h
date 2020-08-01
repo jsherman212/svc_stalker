@@ -15,6 +15,7 @@
 #define OFFSET_CACHE_PTR            (STACK-0x70)
 #define EXCEPTION_TRIAGE_FPTR       (STACK-0x78)
 #define SAVED_STATE_PTR             (STACK-0x80)
+#define EXC_CODES                   (STACK-0x90)    /* array of 2 uint64_t */
 
 /* exception stuff */
 #define EXC_SYSCALL                 (7)

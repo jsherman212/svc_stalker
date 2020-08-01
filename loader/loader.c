@@ -173,6 +173,8 @@ int main(int argc, char **argv, const char **envp){
         libusb_exit(NULL);
         return 1;
     }
+
+    sleep(1);
     
     err = pongo_send_command(pongo_device, "bootx\n");
 
