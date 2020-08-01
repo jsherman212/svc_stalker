@@ -3,6 +3,9 @@
 
 #include "handle_svc_hook.h"
 
+; this iterates through the PIDs the user has registered through doing
+; syscall(0, pid, enabled) and calls exception_triage if current_proc()->p_pid
+; is found in that list
 _main:
     sub sp, sp, STACK
     stp x27, x28, [sp, STACK-0x60]
@@ -20,6 +23,9 @@ _main:
     str x19, [sp, OFFSET_CACHE_PTR]
     ldr x20, [x19, EXCEPTION_TRIAGE_CACHEOFF]
     str x20, [sp, EXCEPTION_TRIAGE_FPTR]
+
+    ; XXX
+    b done
 
     ; TODO re-implement the sanity checks we overwrote
 
@@ -52,6 +58,7 @@ _main:
     ldr x8, [sp, EXCEPTION_TRIAGE_FPTR]
     blr x8
 
+    mov x0, 0x4141
     brk 0
 
 done:

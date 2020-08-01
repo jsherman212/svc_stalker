@@ -36,6 +36,9 @@ static void *exc_thread_func(void *arg){
 }
 
 int main(void){
+    /* int err = syscall(0); */
+    /* printf("err %d\n"); */
+    /* return 0; */
     mach_port_t exc_port;
     mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &exc_port);
     mach_port_insert_right(mach_task_self(), exc_port, exc_port, MACH_MSG_TYPE_MAKE_SEND);
@@ -48,7 +51,8 @@ int main(void){
     pthread_create(&exc_thread, NULL, exc_thread_func, (void *)exc_port);
     sleep(1);
 
-    asm volatile("brk 0");
+
+    /* asm volatile("brk 0"); */
 
     //sleep(1);
     write(1, "Calling write in C\n", strlen("Calling write in C\n"));

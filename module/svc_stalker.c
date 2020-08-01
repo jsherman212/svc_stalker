@@ -135,11 +135,63 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
     uint64_t branch_from = (uint64_t)opcode_stream;
 
+    /* find current_proc, it will be extremely close to the second
+     * MRS Xn, TPIDR_EL1 we find from this point on,
+     * and the first branch after it as well
+     */
+    uint32_t instr_limit = 1000;
+    uint32_t num_mrs_xn_tpidr_el1 = 0;
+
+    for(;;){
+        if(instr_limit-- == 0){
+            printf("svc_stalker: sleh_synchronous_patcher: couldn't find"
+                    " two MRS Xn, TPIDR_EL1 instrs");
+            return false;
+        }
+
+        if((*opcode_stream & 0xffffffe0) == 0xd538d080){
+            num_mrs_xn_tpidr_el1++;
+
+            if(num_mrs_xn_tpidr_el1 == 2)
+                break;
+        }
+
+        opcode_stream++;
+    }
+
+    /* the first BL from this point on should be branching to current_proc */
+    instr_limit = 10;
+
+    while((*opcode_stream & 0xfc000000) != 0x94000000){
+        if(instr_limit-- == 0){
+            printf("svc_stalker: sleh_synchronous_patcher: couldn't find"
+                    " current_proc");
+            return false;
+        }
+
+        opcode_stream++;
+    }
+
+    /* print_register(*opcode_stream); */
+
+    int32_t imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28);
+    uint64_t current_proc_addr = imm26 + va_for_ptr(opcode_stream);
+
+    puts("svc_stalker: sleh_synchronous_patcher: found current_proc");
+    /* print_register(va_for_ptr(mh_execute_header)); */
+    /* print_register(kernel_slide); */
+    /* print_register(current_proc_addr - kernel_slide); */
+
+    /* for(int i=0; i<10; i++){ */
+    /*     uint32_t *p = (uint32_t *)ptr_for_va(current_proc_addr); */
+    /*     print_register(p[i]); */
+    /* } */
+
     /* now we need to find exception_triage. We can do this by going forward
      * until we hit a BRK, as it's right after the call to exception_triage
      * and it's the only BRK in sleh_synchronous.
      */
-    uint32_t instr_limit = 1000;
+    instr_limit = 1000;
 
     while((*opcode_stream & 0xffe0001f) != 0xd4200000){
         if(instr_limit-- == 0){
@@ -152,10 +204,15 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
     opcode_stream--;
 
-    int32_t imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28);
+    imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28);
     uint64_t exception_triage_addr = imm26 + va_for_ptr(opcode_stream);
 
     puts("svc_stalker: sleh_synchronous_patcher: found exception_triage");
+    /* print_register(exception_triage_addr - kernel_slide); */
+    /* for(int i=0; i<10; i++){ */
+    /*     uint32_t *p = (uint32_t *)ptr_for_va(exception_triage_addr); */
+    /*     print_register(p[i]); */
+    /* } */
     
     /* we're gonna put our handle_svc hook inside of the empty space right
      * before the end of __TEXT_EXEC that forces it to be page aligned
@@ -204,9 +261,14 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     DO_HANDLE_SVC_PATCHES;
 
     /* write the branch to our handle_svc hook */
-    write_blr(8, branch_from, last_TEXT_EXEC_sect_end + cache_size);
+    // XXX commenting out for testing
+    /* write_blr(8, branch_from, last_TEXT_EXEC_sect_end + cache_size); */
     /* there's an extra B.NE after the five instrs we overwrote, so NOP it out */
-    *(uint32_t *)(branch_from + (4*5)) = 0xd503201f;
+    /* *(uint32_t *)(branch_from + (4*5)) = 0xd503201f; */
+
+    /* uint64_t addr = ptr_for_sa(0xFFFFFFF008023218); */
+    /* *(uint32_t*)addr = 0xd4200000; */
+
 
     return true;
 }
