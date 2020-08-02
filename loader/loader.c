@@ -126,6 +126,7 @@ int main(int argc, char **argv, const char **envp){
     }
 
     size_t module_size = st.st_size;
+    printf("module size %#lx\n", module_size);
     void *module_data = mmap(NULL, module_size, PROT_READ, MAP_PRIVATE,
             module_fd, 0);
 
@@ -174,15 +175,15 @@ int main(int argc, char **argv, const char **envp){
         return 1;
     }
 
-    sleep(1);
+    /* sleep(1); */
     
-    err = pongo_send_command(pongo_device, "bootx\n");
+    /* err = pongo_send_command(pongo_device, "bootx\n"); */
 
-    if(err < 0){
-        printf("pongo_send_command: %s\n", libusb_error_name(err));
-        libusb_exit(NULL);
-        return 1;
-    }
+    /* if(err < 0){ */
+    /*     printf("pongo_send_command: %s\n", libusb_error_name(err)); */
+    /*     libusb_exit(NULL); */
+    /*     return 1; */
+    /* } */
 
     libusb_exit(NULL);
 

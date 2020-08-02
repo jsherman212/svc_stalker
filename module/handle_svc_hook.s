@@ -23,9 +23,22 @@ _main:
     str x19, [sp, OFFSET_CACHE_PTR]
     ldr x20, [x19, EXCEPTION_TRIAGE_CACHEOFF]
     str x20, [sp, EXCEPTION_TRIAGE_FPTR]
-
+    ldr x20, [x19, CURRENT_PROC_CACHEOFF]
+    str x20, [sp, CURRENT_PROC_FPTR]
+    ldr x20, [x19, PROC_PID_CACHEOFF]
+    str x20, [sp, PROC_PID_FPTR]
+    ldr x20, [x19, FILTER_MEM_CACHEOFF]
+    str x20, [sp, FILTER_MEM_PTR]
     ;mov x0, 0x4141
-    ;mov x1, 0x4242
+    ;ldr x1, [sp, FILTER_MEM_PTR]
+    ;str x0, [x1]
+    ;brk 0
+
+    ;ldr x0, [sp, EXCEPTION_TRIAGE_FPTR]
+    ;ldr x1, [sp, CURRENT_PROC_FPTR]
+    ;ldr x2, [sp, PROC_PID_FPTR]
+    ;ldr x3, [sp, FILTER_MEM_PTR]
+
     ;brk 0
 
     ; XXX
@@ -52,18 +65,18 @@ _main:
     ; TODO how to know if the device is done booting?
 
     ; call exception_triage
-    mov x0, EXC_SYSCALL                     ; exception
-    ldr x1, [sp, SAVED_STATE_PTR]
-    ldr x1, [x1, 0x88]                      ; X16, system call number
-    str x1, [sp, EXC_CODES]
-    str xzr, [sp, EXC_CODES+8]
-    add x1, sp, EXC_CODES                   ; code
-    mov w2, 2                               ; codeCnt
-    ldr x8, [sp, EXCEPTION_TRIAGE_FPTR]
-    blr x8
+    ;mov x0, EXC_SYSCALL                     ; exception
+    ;ldr x1, [sp, SAVED_STATE_PTR]
+    ;ldr x1, [x1, 0x88]                      ; X16, system call number
+    ;str x1, [sp, EXC_CODES]
+    ;str xzr, [sp, EXC_CODES+8]
+    ;add x1, sp, EXC_CODES                   ; code
+    ;mov w2, 2                               ; codeCnt
+    ;ldr x8, [sp, EXCEPTION_TRIAGE_FPTR]
+    ;blr x8
 
-    mov x0, 0x4141
-    brk 0
+    ;mov x0, 0x4141
+    ;brk 0
 
 done:
     ldp x29, x30, [sp, STACK-0x10]
