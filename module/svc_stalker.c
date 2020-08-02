@@ -20,14 +20,6 @@ static uint64_t sign_extend(uint64_t number, uint32_t numbits){
 static struct mach_header_64 *mh_execute_header;
 static uint64_t kernel_slide;
 
-/* thanks @bazad */
-#define sa_for_va(va)   ((uint64_t)(va) - kernel_slide)
-#define va_for_sa(sa)   ((uint64_t)(sa) + kernel_slide)
-#define ptr_for_sa(sa)  ((void *)(((sa) - 0xFFFFFFF007004000uLL) + (uint8_t *)mh_execute_header))
-#define ptr_for_va(va)  (ptr_for_sa(sa_for_va(va)))
-#define sa_for_ptr(ptr) ((uint64_t)((uint8_t *)(ptr) - (uint8_t *)mh_execute_header) + 0xFFFFFFF007004000uLL)
-#define va_for_ptr(ptr) (va_for_sa(sa_for_ptr(ptr)))
-#define pa_for_ptr(ptr) (sa_for_ptr(ptr) - gBootArgs->virtBase + gBootArgs->physBase)
 
 static void stalker_fatal(void){
     /* puts("failed: spinning forever"); */
@@ -51,6 +43,61 @@ static void write_blr(uint32_t reg, uint64_t from, uint64_t to){
 }
 
 #define IS_B_NE(opcode) ((opcode & 0xff000001) == 0x54000001)
+
+static uint64_t g_proc_pid_addr = 0;
+
+static bool proc_pid_finder(xnu_pf_patch_t *patch,
+        void *cacheable_stream){
+    uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
+
+    /* adrp/add pair will be 2 instrs after */
+    uint32_t adrp = opcode_stream[2];
+    uint32_t add = opcode_stream[3];
+    
+    uint32_t immlo = bits(adrp, 29, 30);
+    uint32_t immhi = bits(adrp, 5, 23);
+
+    uint64_t imm = sign_extend(((immhi << 2) | immlo) << 12, 32) +
+        (xnu_ptr_to_va(opcode_stream + 2) & ~0xfffuLL) +
+        bits(add, 10, 21);
+
+    char *string = xnu_va_to_ptr(imm);
+
+    /* there's three of these in the function we're targetting, but all
+     * use proc_pid's return value as the first and only format string
+     * argument, so any one of the three works
+     */
+    const char *match = "AMFI: hook..execve() killing pid %u:";
+    size_t matchlen = strlen(match);
+
+    if(!memmem(string, strlen(string), match, matchlen))
+        return false;
+
+    /* at this point, we've hit one of those three strings, so the branch
+     * to proc_pid should be at most five instructions above where we are
+     * currently
+     */
+    uint32_t instr_limit = 5;
+
+    while((*opcode_stream & 0xfc000000) != 0x94000000){
+        if(instr_limit-- == 0){
+            puts("svc_stalker: proc_pid_finder: couldn't find proc_pid");
+            return false;
+        }
+
+        opcode_stream--;
+    }
+
+    int32_t imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28);
+    g_proc_pid_addr = imm26 + xnu_ptr_to_va(opcode_stream);
+
+    puts("svc_stalker: found proc_pid");
+    /* print_register(g_proc_pid_addr); */
+
+    xnu_pf_disable_patch(patch);
+
+    return true;
+}
 
 static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         void *cacheable_stream){
@@ -144,7 +191,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
     for(;;){
         if(instr_limit-- == 0){
-            printf("svc_stalker: sleh_synchronous_patcher: couldn't find"
+            puts("svc_stalker: sleh_synchronous_patcher: couldn't find"
                     " two MRS Xn, TPIDR_EL1 instrs");
             return false;
         }
@@ -164,7 +211,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
     while((*opcode_stream & 0xfc000000) != 0x94000000){
         if(instr_limit-- == 0){
-            printf("svc_stalker: sleh_synchronous_patcher: couldn't find"
+            puts("svc_stalker: sleh_synchronous_patcher: couldn't find"
                     " current_proc");
             return false;
         }
@@ -175,15 +222,16 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     /* print_register(*opcode_stream); */
 
     int32_t imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28);
-    uint64_t current_proc_addr = imm26 + va_for_ptr(opcode_stream);
+    uint64_t current_proc_addr = imm26 + xnu_ptr_to_va(opcode_stream);
 
-    puts("svc_stalker: sleh_synchronous_patcher: found current_proc");
-    /* print_register(va_for_ptr(mh_execute_header)); */
+    puts("svc_stalker: found current_proc");
+    /* print_register(current_proc_addr); */
+    /* print_register(xnu_ptr_to_va(mh_execute_header)); */
     /* print_register(kernel_slide); */
     /* print_register(current_proc_addr - kernel_slide); */
 
     /* for(int i=0; i<10; i++){ */
-    /*     uint32_t *p = (uint32_t *)ptr_for_va(current_proc_addr); */
+    /*     uint32_t *p = (uint32_t *)xnu_va_to_ptr(current_proc_addr); */
     /*     print_register(p[i]); */
     /* } */
 
@@ -205,12 +253,13 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     opcode_stream--;
 
     imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28);
-    uint64_t exception_triage_addr = imm26 + va_for_ptr(opcode_stream);
+    uint64_t exception_triage_addr = imm26 + xnu_ptr_to_va(opcode_stream);
 
-    puts("svc_stalker: sleh_synchronous_patcher: found exception_triage");
+    puts("svc_stalker: found exception_triage");
+    /* print_register(exception_triage_addr); */
     /* print_register(exception_triage_addr - kernel_slide); */
     /* for(int i=0; i<10; i++){ */
-    /*     uint32_t *p = (uint32_t *)ptr_for_va(exception_triage_addr); */
+    /*     uint32_t *p = (uint32_t *)xnu_va_to_ptr(exception_triage_addr); */
     /*     print_register(p[i]); */
     /* } */
     
@@ -229,7 +278,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     uint64_t __TEXT_EXEC_end = __TEXT_EXEC->vmaddr + __TEXT_EXEC->vmsize;
     uint64_t num_free_instrs = (__TEXT_EXEC_end - last_TEXT_EXEC_sect_end) / sizeof(uint32_t);
 
-    uint32_t *scratch_space = ptr_for_va(last_TEXT_EXEC_sect_end);
+    uint32_t *scratch_space = xnu_va_to_ptr(last_TEXT_EXEC_sect_end);
 
     uint64_t cache_size = 0;
 
@@ -262,9 +311,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
     /* write the branch to our handle_svc hook */
     // XXX commenting out for testing
-    /* write_blr(8, branch_from, last_TEXT_EXEC_sect_end + cache_size); */
+    write_blr(8, branch_from, last_TEXT_EXEC_sect_end + cache_size);
     /* there's an extra B.NE after the five instrs we overwrote, so NOP it out */
-    /* *(uint32_t *)(branch_from + (4*5)) = 0xd503201f; */
+    *(uint32_t *)(branch_from + (4*5)) = 0xd503201f;
 
     /* uint64_t addr = ptr_for_sa(0xFFFFFFF008023218); */
     /* *(uint32_t*)addr = 0xd4200000; */
@@ -276,13 +325,40 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 static void stalker_apply_patches(const char *cmd, char *args){
     puts("inside stalker_apply_patches");
 
+    uint64_t proc_pid_patcher_match[] = {
+        0x94000000,     /* BL n (_proc_pid) */
+        0xf90003e0,     /* STR X0, [SP] (store _proc_pid return value) */
+        0x90000000,     /* ADRP X0, n (X0 = format string which uses return value) */
+        0x91000000,     /* ADD X0, X0, n */
+    };
+
+    const size_t num_proc_pid_matches = sizeof(proc_pid_patcher_match) /
+        sizeof(*proc_pid_patcher_match);
+
+    uint64_t proc_pid_patcher_masks[] = {
+        0xfc000000,     /* ignore BL immediate */
+        0xffffffff,
+        0x9f00001f,
+        0xffc003ff,
+    };
+
+    xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
+    xnu_pf_maskmatch(patchset, proc_pid_patcher_match, proc_pid_patcher_masks,
+            num_proc_pid_matches, false, // XXX for testing,
+            proc_pid_finder);
+
+    struct mach_header_64 *AMFI = xnu_pf_get_kext_header(mh_execute_header,
+            "com.apple.driver.AppleMobileFileIntegrity");
+    xnu_pf_range_t *AMFI___TEXT_EXEC = xnu_pf_segment(AMFI, "__TEXT_EXEC");
+    xnu_pf_apply(AMFI___TEXT_EXEC, patchset);
+    
     uint64_t sleh_synchronous_patcher_match[] = {
         0xb9408a60,     /* LDR Wn, [X19, #0x88] (trap_no = state->__x[16] */
         0xd538d080,     /* MRS Xn, TPIDR_EL1    (Xn = current_thread()) */
         0x12800000,     /* MOV Wn, 0xFFFFFFFF   (Wn = THROTTLE_LEVEL_NONE) */
     };
 
-    const size_t num_matches = sizeof(sleh_synchronous_patcher_match) / 
+    const size_t num_ss_matches = sizeof(sleh_synchronous_patcher_match) / 
         sizeof(*sleh_synchronous_patcher_match);
 
     uint64_t sleh_synchronous_patcher_masks[] = {
@@ -291,16 +367,15 @@ static void stalker_apply_patches(const char *cmd, char *args){
         0xffffffe0,     /* ignore Wn in MOV */
     };
 
-    xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
-    /* xnu_pf_maskmatch(patchset, sleh_synchronous_patcher_match, */
-    /*         sleh_synchronous_patcher_masks, num_matches, true, sleh_synchronous_patcher); */
     // XXX so failures aren't fatal while testing
     xnu_pf_maskmatch(patchset, sleh_synchronous_patcher_match,
-            sleh_synchronous_patcher_masks, num_matches, false, sleh_synchronous_patcher);
-    xnu_pf_emit(patchset);
-    xnu_pf_apply(xnu_pf_segment(mh_execute_header, "__TEXT_EXEC"), patchset);
-    xnu_pf_patchset_destroy(patchset);
+            sleh_synchronous_patcher_masks, num_ss_matches, false, // XXX for testing
+            sleh_synchronous_patcher);
 
+    xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
+    xnu_pf_apply(__TEXT_EXEC, patchset);
+    xnu_pf_emit(patchset);
+    xnu_pf_patchset_destroy(patchset);
 
     puts("------DONE------");
 }

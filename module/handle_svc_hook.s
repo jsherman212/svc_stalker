@@ -24,6 +24,10 @@ _main:
     ldr x20, [x19, EXCEPTION_TRIAGE_CACHEOFF]
     str x20, [sp, EXCEPTION_TRIAGE_FPTR]
 
+    ;mov x0, 0x4141
+    ;mov x1, 0x4242
+    ;brk 0
+
     ; XXX
     b done
 
