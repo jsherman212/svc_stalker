@@ -65,15 +65,15 @@ _main:
     ; TODO how to know if the device is done booting?
 
     ; call exception_triage
-    ;mov x0, EXC_SYSCALL                     ; exception
-    ;ldr x1, [sp, SAVED_STATE_PTR]
-    ;ldr x1, [x1, 0x88]                      ; X16, system call number
-    ;str x1, [sp, EXC_CODES]
-    ;str xzr, [sp, EXC_CODES+8]
-    ;add x1, sp, EXC_CODES                   ; code
-    ;mov w2, 2                               ; codeCnt
-    ;ldr x8, [sp, EXCEPTION_TRIAGE_FPTR]
-    ;blr x8
+    mov x0, EXC_SYSCALL                     ; exception
+    ldr x1, [sp, SAVED_STATE_PTR]
+    ldr x1, [x1, 0x88]                      ; X16, system call number
+    str x1, [sp, EXC_CODES]
+    str xzr, [sp, EXC_CODES+8]
+    add x1, sp, EXC_CODES                   ; code
+    mov w2, 2                               ; codeCnt
+    ldr x19, [sp, EXCEPTION_TRIAGE_FPTR]
+    blr x19
 
     ;mov x0, 0x4141
     ;brk 0

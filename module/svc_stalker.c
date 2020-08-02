@@ -55,6 +55,7 @@ static uint64_t get_adrp_add_va_target(uint32_t *adrpp){
 #define IS_B_NE(opcode) ((opcode & 0xff000001) == 0x54000001)
 
 static uint64_t g_proc_pid_addr = 0;
+static uint64_t g_sysent_addr = 0;
 
 static bool proc_pid_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
@@ -109,14 +110,61 @@ static bool proc_pid_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
+static bool sysent_finder(xnu_pf_patch_t *patch,
+        void *cacheable_stream){
+    uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
+
+    /* if we're in the right place, sysent will be the first ADRP/ADD
+     * pair we find when we go forward
+     */
+    uint32_t instr_limit = 10;
+
+    while((*opcode_stream & 0x9f000000) != 0x90000000){
+        if(instr_limit-- == 0){
+            puts("svc_stalker: couldn't find sysent");
+            return false;
+        }
+
+        opcode_stream++;
+    }
+
+    /* make sure this is actually sysent. to do this, we can check if
+     * the first entry is the indirect system call
+     */
+    uint64_t addr_va = get_adrp_add_va_target(opcode_stream);
+    uint64_t maybe_sysent = (uint64_t)xnu_va_to_ptr(addr_va);
+
+    if(*(uint64_t *)maybe_sysent != 0 &&
+            *(uint64_t *)(maybe_sysent + 0x8) == 0 &&
+            *(uint32_t *)(maybe_sysent + 0x10) == 1 &&
+            *(uint16_t *)(maybe_sysent + 0x14) == 0 &&
+            *(uint16_t *)(maybe_sysent + 0x16) == 0){
+        puts("svc_stalker: found sysent");
+
+        xnu_pf_disable_patch(patch);
+        g_sysent_addr = addr_va;
+        /* print_register(g_sysent_addr); */
+        return true;
+    }
+
+    return false;
+}
+
 static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         void *cacheable_stream){
-    if(g_proc_pid_addr == 0){
-        puts("svc_stalker: proc_pid is supposed to be found before we "
-                " patch sleh_synchronous");
-        puts("spinning forever");
-        for(;;);
+    if(g_proc_pid_addr == 0 ||
+            g_sysent_addr == 0){
+        puts("svc_stalker: missing offsets before we patch sleh_synchronous:");
+        
+        if(g_proc_pid_addr == 0)
+            puts("     proc_pid");
+
+        if(g_sysent_addr == 0)
+            puts("     sysent");
+
+        return false;
     }
+
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
 
     /* so far, we've matched these successfully:
@@ -333,7 +381,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 }
 
 static void stalker_apply_patches(const char *cmd, char *args){
-    puts("inside stalker_apply_patches");
+    /* puts("inside stalker_apply_patches"); */
 
     uint64_t proc_pid_finder_match[] = {
         0x94000000,     /* BL n (_proc_pid) */
@@ -364,6 +412,33 @@ static void stalker_apply_patches(const char *cmd, char *args){
     xnu_pf_emit(pp_patchset);
     xnu_pf_patchset_destroy(pp_patchset);
 
+    uint64_t sysent_finder_match[] = {
+        0x1a803000,     /* CSEL Wn, Wn, Wn, CC */
+        0x12003c00,     /* AND Wn, Wn, 0xffff */
+        0x90000000,     /* ADRP Xn, n */
+        0x91000000,     /* ADD Xn, Xn, n */
+    };
+
+    const size_t num_sysent_matches = sizeof(sysent_finder_match) /
+        sizeof(*sysent_finder_match);
+
+    uint64_t sysent_finder_masks[] = {
+        0xffe0fc00,     /* ignore all but condition code */
+        0xfffffc00,     /* ignore all but immediate */
+        0x9f000000,     /* ignore everything */
+        0xffc00000,     /* ignore everything */
+    };
+
+    xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
+
+    xnu_pf_patchset_t *sysent_patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
+    xnu_pf_maskmatch(sysent_patchset, sysent_finder_match, sysent_finder_masks,
+            num_sysent_matches, false, // XXX for testing,
+            sysent_finder);
+    xnu_pf_apply(__TEXT_EXEC, sysent_patchset);
+    xnu_pf_emit(sysent_patchset);
+    xnu_pf_patchset_destroy(sysent_patchset);
+
     uint64_t sleh_synchronous_patcher_match[] = {
         0xb9408a60,     /* LDR Wn, [X19, #0x88] (trap_no = state->__x[16] */
         0xd538d080,     /* MRS Xn, TPIDR_EL1    (Xn = current_thread()) */
@@ -378,8 +453,6 @@ static void stalker_apply_patches(const char *cmd, char *args){
         0xffffffe0,     /* ignore Xn in MRS */
         0xffffffe0,     /* ignore Wn in MOV */
     };
-
-    xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
 
     xnu_pf_patchset_t *ss_patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
     xnu_pf_maskmatch(ss_patchset, sleh_synchronous_patcher_match,

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 kern_return_t catch_mach_exception_raise_state(mach_port_t exception_port, exception_type_t exception, exception_data_t code, mach_msg_type_number_t code_count, int *flavor, thread_state_t in_state, mach_msg_type_number_t in_state_count, thread_state_t out_state, mach_msg_type_number_t *out_state_count){return KERN_FAILURE;}
@@ -51,6 +52,17 @@ int main(void){
     pthread_create(&exc_thread, NULL, exc_thread_func, (void *)exc_port);
     sleep(1);
 
+    uint64_t var0 = 0;
+    uint64_t var1 = 0;
+
+    printf("%#llx\n", syscall(531, &var0, &var1));
+    printf("%#llx %#llx\n", var0, var1);
+
+    /* syscall(-10, 0); */
+
+
+    asm volatile("mov x16, -10");
+    asm volatile("svc 0x80");
 
     /* asm volatile("brk 0"); */
 
