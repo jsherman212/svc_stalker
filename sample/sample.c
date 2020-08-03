@@ -60,7 +60,7 @@ int main(void){
     /* printf("%#llx %#llx\n", var0, var1); */
 
     errno = 0;
-    int patched_ret = syscall(8, -2, 0x66668888);
+    int patched_ret = syscall(8, 1, 0x66668888);
     /* int patched_ret = syscall(11, 0x55557777, 0x66668888); */
     printf("patched_ret %d errno %d\n", patched_ret, errno);
 

@@ -22,17 +22,25 @@ _main:
     mov x20, x1
     mov x21, x2
 
+    adr x22, CACHE_START
+    str x22, [sp, OFFSET_CACHE_PTR]
+    ldr x23, [x22, PID_TABLE_CACHEOFF]
+    str x23, [sp, PID_TABLE_PTR]
+
     ldr w22, [x20]
     cmp w22, 0
     b.lt maybebadpid
 
-    ldr w22, [x20]
-    ldr w23, [x20, 8]
+    ldr x22, [sp, PID_TABLE_PTR]
+    ldr w22, [x22]
+    brk 0
 
-    mov w24, 0
-    str w24, [x21]
+    ;ldr w22, [x20]
+    ;ldr w23, [x20, 8]
 
     mov w0, 0
+    str w0, [x21]
+    ;mov w0, 0
 
     b done
 

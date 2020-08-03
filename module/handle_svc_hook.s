@@ -6,6 +6,8 @@
 ; this iterates through the PIDs the user has registered through doing
 ; syscall(n, pid, enabled) and calls exception_triage if current_proc()->p_pid
 ; is found in that list
+;
+; exception_triage will never be called for the patched system call
 _main:
     sub sp, sp, STACK
     stp x28, x27, [sp, STACK-0x60]
