@@ -53,14 +53,15 @@ int main(void){
     pthread_create(&exc_thread, NULL, exc_thread_func, (void *)exc_port);
     sleep(1);
 
-    uint64_t var0 = 0;
-    uint64_t var1 = 0;
+    /* uint64_t var0 = 0; */
+    /* uint64_t var1 = 0; */
 
-    printf("%#llx\n", syscall(531, &var0, &var1));
-    printf("%#llx %#llx\n", var0, var1);
+    /* printf("%#llx\n", syscall(531, &var0, &var1)); */
+    /* printf("%#llx %#llx\n", var0, var1); */
 
     errno = 0;
-    int patched_ret = syscall(8, 0x55557777, 0x66668888);
+    int patched_ret = syscall(8, -2, 0x66668888);
+    /* int patched_ret = syscall(11, 0x55557777, 0x66668888); */
     printf("patched_ret %d errno %d\n", patched_ret, errno);
 
     /* printf("%#lx\n", syscall(8, 0x55557777, 0x66668888)); */

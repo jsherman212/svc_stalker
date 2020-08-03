@@ -165,7 +165,8 @@ int main(int argc, char **argv, const char **envp){
     
     munmap(module_data, module_size);
 
-    sleep(1);
+    /* sleep(1); */
+    usleep(200 * 1000);
 
     err = pongo_send_command(pongo_device, "stalker-patch\n");
 
@@ -175,12 +176,12 @@ int main(int argc, char **argv, const char **envp){
         return 1;
     }
 
-    printf("Hit enter to boot XNU\n");
-    getchar();
+    /* printf("Hit enter to boot XNU\n"); */
+    /* getchar(); */
 
-    /* sleep(1); */
-    
-    err = pongo_send_command(pongo_device, "xargs -v\n");
+    // XXX this may cause problems!!
+    usleep(200 * 1000);
+
     err = pongo_send_command(pongo_device, "bootx\n");
 
     if(err < 0){

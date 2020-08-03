@@ -8,7 +8,7 @@
 ; is found in that list
 _main:
     sub sp, sp, STACK
-    stp x27, x28, [sp, STACK-0x60]
+    stp x28, x27, [sp, STACK-0x60]
     stp x26, x25, [sp, STACK-0x50]
     stp x24, x23, [sp, STACK-0x40]
     stp x22, x21, [sp, STACK-0x30]

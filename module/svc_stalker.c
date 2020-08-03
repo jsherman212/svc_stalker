@@ -363,10 +363,6 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
      */
     uint32_t *pid_table = (uint32_t *)alloc_static(sizeof(uint32_t) * pid_table_maxelems);
 
-    // XXX don't write to this
-    /* for(int i=1; i<pid_table_maxelems; i++) */
-    /*     pid_table[i] = -1; */
-
     /* stash these pointers so we have them after xnu boot */
     // XXX XXX XXX add kernel_slide?
     WRITE_QWORD(exception_triage_addr);
@@ -379,8 +375,6 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
      * right after the end of the handle_svc hook.
      */
     DO_HANDLE_SVC_HOOK_PATCHES;
-
-    /* return true; */
 
     /* now we need to find the first enosys entry in sysent to patch
      * our syscall in.
@@ -424,28 +418,29 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
             sysent_to_patch = sysent_stream;
             patched_syscall_num = i;
 
-            // XXX XXX patch the sysent entry
-            // DON'T FORGET ABOUT IF THE POINTER NEEDS TO BE TAGGED
-            // and also DO_SVC_STALKER_CTL_PATCHES
+            /* print_register(*(uint64_t *)sysent_stream); */
+            /* print_register(*(uint64_t *)(sysent_stream + 8)); */
+            /* print_register(*(uint64_t *)(sysent_stream + 0x10)); */
+            /* return true; */
 
             /* sy_call */
             if(tagged_ptr){
                 /* puts("TAGGED PTRS"); */
-                print_register(*(uint64_t *)sysent_stream);
+                /* print_register(*(uint64_t *)sysent_stream); */
 
-                print_register(old_tag);
+                /* print_register(old_tag); */
                 uint64_t untagged = (uint64_t)xnu_ptr_to_va(scratch_space) & 0xffffffffffff;
-                print_register(untagged);
+                /* print_register(untagged); */
                 untagged -= kernel_slide;
-                print_register(untagged);
+                /* print_register(untagged); */
 
                 /* re-tag */
                 uint64_t new_sy_call = untagged | ((uint64_t)old_tag << 48);
 
-                print_register(new_sy_call);
+                /* print_register(new_sy_call); */
                 /* return true; */
 
-                /* *(uint64_t *)sysent_to_patch = new_sy_call; */
+                *(uint64_t *)sysent_to_patch = new_sy_call;
             }
             else{
                 /* puts("NO TAGGED PTRS"); */
@@ -532,24 +527,15 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     IMPORTANT_MSG("passing -1 for the `pid` argument.");
     IMPORTANT_MSG("If it has been patched");
     IMPORTANT_MSG("successfully, 999 will be returned.");
-    IMPORTANT_MSG("");
-    IMPORTANT_MSG("To boot XNU, go to the terminal");
-    IMPORTANT_MSG("you used to execute");
-    IMPORTANT_MSG(" loader/loader module/svc_stalker");
-    IMPORTANT_MSG("and hit enter.");
     puts("*********************");
 
 
 
     /* write the branch to our handle_svc hook */
     // XXX commenting out for testing
-    /* write_blr(8, branch_from, last_TEXT_EXEC_sect_end + cache_size); */
+    write_blr(8, branch_from, last_TEXT_EXEC_sect_end + cache_size);
     /* there's an extra B.NE after the five instrs we overwrote, so NOP it out */
-    /* *(uint32_t *)(branch_from + (4*5)) = 0xd503201f; */
-
-    /* uint64_t addr = ptr_for_sa(0xFFFFFFF008023218); */
-    /* *(uint32_t*)addr = 0xd4200000; */
-
+    *(uint32_t *)(branch_from + (4*5)) = 0xd503201f;
 
     return true;
 }

@@ -5,9 +5,12 @@
 
 ; This is the system call we replaced the first enosys sysent entry
 ; with. It manages the list of PIDs we're intercepting syscalls for.
+;
+; Actual return value of this function gets set to errno later.
+; retval, the second parameter, is the return value of this function.
 _main:
     sub sp, sp, STACK
-    stp x27, x28, [sp, STACK-0x60]
+    stp x28, x27, [sp, STACK-0x60]
     stp x26, x25, [sp, STACK-0x50]
     stp x24, x23, [sp, STACK-0x40]
     stp x22, x21, [sp, STACK-0x30]
@@ -15,29 +18,38 @@ _main:
     stp x29, x30, [sp, STACK-0x10]
     add x29, sp, STACK-0x10
 
-    ; be able to see what arguments there are
-    ;mov x3, 0x4141
-    ;mov x4, 0x4242
-    ;mov x5, 0x4343
-    ;mov x6, 0x4444
-
     mov x19, x0
     mov x20, x1
     mov x21, x2
 
     ldr w22, [x20]
+    cmp w22, 0
+    b.lt maybebadpid
+
+    ldr w22, [x20]
     ldr w23, [x20, 8]
 
-    mov w24, 0x5555
+    mov w24, 0
     str w24, [x21]
 
-    mov w0, 8
+    mov w0, 0
 
-    ;brk 0
+    b done
 
+maybebadpid:
+    ; user may have passed -1 for pid to see if this syscall was patched
+    ; successfully
+    cmp w22, -1
+    b.ne badpid
+    mov w0, 999
+    str w0, [x21]
+    mov w0, 0
+    b done
 
-
-
+badpid:
+    mov w0, -1
+    str w0, [x21]
+    mov w0, 22                              ; EINVAL
     b done
 
 done:
