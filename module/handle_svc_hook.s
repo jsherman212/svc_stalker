@@ -27,8 +27,8 @@ _main:
     str x20, [sp, CURRENT_PROC_FPTR]
     ldr x20, [x19, PROC_PID_CACHEOFF]
     str x20, [sp, PROC_PID_FPTR]
-    ldr x20, [x19, FILTER_MEM_CACHEOFF]
-    str x20, [sp, FILTER_MEM_PTR]
+    ldr x20, [x19, PID_TABLE_CACHEOFF]
+    str x20, [sp, PID_TABLE_PTR]
     ;mov x0, 0x4141
     ;ldr x1, [sp, FILTER_MEM_PTR]
     ;str x0, [x1]
@@ -62,8 +62,6 @@ _main:
 
     ;brk 0
 
-    ; TODO how to know if the device is done booting?
-
     ; call exception_triage
     mov x0, EXC_SYSCALL                     ; exception
     ldr x1, [sp, SAVED_STATE_PTR]
@@ -88,24 +86,24 @@ done:
     add sp, sp, STACK
     ret
 
-dump_saved_state:
-    ldr x18, [sp, SAVED_STATE_PTR]
-    add x18, x18, 8
-    ldp x0, x1, [x18]
-    ldp x2, x3, [x18, 0x10]
-    ldp x4, x5, [x18, 0x20]
-    ldp x6, x7, [x18, 0x30]
-    ldp x8, x9, [x18, 0x40]
-    ldp x10, x11, [x18, 0x50]
-    ldp x12, x13, [x18, 0x60]
-    ldp x14, x15, [x18, 0x70]
-    ldp x16, x17, [x18, 0x80]
-    ldr x19, [x18, 0x98]
-    ldp x20, x21, [x18, 0xa0]
-    ldp x22, x23, [x18, 0xb0]
-    ldp x24, x25, [x18, 0xc0]
-    ldp x26, x27, [x18, 0xd0]
-    ldp x28, x29, [x18, 0xe0]
-    ldr x30, [x18, 0xf0]
-    ldr x18, [x18, 0x100]       ; pc
-    brk 0
+;dump_saved_state:
+    ;ldr x18, [sp, SAVED_STATE_PTR]
+    ;add x18, x18, 8
+    ;ldp x0, x1, [x18]
+    ;ldp x2, x3, [x18, 0x10]
+    ;ldp x4, x5, [x18, 0x20]
+    ;ldp x6, x7, [x18, 0x30]
+    ;ldp x8, x9, [x18, 0x40]
+    ;ldp x10, x11, [x18, 0x50]
+    ;ldp x12, x13, [x18, 0x60]
+    ;ldp x14, x15, [x18, 0x70]
+    ;ldp x16, x17, [x18, 0x80]
+    ;ldr x19, [x18, 0x98]
+    ;ldp x20, x21, [x18, 0xa0]
+    ;ldp x22, x23, [x18, 0xb0]
+    ;ldp x24, x25, [x18, 0xc0]
+    ;ldp x26, x27, [x18, 0xd0]
+    ;ldp x28, x29, [x18, 0xe0]
+    ;ldr x30, [x18, 0xf0]
+    ;ldr x18, [x18, 0x100]       ; pc
+    ;brk 0

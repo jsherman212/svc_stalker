@@ -11,14 +11,14 @@
 #define EXCEPTION_TRIAGE_CACHEOFF   (0x0)
 #define CURRENT_PROC_CACHEOFF       (0x8)
 #define PROC_PID_CACHEOFF           (0x10)
-#define FILTER_MEM_CACHEOFF         (0x18)
+#define PID_TABLE_CACHEOFF          (0x18)
 
 /* local variables */
 #define OFFSET_CACHE_PTR            (STACK-0x70)
 #define EXCEPTION_TRIAGE_FPTR       (STACK-0x78)
 #define CURRENT_PROC_FPTR           (STACK-0x80)
 #define PROC_PID_FPTR               (STACK-0x88)
-#define FILTER_MEM_PTR              (STACK-0x90)
+#define PID_TABLE_PTR               (STACK-0x90)
 #define SAVED_STATE_PTR             (STACK-0x98)
 #define EXC_CODES                   (STACK-0xa0)    /* XXX array of 2 uint64_t */
 

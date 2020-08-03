@@ -39,26 +39,5 @@ WRITE_INSTR(0xa95c5ff8); /* 0xfffffff0156b72d0    ldp	x24, x23, [sp, #0x1c0]    
 WRITE_INSTR(0xa95b67fa); /* 0xfffffff0156b72d4    ldp	x26, x25, [sp, #0x1b0]    */ \
 WRITE_INSTR(0xa95a6ffc); /* 0xfffffff0156b72d8    ldp	x28, x27, [sp, #0x1a0]    */ \
 WRITE_INSTR(0x910803ff); /* 0xfffffff0156b72dc    add	sp, sp, #0x200            */ \
-WRITE_INSTR(0xd65f03c0); /* 0xfffffff0156b72e0    ret                           */ \
-/*                                           dump_saved_state:                  */ \
-WRITE_INSTR(0xf940b7f2); /* 0xfffffff0156b72e4    ldr	x18, [sp, #0x168]         */ \
-WRITE_INSTR(0x91002252); /* 0xfffffff0156b72e8    add	x18, x18, #0x8            */ \
-WRITE_INSTR(0xa9400640); /* 0xfffffff0156b72ec    ldp	x0, x1, [x18]             */ \
-WRITE_INSTR(0xa9410e42); /* 0xfffffff0156b72f0    ldp	x2, x3, [x18, #0x10]      */ \
-WRITE_INSTR(0xa9421644); /* 0xfffffff0156b72f4    ldp	x4, x5, [x18, #0x20]      */ \
-WRITE_INSTR(0xa9431e46); /* 0xfffffff0156b72f8    ldp	x6, x7, [x18, #0x30]      */ \
-WRITE_INSTR(0xa9442648); /* 0xfffffff0156b72fc    ldp	x8, x9, [x18, #0x40]      */ \
-WRITE_INSTR(0xa9452e4a); /* 0xfffffff0156b7300    ldp	x10, x11, [x18, #0x50]    */ \
-WRITE_INSTR(0xa946364c); /* 0xfffffff0156b7304    ldp	x12, x13, [x18, #0x60]    */ \
-WRITE_INSTR(0xa9473e4e); /* 0xfffffff0156b7308    ldp	x14, x15, [x18, #0x70]    */ \
-WRITE_INSTR(0xa9484650); /* 0xfffffff0156b730c    ldp	x16, x17, [x18, #0x80]    */ \
-WRITE_INSTR(0xf9404e53); /* 0xfffffff0156b7310    ldr	x19, [x18, #0x98]         */ \
-WRITE_INSTR(0xa94a5654); /* 0xfffffff0156b7314    ldp	x20, x21, [x18, #0xa0]    */ \
-WRITE_INSTR(0xa94b5e56); /* 0xfffffff0156b7318    ldp	x22, x23, [x18, #0xb0]    */ \
-WRITE_INSTR(0xa94c6658); /* 0xfffffff0156b731c    ldp	x24, x25, [x18, #0xc0]    */ \
-WRITE_INSTR(0xa94d6e5a); /* 0xfffffff0156b7320    ldp	x26, x27, [x18, #0xd0]    */ \
-WRITE_INSTR(0xa94e765c); /* 0xfffffff0156b7324    ldp	x28, x29, [x18, #0xe0]    */ \
-WRITE_INSTR(0xf9407a5e); /* 0xfffffff0156b7328    ldr	x30, [x18, #0xf0]         */ \
-WRITE_INSTR(0xf9408252); /* 0xfffffff0156b732c    ldr	x18, [x18, #0x100]        */ \
-WRITE_INSTR(0xd4200000); /* 0xfffffff0156b7330    brk	#0                        */ 
+WRITE_INSTR(0xd65f03c0); /* 0xfffffff0156b72e0    ret                           */ 
 #endif

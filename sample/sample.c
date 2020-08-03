@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <mach/mach.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -57,6 +58,13 @@ int main(void){
 
     printf("%#llx\n", syscall(531, &var0, &var1));
     printf("%#llx %#llx\n", var0, var1);
+
+
+    printf("%#lx\n", syscall(8, 0x55557777, 0x66668888));
+
+    /* printf("%s\n", strerror(syscall(8, 0x55557777, 0x66668888))); */
+
+    return 0;
 
     /* syscall(-10, 0); */
 

@@ -15,6 +15,15 @@ _main:
     stp x29, x30, [sp, STACK-0x10]
     add x29, sp, STACK-0x10
 
+    ; be able to see what arguments there are
+    mov x3, 0x4141
+    mov x4, 0x4242
+    mov x5, 0x4343
+    mov x6, 0x4444
+
+    brk 0
+
+
     b done
 
 done:
