@@ -59,8 +59,11 @@ int main(void){
     printf("%#llx\n", syscall(531, &var0, &var1));
     printf("%#llx %#llx\n", var0, var1);
 
+    errno = 0;
+    int patched_ret = syscall(8, 0x55557777, 0x66668888);
+    printf("patched_ret %d errno %d\n", patched_ret, errno);
 
-    printf("%#lx\n", syscall(8, 0x55557777, 0x66668888));
+    /* printf("%#lx\n", syscall(8, 0x55557777, 0x66668888)); */
 
     /* printf("%s\n", strerror(syscall(8, 0x55557777, 0x66668888))); */
 

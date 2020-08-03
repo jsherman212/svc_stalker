@@ -363,8 +363,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
      */
     uint32_t *pid_table = (uint32_t *)alloc_static(sizeof(uint32_t) * pid_table_maxelems);
 
-    for(int i=1; i<pid_table_maxelems; i++)
-        pid_table[i] = -1;
+    // XXX don't write to this
+    /* for(int i=1; i<pid_table_maxelems; i++) */
+    /*     pid_table[i] = -1; */
 
     /* stash these pointers so we have them after xnu boot */
     // XXX XXX XXX add kernel_slide?
@@ -379,6 +380,8 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
      */
     DO_HANDLE_SVC_HOOK_PATCHES;
 
+    /* return true; */
+
     /* now we need to find the first enosys entry in sysent to patch
      * our syscall in.
      *
@@ -392,7 +395,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     uint8_t *sysent_to_patch = NULL;
 
     bool tagged_ptr = false;
-    uint16_t orig_tag = 0;
+    uint16_t old_tag = 0;
 
     uint32_t limit = 1000;
 
@@ -406,20 +409,17 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
         /* tagged pointer */
         if((sy_call & 0xffff000000000000) != 0xffff000000000000){
-            orig_tag = (sy_call >> 48);
-
+            old_tag = (sy_call >> 48);
+            /* print_register(sy_call); */
+            /* print_register(old_tag); */
+            /* return  true; */
             sy_call |= 0xffff000000000000;
             sy_call += kernel_slide;
 
             tagged_ptr = true;
         }
 
-        /* sy_call = (uint64_t)xnu_va_to_ptr(sy_call); */
-
-        /* uint64_t opcodes = *(uint64_t *)sy_call; */
-
         /* mov w0, ENOSYS; ret */
-        /* if(opcodes == 0xd65f03c0528009c0){ */
         if(*(uint64_t *)xnu_va_to_ptr(sy_call) == 0xd65f03c0528009c0){
             sysent_to_patch = sysent_stream;
             patched_syscall_num = i;
@@ -430,28 +430,33 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
             /* sy_call */
             if(tagged_ptr){
-                puts("TAGGED PTRS");
+                /* puts("TAGGED PTRS"); */
+                print_register(*(uint64_t *)sysent_stream);
 
+                print_register(old_tag);
                 uint64_t untagged = (uint64_t)xnu_ptr_to_va(scratch_space) & 0xffffffffffff;
+                print_register(untagged);
                 untagged -= kernel_slide;
-                /* next pointer is 24 bytes away */
-                orig_tag = 0x0047;
-                uint64_t new_sy_call = untagged | ((uint64_t)orig_tag << 48);
+                print_register(untagged);
+
+                /* re-tag */
+                uint64_t new_sy_call = untagged | ((uint64_t)old_tag << 48);
 
                 print_register(new_sy_call);
+                /* return true; */
 
-                *(uint64_t *)sysent_to_patch = new_sy_call;
+                /* *(uint64_t *)sysent_to_patch = new_sy_call; */
             }
             else{
-                puts("NO TAGGED PTRS");
-                puts("old sy_call:");
-                print_register(*(uint64_t *)sysent_to_patch);
+                /* puts("NO TAGGED PTRS"); */
+                /* puts("old sy_call:"); */
+                /* print_register(*(uint64_t *)sysent_to_patch); */
 
                 *(uint64_t *)sysent_to_patch = (uint64_t)xnu_ptr_to_va(scratch_space);
-                print_register(*(uint64_t *)scratch_space);
+                /* print_register(*(uint64_t *)scratch_space); */
 
-                puts("new sy_call:");
-                print_register(xnu_ptr_to_va(opcode_stream));
+                /* puts("new sy_call:"); */
+                /* print_register(xnu_ptr_to_va(opcode_stream)); */
 
             }
 
@@ -637,7 +642,7 @@ static void stalker_apply_patches(const char *cmd, char *args){
 static void stalker_preboot_hook(void){
     puts("inside stalker_preboot_hook");
 
-    /* do checkrain's kernel patches first */
+    /* ramdisk_size = 0; */
     if(next_preboot_hook)
         next_preboot_hook();
 

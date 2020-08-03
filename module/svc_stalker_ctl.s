@@ -16,12 +16,26 @@ _main:
     add x29, sp, STACK-0x10
 
     ; be able to see what arguments there are
-    mov x3, 0x4141
-    mov x4, 0x4242
-    mov x5, 0x4343
-    mov x6, 0x4444
+    ;mov x3, 0x4141
+    ;mov x4, 0x4242
+    ;mov x5, 0x4343
+    ;mov x6, 0x4444
 
-    brk 0
+    mov x19, x0
+    mov x20, x1
+    mov x21, x2
+
+    ldr w22, [x20]
+    ldr w23, [x20, 8]
+
+    mov w24, 0x5555
+    str w24, [x21]
+
+    mov w0, 8
+
+    ;brk 0
+
+
 
 
     b done
