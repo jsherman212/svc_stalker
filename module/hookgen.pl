@@ -1,23 +1,26 @@
 #!/usr/bin/perl
 
-system("clang -O0 -arch arm64 -isysroot \$(xcrun --sdk iphoneos --show-sdk-path) handle_svc_hook.s -o handle_svc_hook");
-system("otool -jtVX handle_svc_hook | tail -n +2 > dis");
+system("clang -O0 -arch arm64 -isysroot \$(xcrun --sdk iphoneos --show-sdk-path) $ARGV[0].s -o $ARGV[0]");
+system("otool -jtVX $ARGV[0] | tail -n +2 > dis");
 
 open(DISFILE, "<dis") or die("Couldn't open dis file");
 
-open(HEADER, ">handle_svc_patches.h") or die("Couldn't open handle_svc_patches.h");
+open(HEADER, ">$ARGV[0]_patches.h") or die("Couldn't open $ARGV[0]_patches.h");
 
-printf(HEADER "#ifndef handle_svc_patches\n");
-printf(HEADER "#define handle_svc_patches\n");
+printf(HEADER "#ifndef $ARGV[0]\n");
+printf(HEADER "#define $ARGV[0]\n");
 
-printf(HEADER "#define DO_HANDLE_SVC_PATCHES \\\n");
+my $macroname = uc("DO_".$ARGV[0]."_PATCHES");
+
+printf(HEADER "#define $macroname \\\n");
 
 my $curlabel;
 # space used for caching offsets will also be counted as instructions
-my $cache_space = 0x8;
+my $cache_space = 0x20;
 my $instr_count = $cache_space / 4;
 
 # testing, iphone 8 13.6
+# incorrect for svc_stalker_ctl
 my $curkaddr = 0xFFFFFFF0156B7230 + $cache_space;
 
 while(my $line = <DISFILE>){

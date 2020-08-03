@@ -255,7 +255,7 @@ extern void* memstr_partial(const void* big, unsigned long blength, const char* 
 
 extern uint64_t scheduler_ticks;
 extern void print_register(uint64_t value);
-void print_hex_number(uint64_t value);
+extern int printf(const char *fmt, ...);
 extern volatile void invalidate_icache();
 extern struct task* task_current();
 extern char preemption_should_skip_beat();

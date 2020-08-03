@@ -4,7 +4,7 @@
 #include "handle_svc_hook.h"
 
 ; this iterates through the PIDs the user has registered through doing
-; syscall(0, pid, enabled) and calls exception_triage if current_proc()->p_pid
+; syscall(n, pid, enabled) and calls exception_triage if current_proc()->p_pid
 ; is found in that list
 _main:
     sub sp, sp, STACK

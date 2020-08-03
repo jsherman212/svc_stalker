@@ -175,6 +175,9 @@ int main(int argc, char **argv, const char **envp){
         return 1;
     }
 
+    printf("Hit enter to boot XNU\n");
+    getchar();
+
     /* sleep(1); */
     
     /* err = pongo_send_command(pongo_device, "bootx\n"); */
