@@ -57,9 +57,19 @@ _main:
     ; user doesn't want to intercept system calls from this pid, bail
     cmp x0, 0
     b.eq done
-    ; make sure we only send system calls from CUR_PID when it's in
-    ; the pid table
-    ;ldr w0, [sp, 
+
+    ; XXX for testing: ignore write system call and mach_msg trap
+    ldr x19, [sp, SAVED_STATE_PTR]
+    ldr x19, [x19, 0x88]
+    ;cmp x19, 4
+    ;b.eq done
+    ;cmp x19, -31
+    ;b.eq done
+    cmp x19, 2  ;fork
+    b.eq send_exc_msg 
+    cmp x19, 20 ;getpid
+    b.eq send_exc_msg
+    b done
 
     ;brk 0
 
@@ -89,7 +99,11 @@ _main:
     ; call exception_triage
     ; TODO distinguish between unix syscalls and mach traps and set the
     ; exception number accrodingly
-    mov x0, EXC_SYSCALL                     ; exception
+    ;mov x0, EXC_SYSCALL                     ; exception
+    ; EXC_GUARD exceptions cause exception_triage to return to caller
+    ;mov x0, EXC_GUARD
+send_exc_msg:
+    mov x0, EXC_RESOURCE
     ldr x1, [sp, SAVED_STATE_PTR]
     ldr x1, [x1, 0x88]                      ; X16, system call number
     str x1, [sp, EXC_CODES]
@@ -103,10 +117,10 @@ _main:
     ; exception_triage normally doesn't return, need to patch it
 
     ; if it does return, don't overwrite retval and panic
-    mov x1, 0x4141
-    mov x2, 0x4242
-    mov x3, 0x4343
-    brk 0
+    ;mov x1, 0x4141
+    ;mov x2, 0x4242
+    ;mov x3, 0x4343
+    ;brk 0
 
 done:
     ldp x29, x30, [sp, STACK-0x10]

@@ -26,6 +26,11 @@
 /* exception stuff */
 #define EXC_SYSCALL                 (7)
 
+#define EXC_CRASH                   (10)
+#define EXC_RESOURCE                (11)
+#define EXC_GUARD                   (12)
+#define EXC_CORPSE_NOTIFY           (13)
+
 /* pid table stuff */
 #define MAX_SIMULTANEOUS_PIDS       (4095)
 #define OPEN_SLOT                   (-1)
