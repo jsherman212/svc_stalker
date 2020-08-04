@@ -8,6 +8,8 @@
 ;
 ; Actual return value of this function gets set to errno later.
 ; retval, the second parameter, is the return value of this function.
+;
+; XXX XXX MUST DISABLE ANY PIDS THAT HAVE BEEN ENABLED BEFORE PROCESS EXIT
 _main:
     sub sp, sp, STACK
     stp x28, x27, [sp, STACK-0x60]
@@ -28,6 +30,8 @@ _main:
     str x23, [sp, PID_TABLE_PTR]
     ldr x23, [x22, IOLOG_FPTR_CACHEOFF]
     str x23, [sp, IOLOG_FPTR]
+    ldr x23, [x22, IOMALLOC_FPTR_CACHEOFF]
+    str x23, [sp, IOMALLOC_FPTR]
 
     ldr w22, [x20]
     cmp w22, 0
@@ -58,7 +62,11 @@ remove_pid:
     b.eq out_einval
     ; mark this slot as usable
     mov w1, OPEN_SLOT
+    ;ldr x9, [sp, IOMALLOC_FPTR]
+    ;mov w0, 4
+    ;blr x9
     str w1, [x0]
+    ;brk 0
     ; decrement table size
     ldr x22, [sp, PID_TABLE_PTR]
     ldr w23, [x22, PID_TABLE_NUM_PIDS_OFF]
@@ -70,6 +78,8 @@ remove_pid:
 add_pid:
     ldr x0, [sp, PID_TABLE_PTR]
     ldr w1, [x20]
+    ;ldr w2, [x0]
+    ;brk 0
     bl _get_slot_ptr_for_pid
     ; pid already exists in the table? if so, do nothing
     cmp x0, 0
@@ -82,12 +92,19 @@ add_pid:
     ; pid argument now owns this slot
     ldr w22, [x20]
     str w22, [x0]
+
+    ;brk 0
     
     ; increment table size
     ldr x22, [sp, PID_TABLE_PTR]
     ldr w23, [x22, PID_TABLE_NUM_PIDS_OFF]
-    sub w23, w23, 1
+    add w23, w23, 1
     str w23, [x22, PID_TABLE_NUM_PIDS_OFF]
+
+    ;ldr x0, [sp, PID_TABLE_PTR]
+    ;ldr w1, [x0]
+    ;ldr w2, [x0, 4]
+    ;brk 0
 
     b success 
 
@@ -130,8 +147,8 @@ done:
 ;
 ; returns: a pointer if the PID is found, otherwise NULL
 _get_slot_ptr_for_pid:
-    ldr w9, [x0, PID_TABLE_NUM_PIDS_OFF]
-    cmp w9, 0
+    ldr w12, [x0, PID_TABLE_NUM_PIDS_OFF]
+    cmp w12, 0
     b.eq not_found 
 
     mov w9, 1
@@ -142,6 +159,7 @@ slotloop:
     cmp w11, w1
     b.eq found
     add w9, w9, 1
+    ;cmp w9, w12
     cmp w9, MAX_SIMULTANEOUS_PIDS
     b.gt not_found
     add x10, x0, w9, lsl 2
@@ -171,7 +189,7 @@ _get_nearest_empty_slot:
 
 emptyslotloop:
     ldr w11, [x10]
-    cmp w11, -1
+    cmp w11, OPEN_SLOT
     b.eq foundempty
     add w9, w9, 1
     add x10, x0, w9, lsl 2

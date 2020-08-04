@@ -21,9 +21,14 @@
 #define PID_TABLE_PTR               (STACK-0x90)
 #define SAVED_STATE_PTR             (STACK-0x98)
 #define EXC_CODES                   (STACK-0xa0)    /* XXX array of 2 uint64_t */
+#define CUR_PID                     (STACK-0xb0)
 
 /* exception stuff */
 #define EXC_SYSCALL                 (7)
 
+/* pid table stuff */
+#define MAX_SIMULTANEOUS_PIDS       (4095)
+#define OPEN_SLOT                   (-1)
+#define PID_TABLE_NUM_PIDS_OFF      (0x0)
 
 #endif

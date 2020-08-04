@@ -379,11 +379,12 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         return false;
     }
 
-    /* XXX is this needed? */ 
-    for(int i=0; i<pid_table_maxelems; i++)
-        pid_table[i] = 0;
+    *pid_table = 0;
 
-    /* *pid_table = -1; */
+    /* XXX is this needed? */ 
+    for(int i=1; i<pid_table_maxelems; i++)
+        pid_table[i] = -1;
+
 
     /* stash these pointers so we have them after xnu boot */
     // XXX XXX XXX add kernel_slide?
@@ -408,6 +409,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     /* iphone 8 13.6 */
     uint64_t IOLog_addr = 0xFFFFFFF008134654 + kernel_slide;
     WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(IOLog_addr);
+    uint64_t IOMalloc_addr = 0xFFFFFFF008133284 + kernel_slide;
+    WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(IOMalloc_addr);
+
 
     /* now we need to find the first enosys entry in sysent to patch
      * our syscall in.

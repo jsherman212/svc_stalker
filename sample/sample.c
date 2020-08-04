@@ -38,47 +38,66 @@ static void *exc_thread_func(void *arg){
 }
 
 int main(void){
-    /* int err = syscall(0); */
-    /* printf("err %d\n"); */
-    /* return 0; */
-    mach_port_t exc_port;
+    mach_port_t exc_port = MACH_PORT_NULL;
     mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &exc_port);
     mach_port_insert_right(mach_task_self(), exc_port, exc_port, MACH_MSG_TYPE_MAKE_SEND);
 
     kern_return_t kret = task_set_exception_ports(mach_task_self(), EXC_MASK_ALL, exc_port,
             EXCEPTION_DEFAULT | MACH_EXCEPTION_CODES, THREAD_STATE_NONE);
-    printf("task_set_exception_ports %s\n", mach_error_string(kret));
+
+    if(kret){
+        printf("task_set_exception_ports %s\n", mach_error_string(kret));
+        return 1;
+    }
 
     pthread_t exc_thread;
-    pthread_create(&exc_thread, NULL, exc_thread_func, (void *)exc_port);
+    pthread_create(&exc_thread, NULL, exc_thread_func, (void *)(uintptr_t)exc_port);
     sleep(1);
 
-    /* uint64_t var0 = 0; */
-    /* uint64_t var1 = 0; */
-
-    /* printf("%#llx\n", syscall(531, &var0, &var1)); */
-    /* printf("%#llx %#llx\n", var0, var1); */
-
     errno = 0;
-    int patched_ret = syscall(8, 1, 0x66668888);
-    /* int patched_ret = syscall(11, 0x55557777, 0x66668888); */
-    printf("patched_ret %d errno %d\n", patched_ret, errno);
+    int svc_stalker_ctl_num = 8;
 
-    /* printf("%#lx\n", syscall(8, 0x55557777, 0x66668888)); */
+    printf("Checking if syscall %d was patched in 1sec\n", svc_stalker_ctl_num);
+    sleep(1);
 
-    /* printf("%s\n", strerror(syscall(8, 0x55557777, 0x66668888))); */
+    int svc_stalker_ctl_ret = syscall(svc_stalker_ctl_num, -1, 0);
+
+    if(svc_stalker_ctl_ret != 999){
+        printf("System call %d wasn't patched correctly\n", svc_stalker_ctl_num);
+        return 1;
+    }
+
+    printf("System call %d was patched correctly\n", svc_stalker_ctl_num);
+    printf("\nDisabling a PID that isn't in the pid table in 1sec..."
+            " (should return invalid argument)\n");
+    sleep(1);
+
+    svc_stalker_ctl_ret = syscall(svc_stalker_ctl_num, getpid(), 0);
+
+    if(svc_stalker_ctl_ret != -1){
+        printf("svc_stalker_ctl didn't return an error?\n");
+        return 1;
+        /* printf("svc_stalker_ctl returns %d, errno = %s\n", svc_stalker_ctl_ret, */
+        /*         strerror(errno)); */
+        /* return 1; */
+    }
+
+    printf("Success\n");
+    
 
     return 0;
 
-    /* syscall(-10, 0); */
 
+    /* int patched_ret = syscall(8, 1, 0x66668888); */
+    /* printf("patched_ret %d errno %d\n", patched_ret, errno); */
 
-    asm volatile("mov x16, -10");
-    asm volatile("svc 0x80");
+    /* return 0; */
+
+    /* asm volatile("mov x16, -10"); */
+    /* asm volatile("svc 0x80"); */
 
     /* asm volatile("brk 0"); */
 
-    //sleep(1);
     write(1, "Calling write in C\n", strlen("Calling write in C\n"));
 
     const char *str = "Calling write in assembly\n";
@@ -95,7 +114,7 @@ int main(void){
     char buf[0x100];
     size_t bufsz = sizeof(buf);
 
-    //    read(0, buf, bufsz);
+    /* read(0, buf, bufsz); */
 
     asm volatile("mov w0, 0");
     asm volatile("mov x1, %0" : : "r" (buf) : );
@@ -103,10 +122,10 @@ int main(void){
     asm volatile("mov x16, 3");
     asm volatile("svc 0");
 
-    //    asm volatile("mov x0, 50");
-    //  asm volatile("mov x16, 1");
-    //asm volatile("svc 0");
-    //exit(50);
+    /* asm volatile("mov x0, 50"); */
+    /* asm volatile("mov x16, 1"); */
+    /* asm volatile("svc 0"); */
+    /* exit(50); */
 
     return 0;
 }

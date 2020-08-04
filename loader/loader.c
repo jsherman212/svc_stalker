@@ -126,7 +126,7 @@ int main(int argc, char **argv, const char **envp){
     }
 
     size_t module_size = st.st_size;
-    printf("module size %#lx\n", module_size);
+    /* printf("module size %#lx\n", module_size); */
     void *module_data = mmap(NULL, module_size, PROT_READ, MAP_PRIVATE,
             module_fd, 0);
 

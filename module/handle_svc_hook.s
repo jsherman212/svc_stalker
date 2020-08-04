@@ -32,7 +32,7 @@ _main:
     ldr x20, [x19, PID_TABLE_CACHEOFF]
     str x20, [sp, PID_TABLE_PTR]
     ;mov x0, 0x4141
-    ;ldr x1, [sp, FILTER_MEM_PTR]
+    ;ldr x1, [sp, PID_TABLE_PTR]
     ;str x0, [x1]
     ;brk 0
 
@@ -43,8 +43,28 @@ _main:
 
     ;brk 0
 
+    ; figure out if the system call made by this PID should be
+    ; reported back to userland
+    ldr x19, [sp, CURRENT_PROC_FPTR]
+    blr x19
+    ldr x19, [sp, PROC_PID_FPTR]
+    blr x19
+    ; W0 = proc_pid(current_proc())
+    str w0, [sp, CUR_PID]
+    mov w1, w0
+    ldr x0, [sp, PID_TABLE_PTR]
+    bl _pid_in_table
+    ; user doesn't want to intercept system calls from this pid, bail
+    cmp x0, 0
+    b.eq done
+    ; make sure we only send system calls from CUR_PID when it's in
+    ; the pid table
+    ;ldr w0, [sp, 
+
+    ;brk 0
+
     ; XXX
-    b done
+    ;b done
 
     ; TODO re-implement the sanity checks we overwrote
 
@@ -62,9 +82,13 @@ _main:
     ; cmp x19, 0
     ; b.eq done
 
+    ;mov x8, 0x4141
+    ;mov x9, 0x4242
     ;brk 0
 
     ; call exception_triage
+    ; TODO distinguish between unix syscalls and mach traps and set the
+    ; exception number accrodingly
     mov x0, EXC_SYSCALL                     ; exception
     ldr x1, [sp, SAVED_STATE_PTR]
     ldr x1, [x1, 0x88]                      ; X16, system call number
@@ -73,10 +97,16 @@ _main:
     add x1, sp, EXC_CODES                   ; code
     mov w2, 2                               ; codeCnt
     ldr x19, [sp, EXCEPTION_TRIAGE_FPTR]
+    ;brk 0
     blr x19
 
-    ;mov x0, 0x4141
-    ;brk 0
+    ; exception_triage normally doesn't return, need to patch it
+
+    ; if it does return, don't overwrite retval and panic
+    mov x1, 0x4141
+    mov x2, 0x4242
+    mov x3, 0x4343
+    brk 0
 
 done:
     ldp x29, x30, [sp, STACK-0x10]
@@ -87,6 +117,43 @@ done:
     ldp x28, x27, [sp, STACK-0x60]
     add sp, sp, STACK
     ret
+
+; this function figures out if the user wants to intercept system calls
+; from a given pid
+;
+; arguments:
+;   X0 = pid table pointer
+;   W1 = pid
+;
+; returns: 1 if user wants to intercept, 0 otherwise
+_pid_in_table:
+    ; empty pid table?
+    ldr w9, [x0, PID_TABLE_NUM_PIDS_OFF]
+    cmp w9, 0
+    b.eq not_found 
+
+    mov w10, 1
+    add x11, x0, w10, lsl 2
+
+search:
+    ldr w12, [x11]
+    cmp w12, w1
+    b.eq found
+    add w10, w10, 1
+    ;cmp w10, w9
+    cmp w10, MAX_SIMULTANEOUS_PIDS
+    b.gt not_found
+    add x11, x0, w10, lsl 2
+    b search
+
+not_found:
+    mov x0, 0
+    ret
+
+found:
+    mov x0, 1
+    ret
+
 
 ;dump_saved_state:
     ;ldr x18, [sp, SAVED_STATE_PTR]
