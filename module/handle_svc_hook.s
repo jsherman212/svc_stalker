@@ -3,8 +3,8 @@
 
 #include "handle_svc_hook.h"
 
-; this iterates through the PIDs the user has registered through doing
-; syscall(n, pid, enabled) and calls exception_triage if current_proc()->p_pid
+; this iterates through the PIDs/syscalls the user has registered through the
+; svc_stalker_ctl syscall and calls exception_triage if current_proc()->p_pid
 ; is found in that list
 ;
 ; exception_triage will never be called for the patched system call
@@ -69,7 +69,10 @@ _main:
     b.eq send_exc_msg 
     cmp x19, 20 ;getpid
     b.eq send_exc_msg
+    cmp x19, 4  ;write
+    b.eq send_exc_msg
     b done
+
 
     ;brk 0
 
@@ -100,7 +103,7 @@ _main:
     ; TODO distinguish between unix syscalls and mach traps and set the
     ; exception number accrodingly
     ;mov x0, EXC_SYSCALL                     ; exception
-    ; EXC_GUARD exceptions cause exception_triage to return to caller
+    ; EXC_GUARD, EXC_RESOURCE exceptions cause exception_triage to return to caller
     ;mov x0, EXC_GUARD
 send_exc_msg:
     mov x0, EXC_RESOURCE
@@ -114,7 +117,9 @@ send_exc_msg:
     ;brk 0
     blr x19
 
-    ; exception_triage normally doesn't return, need to patch it
+    ; need to patch exception_triage to return on EXC_SYSCALL / EXC_MACH_SYSCALL
+    ; XXX if I'm going to do that, I need to patch out the one place
+    ; EXC_SYSCALL is used: mach_syscall @ bsd_arm64.c
 
     ; if it does return, don't overwrite retval and panic
     ;mov x1, 0x4141

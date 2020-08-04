@@ -368,16 +368,39 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
     /* this is where we'll keep track of the processes we trace syscalls for */
     size_t pid_table_maxelems = 4096;
+    size_t stalker_table_maxelems = 2048;
+    size_t stalker_table_sz = 0x4000;
 
     /* the first uint32_t in this table will hold the number of PIDs
      * currently having their system calls intercepted
      */
     uint32_t *pid_table = (uint32_t *)alloc_static(sizeof(uint32_t) * pid_table_maxelems);
 
+    /* the first uint128_t will hold the number of stalker structs that
+     * are currently in the table
+     *
+     * struct stalker_ctl {
+     *       is this entry not being used anymore?
+     *     uint32_t free;
+     *
+     *       what pid this entry belongs to
+     *     uint32_t pid;
+     *
+     *       list of system call numbers to intercept & send to userland
+     *     uint32_t *call_list;
+     * };
+     *
+     * sizeof(struct stalker_ctl) = 0x10
+     *
+     *
+     */
+    /* uint8_t *stalker_table = (uint8_t *)alloc_static(stalker_table_sz); */
+
     if(!pid_table){
         puts("svc_stalker: alloc_static returned NULL");
         return false;
     }
+
 
     *pid_table = 0;
 
@@ -411,7 +434,6 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(IOLog_addr);
     uint64_t IOMalloc_addr = 0xFFFFFFF008133284 + kernel_slide;
     WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(IOMalloc_addr);
-
 
     /* now we need to find the first enosys entry in sysent to patch
      * our syscall in.
@@ -464,8 +486,8 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
             if(tagged_ptr){
                 /* puts("TAGGED PTRS"); */
                 /* print_register(*(uint64_t *)sysent_stream); */
-
                 /* print_register(old_tag); */
+
                 uint64_t untagged = (uint64_t)xnu_ptr_to_va(scratch_space) & 0xffffffffffff;
                 /* print_register(untagged); */
                 untagged -= kernel_slide;
@@ -523,44 +545,51 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     IMPORTANT_MSG("patched. It is your way");
     IMPORTANT_MSG("of controlling what");
     IMPORTANT_MSG("processes you intercept");
-    IMPORTANT_MSG("system calls for. The");
-    IMPORTANT_MSG("maximum amount of");
-    IMPORTANT_MSG("processes you can");
-    IMPORTANT_MSG("*simultaneously* intercept");
-    IMPORTANT_MSG("system calls for is 4095.");
+    IMPORTANT_MSG("system calls for.");
+    /* IMPORTANT_MSG("system calls for. The"); */
     IMPORTANT_MSG("Please see sample/sample.c");
-    IMPORTANT_MSG("for proper usage.");
-    IMPORTANT_MSG("");
-    IMPORTANT_MSG("USAGE");
-    printf("*  syscall(%#x, pid, enable);\n", patched_syscall_num);
-    IMPORTANT_MSG("");
-    IMPORTANT_MSG("ARGUMENTS");
-    IMPORTANT_MSG(" pid");
-    IMPORTANT_MSG("   The process you want to");
-    IMPORTANT_MSG("   intercept system calls for.");
-    IMPORTANT_MSG(" enable");
-    IMPORTANT_MSG("   If non-zero, enable system");
-    IMPORTANT_MSG("   call interception for this");
-    IMPORTANT_MSG("   process. Otherwise, disable.");
-    IMPORTANT_MSG("");
-    IMPORTANT_MSG("RETURN VALUES");
-    IMPORTANT_MSG(" On success, 0 is returned.");
-    IMPORTANT_MSG(" Otherwise, -1 is returned and");
-    IMPORTANT_MSG(" errno is set.");
-    IMPORTANT_MSG("");
-    IMPORTANT_MSG("ERRORS");
-    IMPORTANT_MSG(" EINVAL");
-    IMPORTANT_MSG("   `pid` did not make sense,");
-    IMPORTANT_MSG("   4095 processes are already");
-    IMPORTANT_MSG("   simultaneously being watched,");
-    IMPORTANT_MSG("   or `pid` wasn't already being");
-    IMPORTANT_MSG("   watched before being disabled.");
-    IMPORTANT_MSG("");
-    printf("* You can check if system call %#x\n", patched_syscall_num);
-    IMPORTANT_MSG("was successfully patched by");
-    IMPORTANT_MSG("passing -1 for the `pid` argument.");
-    IMPORTANT_MSG("If it has been patched");
-    IMPORTANT_MSG("successfully, 999 will be returned.");
+    IMPORTANT_MSG("for proper usage and for");
+    IMPORTANT_MSG("more information.");
+    /* IMPORTANT_MSG(""); */
+    /* IMPORTANT_MSG("maximum amount of"); */
+    /* IMPORTANT_MSG("processes you can"); */
+    /* IMPORTANT_MSG("*simultaneously* intercept"); */
+    /* IMPORTANT_MSG("system calls for is 4095."); */
+    /* IMPORTANT_MSG("Please see sample/sample.c"); */
+    /* IMPORTANT_MSG("for proper usage and for"); */
+    /* IMPORTANT_MSG("more information."); */
+    /* IMPORTANT_MSG(""); */
+    /* IMPORTANT_MSG("USAGE"); */
+    /* /1* printf("*  syscall(%#x, pid, enable);\n", patched_syscall_num); *1/ */
+    /* printf("*  syscall(%#x, flavor, arg1);\n", patched_syscall_num); */
+    /* IMPORTANT_MSG(""); */
+    /* IMPORTANT_MSG("ARGUMENTS"); */
+    /* IMPORTANT_MSG(" flavor"); */
+    /* IMPORTANT_MSG("   The process you want to"); */
+    /* IMPORTANT_MSG("   intercept system calls for."); */
+    /* IMPORTANT_MSG(" arg1"); */
+    /* IMPORTANT_MSG("   If non-zero, enable system"); */
+    /* IMPORTANT_MSG("   call interception for this"); */
+    /* IMPORTANT_MSG("   process. Otherwise, disable."); */
+    /* IMPORTANT_MSG(""); */
+    /* IMPORTANT_MSG("RETURN VALUES"); */
+    /* IMPORTANT_MSG(" On success, 0 is returned."); */
+    /* IMPORTANT_MSG(" Otherwise, -1 is returned and"); */
+    /* IMPORTANT_MSG(" errno is set."); */
+    /* IMPORTANT_MSG(""); */
+    /* IMPORTANT_MSG("ERRORS"); */
+    /* IMPORTANT_MSG(" EINVAL"); */
+    /* IMPORTANT_MSG("   `pid` did not make sense,"); */
+    /* IMPORTANT_MSG("   4095 processes are already"); */
+    /* IMPORTANT_MSG("   simultaneously being watched,"); */
+    /* IMPORTANT_MSG("   or `pid` wasn't already being"); */
+    /* IMPORTANT_MSG("   watched before being disabled."); */
+    /* IMPORTANT_MSG(""); */
+    /* printf("* You can check if system call %#x\n", patched_syscall_num); */
+    /* IMPORTANT_MSG("was successfully patched by"); */
+    /* IMPORTANT_MSG("passing -1 for the `flavor` argument."); */
+    /* IMPORTANT_MSG("If it has been patched"); */
+    /* IMPORTANT_MSG("successfully, 999 will be returned."); */
     puts("*********************");
 
 
@@ -575,6 +604,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
 static void stalker_apply_patches(const char *cmd, char *args){
     /* puts("inside stalker_apply_patches"); */
+    xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
 
     uint64_t proc_pid_finder_match[] = {
         0x94000000,     /* BL n (_proc_pid) */
@@ -597,13 +627,18 @@ static void stalker_apply_patches(const char *cmd, char *args){
             "com.apple.driver.AppleMobileFileIntegrity");
     xnu_pf_range_t *AMFI___TEXT_EXEC = xnu_pf_segment(AMFI, "__TEXT_EXEC");
 
-    xnu_pf_patchset_t *pp_patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
-    xnu_pf_maskmatch(pp_patchset, proc_pid_finder_match, proc_pid_finder_masks,
+    /* xnu_pf_patchset_t *pp_patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT); */
+    /* xnu_pf_maskmatch(pp_patchset, proc_pid_finder_match, proc_pid_finder_masks, */
+    /*         num_proc_pid_matches, false, // XXX for testing, */
+    /*         proc_pid_finder); */
+    /* xnu_pf_apply(AMFI___TEXT_EXEC, pp_patchset); */
+    /* xnu_pf_emit(pp_patchset); */
+    /* xnu_pf_patchset_destroy(pp_patchset); */
+
+    xnu_pf_maskmatch(patchset, proc_pid_finder_match, proc_pid_finder_masks,
             num_proc_pid_matches, false, // XXX for testing,
             proc_pid_finder);
-    xnu_pf_apply(AMFI___TEXT_EXEC, pp_patchset);
-    xnu_pf_emit(pp_patchset);
-    xnu_pf_patchset_destroy(pp_patchset);
+    xnu_pf_apply(AMFI___TEXT_EXEC, patchset);
 
     uint64_t sysent_finder_match[] = {
         0x1a803000,     /* CSEL Wn, Wn, Wn, CC */
@@ -624,13 +659,18 @@ static void stalker_apply_patches(const char *cmd, char *args){
 
     xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
 
-    xnu_pf_patchset_t *sysent_patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
-    xnu_pf_maskmatch(sysent_patchset, sysent_finder_match, sysent_finder_masks,
+    /* xnu_pf_patchset_t *sysent_patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT); */
+    /* xnu_pf_maskmatch(sysent_patchset, sysent_finder_match, sysent_finder_masks, */
+    /*         num_sysent_matches, false, // XXX for testing, */
+    /*         sysent_finder); */
+    /* xnu_pf_apply(__TEXT_EXEC, sysent_patchset); */
+    /* xnu_pf_emit(sysent_patchset); */
+    /* xnu_pf_patchset_destroy(sysent_patchset); */
+
+    xnu_pf_maskmatch(patchset, sysent_finder_match, sysent_finder_masks,
             num_sysent_matches, false, // XXX for testing,
             sysent_finder);
-    xnu_pf_apply(__TEXT_EXEC, sysent_patchset);
-    xnu_pf_emit(sysent_patchset);
-    xnu_pf_patchset_destroy(sysent_patchset);
+    xnu_pf_apply(__TEXT_EXEC, patchset);
 
     uint64_t sleh_synchronous_patcher_match[] = {
         0xb9408a60,     /* LDR Wn, [X19, #0x88] (trap_no = state->__x[16] */
@@ -647,13 +687,20 @@ static void stalker_apply_patches(const char *cmd, char *args){
         0xffffffe0,     /* ignore Wn in MOV */
     };
 
-    xnu_pf_patchset_t *ss_patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
-    xnu_pf_maskmatch(ss_patchset, sleh_synchronous_patcher_match,
+    /* xnu_pf_patchset_t *ss_patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT); */
+    /* xnu_pf_maskmatch(ss_patchset, sleh_synchronous_patcher_match, */
+    /*         sleh_synchronous_patcher_masks, num_ss_matches, false, // XXX for testing */
+    /*         sleh_synchronous_patcher); */
+    /* xnu_pf_apply(__TEXT_EXEC, ss_patchset); */
+    /* xnu_pf_emit(ss_patchset); */
+    /* xnu_pf_patchset_destroy(ss_patchset); */
+
+    xnu_pf_maskmatch(patchset, sleh_synchronous_patcher_match,
             sleh_synchronous_patcher_masks, num_ss_matches, false, // XXX for testing
             sleh_synchronous_patcher);
-    xnu_pf_apply(__TEXT_EXEC, ss_patchset);
-    xnu_pf_emit(ss_patchset);
-    xnu_pf_patchset_destroy(ss_patchset);
+    xnu_pf_apply(__TEXT_EXEC, patchset);
+    xnu_pf_emit(patchset);
+    xnu_pf_patchset_destroy(patchset);
 
     puts("------stalker_apply_patches DONE------");
 }

@@ -33,6 +33,13 @@ _main:
     ldr x23, [x22, IOMALLOC_FPTR_CACHEOFF]
     str x23, [sp, IOMALLOC_FPTR]
 
+    ;ldr x9, [sp, IOMALLOC_FPTR]
+    ;mov w0, 4
+    ;blr x9
+    ;mov w1, 4
+    ;str w1, [x0]
+    ;brk 0
+
     ldr w22, [x20]
     cmp w22, 0
     b.lt maybebadpid
@@ -62,9 +69,6 @@ remove_pid:
     b.eq out_einval
     ; mark this slot as usable
     mov w1, OPEN_SLOT
-    ;ldr x9, [sp, IOMALLOC_FPTR]
-    ;mov w0, 4
-    ;blr x9
     str w1, [x0]
     ;brk 0
     ; decrement table size
