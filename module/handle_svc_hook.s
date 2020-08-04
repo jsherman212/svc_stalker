@@ -29,19 +29,8 @@ _main:
     str x20, [sp, CURRENT_PROC_FPTR]
     ldr x20, [x19, PROC_PID_CACHEOFF]
     str x20, [sp, PROC_PID_FPTR]
-    ldr x20, [x19, PID_TABLE_CACHEOFF]
-    str x20, [sp, PID_TABLE_PTR]
-    ;mov x0, 0x4141
-    ;ldr x1, [sp, PID_TABLE_PTR]
-    ;str x0, [x1]
-    ;brk 0
-
-    ;ldr x0, [sp, EXCEPTION_TRIAGE_FPTR]
-    ;ldr x1, [sp, CURRENT_PROC_FPTR]
-    ;ldr x2, [sp, PROC_PID_FPTR]
-    ;ldr x3, [sp, FILTER_MEM_PTR]
-
-    ;brk 0
+    ldr x20, [x19, STALKER_TABLE_CACHEOFF]
+    str x20, [sp, STALKER_TABLE_PTR]
 
     ; figure out if the system call made by this PID should be
     ; reported back to userland
@@ -50,62 +39,39 @@ _main:
     ldr x19, [sp, PROC_PID_FPTR]
     blr x19
     ; W0 = proc_pid(current_proc())
+    ; XXX why am I saving this return value
     str w0, [sp, CUR_PID]
     mov w1, w0
-    ldr x0, [sp, PID_TABLE_PTR]
-    bl _pid_in_table
-    ; user doesn't want to intercept system calls from this pid, bail
+    ldr x0, [sp, STALKER_TABLE_PTR]
+    bl _stalker_ctl_from_table
+    ; user doesn't want to intercept any system calls from this pid, bail
     cmp x0, 0
     b.eq done
-
-    ; XXX for testing: ignore write system call and mach_msg trap
+    ; does the user want this system call to be intercepted?
     ldr x19, [sp, SAVED_STATE_PTR]
-    ldr x19, [x19, 0x88]
-    ;cmp x19, 4
-    ;b.eq done
-    ;cmp x19, -31
-    ;b.eq done
-    cmp x19, 2  ;fork
-    b.eq send_exc_msg 
-    cmp x19, 20 ;getpid
-    b.eq send_exc_msg
-    cmp x19, 4  ;write
-    b.eq send_exc_msg
-    b done
-
-
-    ;brk 0
-
-    ; XXX
-    ;b done
+    ldr x1, [x19, 0x88]
+    ; X0 = stalker_ctl struct for proc_pid(current_proc())
+    bl _should_intercept_syscall
+    cmp x0, 0
+    ; if user does not want this system call intercepted, we're done
+    b.eq done
+    
+    ;cmp x19, 2  ;fork
+    ;b.eq send_exc_msg 
+    ;cmp x19, 20 ;getpid
+    ;b.eq send_exc_msg
+    ;cmp x19, 4  ;write
+    ;b.eq send_exc_msg
 
     ; TODO re-implement the sanity checks we overwrote
 
-    ; XXX for testing
-    ;ldr x9, [sp, OFFSET_CACHE_PTR]
-    ;ldr x9, [x9, EXCEPTION_TRIAGE_CACHEOFF]
-    ;ldr x0, [sp, EXCEPTION_TRIAGE_FPTR]
-    ;ldr x1, [sp, SAVED_STATE_PTR]
-    ;ldr x1, [x1, 0x88]                      ; X16, system call number
-
-    ; b dump_saved_state
-
-    ; ldr x19, [sp, SAVED_STATE_PTR]
-    ; ldr x19, [x19, 0x88]
-    ; cmp x19, 0
-    ; b.eq done
-
-    ;mov x8, 0x4141
-    ;mov x9, 0x4242
-    ;brk 0
-
     ; call exception_triage
     ; TODO distinguish between unix syscalls and mach traps and set the
-    ; exception number accrodingly
+    ; exception number accordingly
     ;mov x0, EXC_SYSCALL                     ; exception
     ; EXC_GUARD, EXC_RESOURCE exceptions cause exception_triage to return to caller
     ;mov x0, EXC_GUARD
-send_exc_msg:
+;send_exc_msg:
     mov x0, EXC_RESOURCE
     ldr x1, [sp, SAVED_STATE_PTR]
     ldr x1, [x1, 0x88]                      ; X16, system call number
@@ -114,7 +80,6 @@ send_exc_msg:
     add x1, sp, EXC_CODES                   ; code
     mov w2, 2                               ; codeCnt
     ldr x19, [sp, EXCEPTION_TRIAGE_FPTR]
-    ;brk 0
     blr x19
 
     ; need to patch exception_triage to return on EXC_SYSCALL / EXC_MACH_SYSCALL
@@ -137,61 +102,73 @@ done:
     add sp, sp, STACK
     ret
 
-; this function figures out if the user wants to intercept system calls
-; from a given pid
+; this function figures out if a pid is in the stalker table, and returns
+; a pointer to its corresponding stalker_ctl struct if it is there
 ;
 ; arguments:
-;   X0 = pid table pointer
+;   X0 = stalker table pointer
 ;   W1 = pid
 ;
-; returns: 1 if user wants to intercept, 0 otherwise
-_pid_in_table:
-    ; empty pid table?
-    ldr w9, [x0, PID_TABLE_NUM_PIDS_OFF]
+; returns: pointer if pid is in stalker table, NULL otherwise
+_stalker_ctl_from_table:
+    ; empty stalker table?
+    ldr w9, [x0, STALKER_TABLE_NUM_PIDS_OFF]
     cmp w9, 0
-    b.eq not_found 
+    b.eq not_found0
 
     mov w10, 1
-    add x11, x0, w10, lsl 2
+    add x11, x0, w10, lsl 4
 
-search:
-    ldr w12, [x11]
+search0:
+    ldr w12, [x11, STALKER_CTL_PID_OFF]
     cmp w12, w1
-    b.eq found
+    b.eq found0
     add w10, w10, 1
-    ;cmp w10, w9
-    cmp w10, MAX_SIMULTANEOUS_PIDS
-    b.gt not_found
-    add x11, x0, w10, lsl 2
-    b search
+    cmp w10, STALKER_TABLE_MAX
+    b.gt not_found0
+    add x11, x0, w10, lsl 4
+    b search0
 
-not_found:
+not_found0:
     mov x0, 0
     ret
 
-found:
-    mov x0, 1
+found0:
+    mov x0, x11
     ret
 
+; this function figures out if exception_triage should be called given
+; a system call number
+;
+; parameters:
+;   X0 = stalker_ctl struct pointer
+;   X1 = system call number
+;
+; returns: 1 if system call number is present inside the stalker_ctl's call list,
+;   0 otherwise
+_should_intercept_syscall:
+    ; empty stalker system call list?
+    ldr x10, [x0, STALKER_CTL_CALL_LIST_OFF]
+    cmp x10, 0
+    b.eq do_not_intercept
 
-;dump_saved_state:
-    ;ldr x18, [sp, SAVED_STATE_PTR]
-    ;add x18, x18, 8
-    ;ldp x0, x1, [x18]
-    ;ldp x2, x3, [x18, 0x10]
-    ;ldp x4, x5, [x18, 0x20]
-    ;ldp x6, x7, [x18, 0x30]
-    ;ldp x8, x9, [x18, 0x40]
-    ;ldp x10, x11, [x18, 0x50]
-    ;ldp x12, x13, [x18, 0x60]
-    ;ldp x14, x15, [x18, 0x70]
-    ;ldp x16, x17, [x18, 0x80]
-    ;ldr x19, [x18, 0x98]
-    ;ldp x20, x21, [x18, 0xa0]
-    ;ldp x22, x23, [x18, 0xb0]
-    ;ldp x24, x25, [x18, 0xc0]
-    ;ldp x26, x27, [x18, 0xd0]
-    ;ldp x28, x29, [x18, 0xe0]
-    ;ldr x30, [x18, 0xf0]
-    ;ldr x18, [x18, 0x100]       ; pc
-    ;brk 0
+    mov w9, 0
+    add x10, x10, w9, lsl 2
+
+search1:
+    ldr w11, [x10]
+    cmp x11, x1
+    b.eq intercept
+    add w9, w9, 1
+    cmp w9, CALL_LIST_MAX 
+    b.gt do_not_intercept
+    add x10, x10, w9, lsl 2
+    b search1
+
+do_not_intercept:
+    mov x0, 0
+    ret
+
+intercept:
+    mov x0, 1
+    ret

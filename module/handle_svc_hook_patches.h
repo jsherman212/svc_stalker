@@ -28,56 +28,73 @@ WRITE_INSTR(0xd63f0260); /* 0xfffffff0156b72a8    blr	x19                       
 WRITE_INSTR(0xb90153e0); /* 0xfffffff0156b72ac    str	w0, [sp, #0x150]          */ \
 WRITE_INSTR(0x2a0003e1); /* 0xfffffff0156b72b0    mov	w1, w0                    */ \
 WRITE_INSTR(0xf940bbe0); /* 0xfffffff0156b72b4    ldr	x0, [sp, #0x170]          */ \
-WRITE_INSTR(0x9400001d); /* 0xfffffff0156b72b8    bl	_pid_in_table              */ \
+WRITE_INSTR(0x94000019); /* 0xfffffff0156b72b8    bl	_stalker_ctl_from_table    */ \
 WRITE_INSTR(0xf100001f); /* 0xfffffff0156b72bc    cmp	x0, #0x0                  */ \
-WRITE_INSTR(0x54000260); /* 0xfffffff0156b72c0    b.eq	done                     */ \
+WRITE_INSTR(0x540001e0); /* 0xfffffff0156b72c0    b.eq	done                     */ \
 WRITE_INSTR(0xf940b7f3); /* 0xfffffff0156b72c4    ldr	x19, [sp, #0x168]         */ \
-WRITE_INSTR(0xf9404673); /* 0xfffffff0156b72c8    ldr	x19, [x19, #0x88]         */ \
-WRITE_INSTR(0xf1000a7f); /* 0xfffffff0156b72cc    cmp	x19, #0x2                 */ \
-WRITE_INSTR(0x540000c0); /* 0xfffffff0156b72d0    b.eq	send_exc_msg             */ \
-WRITE_INSTR(0xf100527f); /* 0xfffffff0156b72d4    cmp	x19, #0x14                */ \
-WRITE_INSTR(0x54000080); /* 0xfffffff0156b72d8    b.eq	send_exc_msg             */ \
-WRITE_INSTR(0xf100127f); /* 0xfffffff0156b72dc    cmp	x19, #0x4                 */ \
-WRITE_INSTR(0x54000040); /* 0xfffffff0156b72e0    b.eq	send_exc_msg             */ \
-WRITE_INSTR(0x1400000a); /* 0xfffffff0156b72e4    b	done                        */ \
+WRITE_INSTR(0xf9404661); /* 0xfffffff0156b72c8    ldr	x1, [x19, #0x88]          */ \
+WRITE_INSTR(0x94000025); /* 0xfffffff0156b72cc    bl	_should_intercept_syscall  */ \
+WRITE_INSTR(0xf100001f); /* 0xfffffff0156b72d0    cmp	x0, #0x0                  */ \
+WRITE_INSTR(0x54000140); /* 0xfffffff0156b72d4    b.eq	done                     */ \
 /*                                           send_exc_msg:                      */ \
-WRITE_INSTR(0xd2800160); /* 0xfffffff0156b72e8    mov	x0, #0xb                  */ \
-WRITE_INSTR(0xf940b7e1); /* 0xfffffff0156b72ec    ldr	x1, [sp, #0x168]          */ \
-WRITE_INSTR(0xf9404421); /* 0xfffffff0156b72f0    ldr	x1, [x1, #0x88]           */ \
-WRITE_INSTR(0xf900b3e1); /* 0xfffffff0156b72f4    str	x1, [sp, #0x160]          */ \
-WRITE_INSTR(0xf900b7ff); /* 0xfffffff0156b72f8    str	xzr, [sp, #0x168]         */ \
-WRITE_INSTR(0x910583e1); /* 0xfffffff0156b72fc    add	x1, sp, #0x160            */ \
-WRITE_INSTR(0x52800042); /* 0xfffffff0156b7300    mov	w2, #0x2                  */ \
-WRITE_INSTR(0xf940c7f3); /* 0xfffffff0156b7304    ldr	x19, [sp, #0x188]         */ \
-WRITE_INSTR(0xd63f0260); /* 0xfffffff0156b7308    blr	x19                       */ \
+WRITE_INSTR(0xd2800160); /* 0xfffffff0156b72d8    mov	x0, #0xb                  */ \
+WRITE_INSTR(0xf940b7e1); /* 0xfffffff0156b72dc    ldr	x1, [sp, #0x168]          */ \
+WRITE_INSTR(0xf9404421); /* 0xfffffff0156b72e0    ldr	x1, [x1, #0x88]           */ \
+WRITE_INSTR(0xf900b3e1); /* 0xfffffff0156b72e4    str	x1, [sp, #0x160]          */ \
+WRITE_INSTR(0xf900b7ff); /* 0xfffffff0156b72e8    str	xzr, [sp, #0x168]         */ \
+WRITE_INSTR(0x910583e1); /* 0xfffffff0156b72ec    add	x1, sp, #0x160            */ \
+WRITE_INSTR(0x52800042); /* 0xfffffff0156b72f0    mov	w2, #0x2                  */ \
+WRITE_INSTR(0xf940c7f3); /* 0xfffffff0156b72f4    ldr	x19, [sp, #0x188]         */ \
+WRITE_INSTR(0xd63f0260); /* 0xfffffff0156b72f8    blr	x19                       */ \
 /*                                           done:                              */ \
-WRITE_INSTR(0xa95f7bfd); /* 0xfffffff0156b730c    ldp	x29, x30, [sp, #0x1f0]    */ \
-WRITE_INSTR(0xa95e4ff4); /* 0xfffffff0156b7310    ldp	x20, x19, [sp, #0x1e0]    */ \
-WRITE_INSTR(0xa95d57f6); /* 0xfffffff0156b7314    ldp	x22, x21, [sp, #0x1d0]    */ \
-WRITE_INSTR(0xa95c5ff8); /* 0xfffffff0156b7318    ldp	x24, x23, [sp, #0x1c0]    */ \
-WRITE_INSTR(0xa95b67fa); /* 0xfffffff0156b731c    ldp	x26, x25, [sp, #0x1b0]    */ \
-WRITE_INSTR(0xa95a6ffc); /* 0xfffffff0156b7320    ldp	x28, x27, [sp, #0x1a0]    */ \
-WRITE_INSTR(0x910803ff); /* 0xfffffff0156b7324    add	sp, sp, #0x200            */ \
-WRITE_INSTR(0xd65f03c0); /* 0xfffffff0156b7328    ret                           */ \
-/*                                           _pid_in_table:                     */ \
-WRITE_INSTR(0xb9400009); /* 0xfffffff0156b732c    ldr	w9, [x0]                  */ \
-WRITE_INSTR(0x7100013f); /* 0xfffffff0156b7330    cmp	w9, #0x0                  */ \
-WRITE_INSTR(0x54000160); /* 0xfffffff0156b7334    b.eq	not_found                */ \
-WRITE_INSTR(0x5280002a); /* 0xfffffff0156b7338    mov	w10, #0x1                 */ \
-WRITE_INSTR(0x8b2a680b); /* 0xfffffff0156b733c    add	x11, x0, x10, uxtx #2     */ \
-/*                                           search:                            */ \
-WRITE_INSTR(0xb940016c); /* 0xfffffff0156b7340    ldr	w12, [x11]                */ \
-WRITE_INSTR(0x6b01019f); /* 0xfffffff0156b7344    cmp	w12, w1                   */ \
-WRITE_INSTR(0x54000100); /* 0xfffffff0156b7348    b.eq	found                    */ \
-WRITE_INSTR(0x1100054a); /* 0xfffffff0156b734c    add	w10, w10, #0x1            */ \
-WRITE_INSTR(0x713ffd5f); /* 0xfffffff0156b7350    cmp	w10, #0xfff               */ \
-WRITE_INSTR(0x5400006c); /* 0xfffffff0156b7354    b.gt	not_found                */ \
-WRITE_INSTR(0x8b2a680b); /* 0xfffffff0156b7358    add	x11, x0, x10, uxtx #2     */ \
-WRITE_INSTR(0x17fffff9); /* 0xfffffff0156b735c    b	search                      */ \
-/*                                           not_found:                         */ \
-WRITE_INSTR(0xd2800000); /* 0xfffffff0156b7360    mov	x0, #0x0                  */ \
-WRITE_INSTR(0xd65f03c0); /* 0xfffffff0156b7364    ret                           */ \
-/*                                           found:                             */ \
-WRITE_INSTR(0xd2800020); /* 0xfffffff0156b7368    mov	x0, #0x1                  */ \
-WRITE_INSTR(0xd65f03c0); /* 0xfffffff0156b736c    ret                           */ 
+WRITE_INSTR(0xa95f7bfd); /* 0xfffffff0156b72fc    ldp	x29, x30, [sp, #0x1f0]    */ \
+WRITE_INSTR(0xa95e4ff4); /* 0xfffffff0156b7300    ldp	x20, x19, [sp, #0x1e0]    */ \
+WRITE_INSTR(0xa95d57f6); /* 0xfffffff0156b7304    ldp	x22, x21, [sp, #0x1d0]    */ \
+WRITE_INSTR(0xa95c5ff8); /* 0xfffffff0156b7308    ldp	x24, x23, [sp, #0x1c0]    */ \
+WRITE_INSTR(0xa95b67fa); /* 0xfffffff0156b730c    ldp	x26, x25, [sp, #0x1b0]    */ \
+WRITE_INSTR(0xa95a6ffc); /* 0xfffffff0156b7310    ldp	x28, x27, [sp, #0x1a0]    */ \
+WRITE_INSTR(0x910803ff); /* 0xfffffff0156b7314    add	sp, sp, #0x200            */ \
+WRITE_INSTR(0xd65f03c0); /* 0xfffffff0156b7318    ret                           */ \
+/*                                           _stalker_ctl_from_table:           */ \
+WRITE_INSTR(0xb9400009); /* 0xfffffff0156b731c    ldr	w9, [x0]                  */ \
+WRITE_INSTR(0x7100013f); /* 0xfffffff0156b7320    cmp	w9, #0x0                  */ \
+WRITE_INSTR(0x54000160); /* 0xfffffff0156b7324    b.eq	not_found0               */ \
+WRITE_INSTR(0x5280002a); /* 0xfffffff0156b7328    mov	w10, #0x1                 */ \
+WRITE_INSTR(0x8b2a700b); /* 0xfffffff0156b732c    add	x11, x0, x10, uxtx #4     */ \
+/*                                           search0:                           */ \
+WRITE_INSTR(0xb940056c); /* 0xfffffff0156b7330    ldr	w12, [x11, #0x4]          */ \
+WRITE_INSTR(0x6b01019f); /* 0xfffffff0156b7334    cmp	w12, w1                   */ \
+WRITE_INSTR(0x54000100); /* 0xfffffff0156b7338    b.eq	found0                   */ \
+WRITE_INSTR(0x1100054a); /* 0xfffffff0156b733c    add	w10, w10, #0x1            */ \
+WRITE_INSTR(0x710ffd5f); /* 0xfffffff0156b7340    cmp	w10, #0x3ff               */ \
+WRITE_INSTR(0x5400006c); /* 0xfffffff0156b7344    b.gt	not_found0               */ \
+WRITE_INSTR(0x8b2a700b); /* 0xfffffff0156b7348    add	x11, x0, x10, uxtx #4     */ \
+WRITE_INSTR(0x17fffff9); /* 0xfffffff0156b734c    b	search0                     */ \
+/*                                           not_found0:                        */ \
+WRITE_INSTR(0xd2800000); /* 0xfffffff0156b7350    mov	x0, #0x0                  */ \
+WRITE_INSTR(0xd65f03c0); /* 0xfffffff0156b7354    ret                           */ \
+/*                                           found0:                            */ \
+WRITE_INSTR(0xaa0b03e0); /* 0xfffffff0156b7358    mov	x0, x11                   */ \
+WRITE_INSTR(0xd65f03c0); /* 0xfffffff0156b735c    ret                           */ \
+/*                                           _should_intercept_syscall:         */ \
+WRITE_INSTR(0xf940040a); /* 0xfffffff0156b7360    ldr	x10, [x0, #0x8]           */ \
+WRITE_INSTR(0xf100015f); /* 0xfffffff0156b7364    cmp	x10, #0x0                 */ \
+WRITE_INSTR(0x54000160); /* 0xfffffff0156b7368    b.eq	do_not_intercept         */ \
+WRITE_INSTR(0x52800009); /* 0xfffffff0156b736c    mov	w9, #0x0                  */ \
+WRITE_INSTR(0x8b29694a); /* 0xfffffff0156b7370    add	x10, x10, x9, uxtx #2     */ \
+/*                                           search1:                           */ \
+WRITE_INSTR(0xb940014b); /* 0xfffffff0156b7374    ldr	w11, [x10]                */ \
+WRITE_INSTR(0xeb01017f); /* 0xfffffff0156b7378    cmp	x11, x1                   */ \
+WRITE_INSTR(0x54000100); /* 0xfffffff0156b737c    b.eq	intercept                */ \
+WRITE_INSTR(0x11000529); /* 0xfffffff0156b7380    add	w9, w9, #0x1              */ \
+WRITE_INSTR(0x710fa13f); /* 0xfffffff0156b7384    cmp	w9, #0x3e8                */ \
+WRITE_INSTR(0x5400006c); /* 0xfffffff0156b7388    b.gt	do_not_intercept         */ \
+WRITE_INSTR(0x8b29694a); /* 0xfffffff0156b738c    add	x10, x10, x9, uxtx #2     */ \
+WRITE_INSTR(0x17fffff9); /* 0xfffffff0156b7390    b	search1                     */ \
+/*                                           do_not_intercept:                  */ \
+WRITE_INSTR(0xd2800000); /* 0xfffffff0156b7394    mov	x0, #0x0                  */ \
+WRITE_INSTR(0xd65f03c0); /* 0xfffffff0156b7398    ret                           */ \
+/*                                           intercept:                         */ \
+WRITE_INSTR(0xd2800020); /* 0xfffffff0156b739c    mov	x0, #0x1                  */ \
+WRITE_INSTR(0xd65f03c0); /* 0xfffffff0156b73a0    ret                           */ 
 #endif

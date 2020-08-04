@@ -26,8 +26,8 @@ _main:
 
     adr x22, CACHE_START
     ;str x22, [sp, OFFSET_CACHE_PTR]
-    ldr x23, [x22, PID_TABLE_CACHEOFF]
-    str x23, [sp, PID_TABLE_PTR]
+    ldr x23, [x22, STALKER_TABLE_CACHEOFF]
+    str x23, [sp, STALKER_TABLE_PTR]
     ldr x23, [x22, IOLOG_FPTR_CACHEOFF]
     str x23, [sp, IOLOG_FPTR]
     ldr x23, [x22, IOMALLOC_FPTR_CACHEOFF]
@@ -44,8 +44,8 @@ _main:
     cmp w22, 0
     b.lt maybebadpid
 
-    ldr x22, [sp, PID_TABLE_PTR]
-    ldr w23, [x22, PID_TABLE_NUM_PIDS_OFF]
+    ldr x22, [sp, STALKER_TABLE_PTR]
+    ldr w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
     cmp w23, MAX_SIMULTANEOUS_PIDS
     b.ge fulltable
     
@@ -61,7 +61,7 @@ fulltable:
     ; they're deleting a PID. fall through
 
 remove_pid:
-    ldr x0, [sp, PID_TABLE_PTR]
+    ldr x0, [sp, STALKER_TABLE_PTR]
     ldr w1, [x20]
     bl _get_slot_ptr_for_pid
     cmp x0, 0
@@ -72,15 +72,15 @@ remove_pid:
     str w1, [x0]
     ;brk 0
     ; decrement table size
-    ldr x22, [sp, PID_TABLE_PTR]
-    ldr w23, [x22, PID_TABLE_NUM_PIDS_OFF]
+    ldr x22, [sp, STALKER_TABLE_PTR]
+    ldr w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
     sub w23, w23, 1
-    str w23, [x22, PID_TABLE_NUM_PIDS_OFF]
+    str w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
 
     b success 
 
 add_pid:
-    ldr x0, [sp, PID_TABLE_PTR]
+    ldr x0, [sp, STALKER_TABLE_PTR]
     ldr w1, [x20]
     ;ldr w2, [x0]
     ;brk 0
@@ -89,7 +89,7 @@ add_pid:
     cmp x0, 0
     b.ne success
 
-    ldr x0, [sp, PID_TABLE_PTR]
+    ldr x0, [sp, STALKER_TABLE_PTR]
     bl _get_nearest_empty_slot
     ; we've already checked if the table is full
 
@@ -100,12 +100,12 @@ add_pid:
     ;brk 0
     
     ; increment table size
-    ldr x22, [sp, PID_TABLE_PTR]
-    ldr w23, [x22, PID_TABLE_NUM_PIDS_OFF]
+    ldr x22, [sp, STALKER_TABLE_PTR]
+    ldr w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
     add w23, w23, 1
-    str w23, [x22, PID_TABLE_NUM_PIDS_OFF]
+    str w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
 
-    ;ldr x0, [sp, PID_TABLE_PTR]
+    ;ldr x0, [sp, STALKER_TABLE_PTR]
     ;ldr w1, [x0]
     ;ldr w2, [x0, 4]
     ;brk 0
@@ -151,7 +151,7 @@ done:
 ;
 ; returns: a pointer if the PID is found, otherwise NULL
 _get_slot_ptr_for_pid:
-    ldr w12, [x0, PID_TABLE_NUM_PIDS_OFF]
+    ldr w12, [x0, STALKER_TABLE_NUM_PIDS_OFF]
     cmp w12, 0
     b.eq not_found 
 

@@ -1,13 +1,14 @@
 # svc_stalker
 
 svc_stalker is a pongoOS module which hooks XNU's `handle_svc` to
-call `exception_triage`, sending a Mach exception message to
-userland exception ports. This message is sent before the system call happens,
-so you're free to view/modify registers inside your exception handler
+call `exception_triage`, sending a mach exception message to
+userland exception ports. This message is sent before the system call/mach trap
+happens, so you're free to view/modify registers inside your exception handler
 before returning from it & giving control back to the kernel to carry out the
-system call.
+system call/mach trap.
 
 Requires `libusb`: `brew install libusb`
+
 Requires `perl`: `brew install perl`
 
 ## Building
@@ -39,7 +40,7 @@ For `PID_MANAGE`, `arg2` controls whether or not system calls are intercepted
 for the `pid` argument. `arg3` is ignored. If `arg2` is non-zero, system calls
 will be intercepted for `pid`. Otherwise, system calls won't be intercepted
 for `pid`. **You can check if whatever system call svc_stalker's patchfinder
-decided to patch to `svc_stalker_ctl` by doing
+decided to patch to `svc_stalker_ctl` was successfully patched by doing
 `syscall(<patched syscall num>, -1, PID_MANAGE, 0, 0);`. 
 If it has been patched correctly, it will return 999. `arg2` and `arg3` don't matter
 in this case.** If `pid` doesn't make sense, and if you aren't checking
@@ -59,9 +60,12 @@ if `svc_stalker_ctl` was patched successfully.
 `module/svc_stalker_ctl.s` implements `svc_stalker_ctl`. Please look in the
 `example` directory for more usage.
 
+**A maximum of 1023 processes can have their system calls be intercepted
+simultaneously.**
+
 **You need to register exception ports for your process before you enable
 system call interception for it.** The `handle_svc` hook doesn't check if
-you've done this. The reason is to save space.
+you've done this to save space.
 
 Ideally, I'd have as much space as I need to write `svc_stalker_ctl` and
 the `handle_svc` hook. Unfortunately, I have no way of marking memory returned by

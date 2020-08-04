@@ -180,7 +180,7 @@ int main(int argc, char **argv, const char **envp){
     /* getchar(); */
 
     // XXX this may cause problems!!
-    usleep(200 * 1000);
+    usleep(1000 * 1000);
 
     err = pongo_send_command(pongo_device, "bootx\n");
 
