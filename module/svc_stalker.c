@@ -379,7 +379,11 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         return false;
     }
 
-    *pid_table = -1;
+    /* XXX is this needed? */ 
+    for(int i=0; i<pid_table_maxelems; i++)
+        pid_table[i] = 0;
+
+    /* *pid_table = -1; */
 
     /* stash these pointers so we have them after xnu boot */
     // XXX XXX XXX add kernel_slide?
@@ -400,6 +404,10 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
      * to patch the sysent entry
      */
     WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(xnu_ptr_to_va(pid_table));
+
+    /* iphone 8 13.6 */
+    uint64_t IOLog_addr = 0xFFFFFFF008134654 + kernel_slide;
+    WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(IOLog_addr);
 
     /* now we need to find the first enosys entry in sysent to patch
      * our syscall in.
@@ -538,10 +546,11 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     IMPORTANT_MSG("");
     IMPORTANT_MSG("ERRORS");
     IMPORTANT_MSG(" EINVAL");
-    IMPORTANT_MSG("   `pid` did not make sense.");
-    IMPORTANT_MSG(" ENOSUP");
+    IMPORTANT_MSG("   `pid` did not make sense,");
     IMPORTANT_MSG("   4095 processes are already");
-    IMPORTANT_MSG("   simultaneously being watched.");
+    IMPORTANT_MSG("   simultaneously being watched,");
+    IMPORTANT_MSG("   or `pid` wasn't already being");
+    IMPORTANT_MSG("   watched before being disabled.");
     IMPORTANT_MSG("");
     printf("* You can check if system call %#x\n", patched_syscall_num);
     IMPORTANT_MSG("was successfully patched by");
