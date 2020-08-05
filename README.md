@@ -7,6 +7,9 @@ happens, so you're free to view/modify registers inside your exception handler
 before returning from it & giving control back to the kernel to carry out the
 system call/mach trap.
 
+The system call/mach trap number is placed in code[0] of the exception
+message sent for convenience.
+
 Requires `libusb`: `brew install libusb`
 
 Requires `perl`: `brew install perl`

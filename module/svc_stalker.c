@@ -165,7 +165,33 @@ static bool sysent_finder(xnu_pf_patch_t *patch,
 static bool kalloc_canblock_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
+    /* puts("inside kalloc_canblock_finder"); */
 
+    /* if we're in the right place, we should find kalloc_canblock's prologue
+     * no more than 10 instructions before
+     *
+     * looking for sub sp, sp, n
+     */
+    uint32_t instr_limit = 10;
+
+    while((*opcode_stream & 0xffc003ff) != 0xd10003ff){
+        if(instr_limit-- == 0){
+            puts("svc_stalker: kalloc_canblock_finder: couldn't find kalloc_canblock");
+            return false;
+        }
+
+        opcode_stream--;
+    }
+
+    xnu_pf_disable_patch(patch);
+
+    puts("svc_stalker: found kalloc_canblock");
+    g_kalloc_canblock_addr = xnu_ptr_to_va(opcode_stream);
+    /* print_register(g_kalloc_canblock_addr); */
+
+    /* for(int i=0; i<10; i++){ */
+    /*     print_register(opcode_stream[i]); */
+    /* } */
 
     return true;
 }
@@ -208,7 +234,7 @@ static bool kfree_addr_finder(xnu_pf_patch_t *patch,
 
     puts("svc_stalker: found kfree_addr");
     g_kfree_addr_addr = xnu_ptr_to_va(opcode_stream);
-    print_register(g_kfree_addr_addr);
+    /* print_register(g_kfree_addr_addr); */
     /* for(int i=0; i<10; i++){ */
     /*     print_register(opcode_stream[i]); */
     /* } */
@@ -514,7 +540,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
      */
     DO_HANDLE_SVC_HOOK_PATCHES;
 
-    /* write the pid table pointer so the patched syscall can get it easily
+    /* write the stalker table pointer so the patched syscall can get it easily
      *
      * needs to be here so opcode_stream points after this when we go
      * to patch the sysent entry
@@ -530,6 +556,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
     WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(g_kalloc_canblock_addr);
     WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(g_kfree_addr_addr);
+
+    // XXX
+    /* return true; */
 
     /* now we need to find the first enosys entry in sysent to patch
      * our syscall in.
@@ -757,20 +786,26 @@ static void stalker_apply_patches(const char *cmd, char *args){
     xnu_pf_apply(__TEXT_EXEC, patchset);
 
     uint64_t kalloc_canblock_match[] = {
-
+        0xaa0003f3,     /* MOV X19, X0 */
+        0xf90003ff,     /* STR XZR, [SP, n] */
+        0xf9400000,     /* LDR Xn, [Xn] */
+        0xf11fbc1f,     /* CMP Xn, 0x7ef */
     };
 
     const size_t num_kalloc_canblock_matches = sizeof(kalloc_canblock_match) /
         sizeof(*kalloc_canblock_match);
 
     uint64_t kalloc_canblock_masks[] = {
-
+        0xffffffff,     /* match exactly */
+        0xffc003ff,     /* ignore immediate */
+        0xffc00000,     /* ignore immediate, Rn, and Rt */
+        0xfffffc1f,     /* ignore Rn */
     };
 
-    /* xnu_pf_maskmatch(patchset, kalloc_canblock_match, kalloc_canblock_masks, */
-    /*         num_kalloc_canblock_matches, false, // XXX for testing, */
-    /*         kalloc_canblock_finder); */
-    /* xnu_pf_apply(__TEXT_EXEC, patchset); */
+    xnu_pf_maskmatch(patchset, kalloc_canblock_match, kalloc_canblock_masks,
+            num_kalloc_canblock_matches, false, // XXX for testing,
+            kalloc_canblock_finder);
+    xnu_pf_apply(__TEXT_EXEC, patchset);
 
     uint64_t kfree_addr_match[] = {
         0xf90003f3,     /* STR X19, [SP] */
@@ -805,13 +840,11 @@ static void stalker_apply_patches(const char *cmd, char *args){
         0xffffffe0,     /* ignore Wn in MOV */
     };
 
-    /* sleep(1); */
-
     xnu_pf_maskmatch(patchset, sleh_synchronous_patcher_match,
             sleh_synchronous_patcher_masks, num_ss_matches, false, // XXX for testing
             sleh_synchronous_patcher);
     xnu_pf_apply(__TEXT_EXEC, patchset);
-    /* xnu_pf_emit(patchset); */
+
     xnu_pf_patchset_destroy(patchset);
 
     puts("------stalker_apply_patches DONE------");
@@ -820,14 +853,8 @@ static void stalker_apply_patches(const char *cmd, char *args){
 static void stalker_preboot_hook(void){
     puts("inside stalker_preboot_hook");
 
-    /* ramdisk_size = 0; */
     if(next_preboot_hook)
         next_preboot_hook();
-
-    /* stalker_apply_patches(); */
-
-    /* puts("spinning forever"); */
-    /* for(;;); */
 }
 
 void module_entry(void){
