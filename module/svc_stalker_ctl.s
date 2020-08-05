@@ -89,8 +89,30 @@ add_pid:
     b success
 
 delete_pid:
+    ; get stalker_ctl pointer for this pid
+    ldr x0, [sp, STALKER_TABLE_PTR]
+    mov w1, w22
+    bl _stalker_ctl_from_table
+    ; can't delete something that doesn't exist
+    cmp x0, 0
+    b.eq out_einval
+    ; at this point we have the stalker_ctl entry that belongs to pid
+    ; it's now free
+    mov w22, 1
+    str w22, [x0, STALKER_CTL_FREE_OFF]
+    ; it belongs to no pids
+    str wzr, [x0, STALKER_CTL_PID_OFF]
 
+    ; free call_list if it isn't NULL
+    ldr x22, [x0, STALKER_CTL_CALL_LIST_OFF]
+    cmp x22, 0
+    b.eq success
 
+    mov x23, x0
+    mov x0, x22
+    ldr x22, [sp, KFREE_ADDR_FPTR]
+    blr x22
+    str xzr, [x23, STALKER_CTL_CALL_LIST_OFF]
     b success
 
 syscall_manage:
