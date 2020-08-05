@@ -646,11 +646,11 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
             /* this syscall will return an integer */
             *(int32_t *)(sysent_to_patch + 0x10) = 1; /* _SYSCALL_RET_INT_T */
 
-            /* this syscall has two arguments, `pid` and `enable` */
-            *(int16_t *)(sysent_to_patch + 0x14) = 2;
+            /* this syscall has four arguments */
+            *(int16_t *)(sysent_to_patch + 0x14) = 4;
 
-            /* two integer arguments, so arguments total eight bytes */
-            *(uint16_t *)(sysent_to_patch + 0x16) = 8;                
+            /* four integer arguments, so arguments total sixteen bytes */
+            *(uint16_t *)(sysent_to_patch + 0x16) = 0x10;
 
             break;
         }
@@ -724,9 +724,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
 
     // XXX commenting out for testing
-    /* write_blr(8, branch_from, last_TEXT_EXEC_sect_end + handle_svc_hook_cache_size); */
+    write_blr(8, branch_from, last_TEXT_EXEC_sect_end + handle_svc_hook_cache_size);
     /* there's an extra B.NE after the five instrs we overwrote, so NOP it out */
-    /* *(uint32_t *)(branch_from + (4*5)) = 0xd503201f; */
+    *(uint32_t *)(branch_from + (4*5)) = 0xd503201f;
 
     return true;
 }

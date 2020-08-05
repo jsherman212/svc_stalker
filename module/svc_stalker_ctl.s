@@ -75,6 +75,7 @@ add_pid:
     bl _get_nearest_free_stalker_ctl
     ; table at capacity?
     cmp x0, 0
+    ;brk 0
     b.eq out_einval
     ; at this point, we have a free stalker_ctl entry
     ; it's no longer free
@@ -86,6 +87,12 @@ add_pid:
     ; call_list is freed/NULL'ed out upon deletion, no need to do anything
     ; with it until the user adds a system call to intercept
 
+    ; increment stalker table size
+    ldr x22, [sp, STALKER_TABLE_PTR]
+    ldr w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
+    add w23, w23, 1
+    str w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
+
     b success
 
 delete_pid:
@@ -94,6 +101,7 @@ delete_pid:
     mov w1, w22
     bl _stalker_ctl_from_table
     ; can't delete something that doesn't exist
+    ;brk 0
     cmp x0, 0
     b.eq out_einval
     ; at this point we have the stalker_ctl entry that belongs to pid
@@ -102,6 +110,12 @@ delete_pid:
     str w22, [x0, STALKER_CTL_FREE_OFF]
     ; it belongs to no pids
     str wzr, [x0, STALKER_CTL_PID_OFF]
+
+    ; decrement stalker table size
+    ldr x22, [sp, STALKER_TABLE_PTR]
+    ldr w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
+    sub w23, w23, 1
+    str w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
 
     ; free call_list if it isn't NULL
     ldr x22, [x0, STALKER_CTL_CALL_LIST_OFF]
@@ -119,9 +133,10 @@ delete_pid:
 syscall_manage:
     ; get stalker_ctl pointer for this pid
     ldr x0, [sp, STALKER_TABLE_PTR]
-    mov w1, w22
+    ldr w1, [x20, PID_ARG]
     bl _stalker_ctl_from_table
     ; pid hasn't been added to stalker list?
+    ;brk 0
     cmp x0, 0
     b.eq out_einval
     ; at this point we have the stalker_ctl entry that belongs to pid

@@ -35,6 +35,10 @@
 #define CUR_STALKER_CTL             (STACK-0xb0)
 
 /* stalker table stuff */
+#define STALKER_TABLE_MAX           (1023)
+#define STALKER_TABLE_FREE_SLOT     (0x0)
+#define STALKER_TABLE_NUM_PIDS_OFF  (0x0)
+
 /* struct stalker_ctl {
  *       is this entry not being used?
  *     uint32_t free;
@@ -51,10 +55,6 @@
  *
  * sizeof(struct stalker_ctl) = 0x10
  */
-#define STALKER_TABLE_MAX           (1023)
-#define STALKER_TABLE_FREE_SLOT     (0x0)
-#define STALKER_TABLE_NUM_PIDS_OFF  (0x0)
-
 #define STALKER_CTL_FREE_OFF        (0x0)
 #define STALKER_CTL_PID_OFF         (0x4)
 #define STALKER_CTL_CALL_LIST_OFF   (0x8)

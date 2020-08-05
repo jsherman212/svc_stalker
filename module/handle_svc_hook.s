@@ -146,21 +146,22 @@ found0:
 ;   0 otherwise
 _should_intercept_syscall:
     ; empty system call list for this stalker_ctl struct pointer?
-    ldr x10, [x0, STALKER_CTL_CALL_LIST_OFF]
-    cmp x10, 0
+    ldr x0, [x0, STALKER_CTL_CALL_LIST_OFF]
+    cmp x0, 0
     b.eq do_not_intercept
 
     mov w9, 0
-    add x10, x10, w9, lsl 3
+    mov x10, x0
+    ;add x10, x10, w9, lsl 3
 
 search1:
-    ldr w11, [x10]
+    ldr x11, [x10]
     cmp x11, x1
     b.eq intercept
     add w9, w9, 1
     cmp w9, CALL_LIST_MAX 
     b.ge do_not_intercept
-    add x10, x10, w9, lsl 3
+    add x10, x0, w9, lsl 3
     b search1
 
 do_not_intercept:

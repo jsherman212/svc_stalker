@@ -67,6 +67,9 @@ if `svc_stalker_ctl` was patched successfully.
 `module/svc_stalker_ctl.s` implements `svc_stalker_ctl`. Please look in the
 `example` directory for more usage.
 
+**FOR ANY PID YOU REGISTER FOR SYSTEM CALL/MACH TRAP INTERCEPTION, YOU MUST
+ALSO UN-REGISTER WHEN YOU ARE DONE.**
+
 **A maximum of 1023 processes can have their system calls be intercepted
 simultaneously.** If you try and intercept system calls for a 1024th process,
 `-1` is returned and `errno` is set to `EINVAL`.

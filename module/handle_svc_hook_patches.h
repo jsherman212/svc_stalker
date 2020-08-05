@@ -76,19 +76,19 @@ WRITE_INSTR(0xd65f03c0); /* 0xfffffff0156b7354    ret                           
 WRITE_INSTR(0xaa0b03e0); /* 0xfffffff0156b7358    mov	x0, x11                   */ \
 WRITE_INSTR(0xd65f03c0); /* 0xfffffff0156b735c    ret                           */ \
 /*                                           _should_intercept_syscall:         */ \
-WRITE_INSTR(0xf940040a); /* 0xfffffff0156b7360    ldr	x10, [x0, #0x8]           */ \
-WRITE_INSTR(0xf100015f); /* 0xfffffff0156b7364    cmp	x10, #0x0                 */ \
+WRITE_INSTR(0xf9400400); /* 0xfffffff0156b7360    ldr	x0, [x0, #0x8]            */ \
+WRITE_INSTR(0xf100001f); /* 0xfffffff0156b7364    cmp	x0, #0x0                  */ \
 WRITE_INSTR(0x54000160); /* 0xfffffff0156b7368    b.eq	do_not_intercept         */ \
 WRITE_INSTR(0x52800009); /* 0xfffffff0156b736c    mov	w9, #0x0                  */ \
-WRITE_INSTR(0x8b296d4a); /* 0xfffffff0156b7370    add	x10, x10, x9, uxtx #3     */ \
+WRITE_INSTR(0xaa0003ea); /* 0xfffffff0156b7370    mov	x10, x0                   */ \
 /*                                           search1:                           */ \
-WRITE_INSTR(0xb940014b); /* 0xfffffff0156b7374    ldr	w11, [x10]                */ \
+WRITE_INSTR(0xf940014b); /* 0xfffffff0156b7374    ldr	x11, [x10]                */ \
 WRITE_INSTR(0xeb01017f); /* 0xfffffff0156b7378    cmp	x11, x1                   */ \
 WRITE_INSTR(0x54000100); /* 0xfffffff0156b737c    b.eq	intercept                */ \
 WRITE_INSTR(0x11000529); /* 0xfffffff0156b7380    add	w9, w9, #0x1              */ \
 WRITE_INSTR(0x710fa13f); /* 0xfffffff0156b7384    cmp	w9, #0x3e8                */ \
 WRITE_INSTR(0x5400006a); /* 0xfffffff0156b7388    b.ge	do_not_intercept         */ \
-WRITE_INSTR(0x8b296d4a); /* 0xfffffff0156b738c    add	x10, x10, x9, uxtx #3     */ \
+WRITE_INSTR(0x8b296c0a); /* 0xfffffff0156b738c    add	x10, x0, x9, uxtx #3      */ \
 WRITE_INSTR(0x17fffff9); /* 0xfffffff0156b7390    b	search1                     */ \
 /*                                           do_not_intercept:                  */ \
 WRITE_INSTR(0xd2800000); /* 0xfffffff0156b7394    mov	x0, #0x0                  */ \
