@@ -53,6 +53,13 @@ static uint64_t get_adrp_add_va_target(uint32_t *adrpp){
         (xnu_ptr_to_va(adrpp) & ~0xfffuLL) + bits(add, 10, 21);
 }
 
+static uint64_t get_adr_va_target(uint32_t *adrp){
+    uint32_t immlo = bits(*adrp, 29, 30);
+    uint32_t immhi = bits(*adrp, 5, 23);
+
+    return sign_extend((immhi << 2) | immlo, 21) + xnu_ptr_to_va(adrp);
+}
+
 #define IS_B_NE(opcode) ((opcode & 0xff000001) == 0x54000001)
 
 static uint64_t g_proc_pid_addr = 0;
@@ -64,16 +71,12 @@ static bool proc_pid_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
 
-    /* adrp/add pair will be 2 instrs after */
-    uint32_t adrp = opcode_stream[2];
-    uint32_t add = opcode_stream[3];
-    
-    uint32_t immlo = bits(adrp, 29, 30);
-    uint32_t immhi = bits(adrp, 5, 23);
+    uint64_t imm = 0;
 
-    uint64_t imm = sign_extend(((immhi << 2) | immlo) << 12, 32) +
-        (xnu_ptr_to_va(opcode_stream + 2) & ~0xfffuLL) +
-        bits(add, 10, 21);
+    if(bits(opcode_stream[2], 31, 31) == 0)
+        imm = get_adr_va_target(opcode_stream + 2);
+    else
+        imm = get_adrp_add_va_target(opcode_stream + 2);
 
     char *string = xnu_va_to_ptr(imm);
 
@@ -84,7 +87,7 @@ static bool proc_pid_finder(xnu_pf_patch_t *patch,
     const char *match = "AMFI: hook..execve() killing pid %u:";
     size_t matchlen = strlen(match);
 
-    if(!memmem(string, strlen(string), match, matchlen))
+    if(!memmem(string, matchlen + 20, match, matchlen))
         return false;
 
     /* at this point, we've hit one of those three strings, so the branch
@@ -134,7 +137,13 @@ static bool sysent_finder(xnu_pf_patch_t *patch,
     /* make sure this is actually sysent. to do this, we can check if
      * the first entry is the indirect system call
      */
-    uint64_t addr_va = get_adrp_add_va_target(opcode_stream);
+    uint64_t addr_va = 0;
+
+    if(bits(*opcode_stream, 31, 31) == 0)
+        addr_va = get_adr_va_target(opcode_stream);
+    else
+        addr_va = get_adrp_add_va_target(opcode_stream);
+
     uint64_t maybe_sysent = (uint64_t)xnu_va_to_ptr(addr_va);
 
     if(*(uint64_t *)maybe_sysent != 0 &&
@@ -153,10 +162,65 @@ static bool sysent_finder(xnu_pf_patch_t *patch,
     return false;
 }
 
+static bool kalloc_canblock_finder(xnu_pf_patch_t *patch,
+        void *cacheable_stream){
+    uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
+
+
+    return true;
+}
+
+static bool kfree_addr_finder(xnu_pf_patch_t *patch,
+        void *cacheable_stream){
+    uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
+    uint64_t addr_va = 0;
+
+    if(bits(opcode_stream[1], 31, 31) == 0)
+        addr_va = get_adr_va_target(opcode_stream + 1);
+    else
+        addr_va = get_adrp_add_va_target(opcode_stream + 1);
+
+    char *string = xnu_va_to_ptr(addr_va);
+
+    const char *match = "kfree on an address not in the kernel";
+    size_t matchlen = strlen(match);
+
+    if(!memmem(string, matchlen + 20, match, matchlen))
+        return false;
+
+    /* at this point, we're guarenteed to be inside kfree_addr,
+     * so find the beginning of its prologue
+     *
+     * looking for sub sp, sp, n
+     */
+    uint32_t instr_limit = 200;
+
+    while((*opcode_stream & 0xffc003ff) != 0xd10003ff){
+        if(instr_limit-- == 0){
+            puts("svc_stalker: kfree_addr_finder: couldn't find kfree_addr");
+            return false;
+        }
+
+        opcode_stream--;
+    }
+
+    xnu_pf_disable_patch(patch);
+
+    puts("svc_stalker: found kfree_addr");
+    g_kfree_addr_addr = xnu_ptr_to_va(opcode_stream);
+    print_register(g_kfree_addr_addr);
+    /* for(int i=0; i<10; i++){ */
+    /*     print_register(opcode_stream[i]); */
+    /* } */
+
+
+    return true;
+}
+
 static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         void *cacheable_stream){
-    if(g_proc_pid_addr == 0 ||
-            g_sysent_addr == 0){
+    if(g_proc_pid_addr == 0 || g_sysent_addr == 0 ||
+            g_kalloc_canblock_addr == 0 || g_kfree_addr_addr == 0){
         puts("svc_stalker: error: missing offsets before we patch sleh_synchronous:");
         
         if(g_proc_pid_addr == 0)
@@ -164,6 +228,12 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
         if(g_sysent_addr == 0)
             puts("     sysent");
+
+        if(g_kalloc_canblock_addr == 0)
+            puts("     kalloc_canblock");
+
+        if(g_kfree_addr_addr == 0)
+            puts("     kfree_addr");
 
         return false;
     }
@@ -317,7 +387,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     puts("svc_stalker: found exception_triage");
     /* print_register(exception_triage_addr); */
     
-    /* we're gonna put our handle_svc hook inside of the empty space right
+    /* we're gonna put everything inside of the empty space right
      * before the end of __TEXT_EXEC that forces it to be page aligned
      */
     struct segment_command_64 *__TEXT_EXEC = macho_get_segment(mh_execute_header,
@@ -625,9 +695,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
 
     // XXX commenting out for testing
-    write_blr(8, branch_from, last_TEXT_EXEC_sect_end + handle_svc_hook_cache_size);
+    /* write_blr(8, branch_from, last_TEXT_EXEC_sect_end + handle_svc_hook_cache_size); */
     /* there's an extra B.NE after the five instrs we overwrote, so NOP it out */
-    *(uint32_t *)(branch_from + (4*5)) = 0xd503201f;
+    /* *(uint32_t *)(branch_from + (4*5)) = 0xd503201f; */
 
     return true;
 }
@@ -639,8 +709,11 @@ static void stalker_apply_patches(const char *cmd, char *args){
     uint64_t proc_pid_finder_match[] = {
         0x94000000,     /* BL n (_proc_pid) */
         0xf90003e0,     /* STR X0, [SP] (store _proc_pid return value) */
-        0x90000000,     /* ADRP X0, n (X0 = format string which uses return value) */
-        0x91000000,     /* ADD X0, X0, n */
+
+        /* ADRP X0, n or ADR X0, n
+         * (X0 = format string which uses return value)
+         */
+        0x10000000,
     };
 
     const size_t num_proc_pid_matches = sizeof(proc_pid_finder_match) /
@@ -648,23 +721,14 @@ static void stalker_apply_patches(const char *cmd, char *args){
 
     uint64_t proc_pid_finder_masks[] = {
         0xfc000000,     /* ignore BL immediate */
-        0xffffffff,
-        0x9f00001f,
-        0xffc003ff,
+        0xffffffff,     /* match exactly */
+        0x1f00001f,     /* ignore immediate */
     };
 
     struct mach_header_64 *AMFI = xnu_pf_get_kext_header(mh_execute_header,
             "com.apple.driver.AppleMobileFileIntegrity");
+
     xnu_pf_range_t *AMFI___TEXT_EXEC = xnu_pf_segment(AMFI, "__TEXT_EXEC");
-
-    /* xnu_pf_patchset_t *pp_patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT); */
-    /* xnu_pf_maskmatch(pp_patchset, proc_pid_finder_match, proc_pid_finder_masks, */
-    /*         num_proc_pid_matches, false, // XXX for testing, */
-    /*         proc_pid_finder); */
-    /* xnu_pf_apply(AMFI___TEXT_EXEC, pp_patchset); */
-    /* xnu_pf_emit(pp_patchset); */
-    /* xnu_pf_patchset_destroy(pp_patchset); */
-
     xnu_pf_maskmatch(patchset, proc_pid_finder_match, proc_pid_finder_masks,
             num_proc_pid_matches, false, // XXX for testing,
             proc_pid_finder);
@@ -673,8 +737,7 @@ static void stalker_apply_patches(const char *cmd, char *args){
     uint64_t sysent_finder_match[] = {
         0x1a803000,     /* CSEL Wn, Wn, Wn, CC */
         0x12003c00,     /* AND Wn, Wn, 0xffff */
-        0x90000000,     /* ADRP Xn, n */
-        0x91000000,     /* ADD Xn, Xn, n */
+        0x10000000,     /* ADRP Xn, n or ADR Xn, n */
     };
 
     const size_t num_sysent_matches = sizeof(sysent_finder_match) /
@@ -683,23 +746,48 @@ static void stalker_apply_patches(const char *cmd, char *args){
     uint64_t sysent_finder_masks[] = {
         0xffe0fc00,     /* ignore all but condition code */
         0xfffffc00,     /* ignore all but immediate */
-        0x9f000000,     /* ignore everything */
-        0xffc00000,     /* ignore everything */
+        0x1f000000,     /* ignore everything */
     };
 
     xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
 
-    /* xnu_pf_patchset_t *sysent_patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT); */
-    /* xnu_pf_maskmatch(sysent_patchset, sysent_finder_match, sysent_finder_masks, */
-    /*         num_sysent_matches, false, // XXX for testing, */
-    /*         sysent_finder); */
-    /* xnu_pf_apply(__TEXT_EXEC, sysent_patchset); */
-    /* xnu_pf_emit(sysent_patchset); */
-    /* xnu_pf_patchset_destroy(sysent_patchset); */
-
     xnu_pf_maskmatch(patchset, sysent_finder_match, sysent_finder_masks,
             num_sysent_matches, false, // XXX for testing,
             sysent_finder);
+    xnu_pf_apply(__TEXT_EXEC, patchset);
+
+    uint64_t kalloc_canblock_match[] = {
+
+    };
+
+    const size_t num_kalloc_canblock_matches = sizeof(kalloc_canblock_match) /
+        sizeof(*kalloc_canblock_match);
+
+    uint64_t kalloc_canblock_masks[] = {
+
+    };
+
+    /* xnu_pf_maskmatch(patchset, kalloc_canblock_match, kalloc_canblock_masks, */
+    /*         num_kalloc_canblock_matches, false, // XXX for testing, */
+    /*         kalloc_canblock_finder); */
+    /* xnu_pf_apply(__TEXT_EXEC, patchset); */
+
+    uint64_t kfree_addr_match[] = {
+        0xf90003f3,     /* STR X19, [SP] */
+        0x10000000,     /* ADRP Xn, n or ADR Xn, n */
+    };
+
+    const size_t num_kfree_addr_matches = sizeof(kfree_addr_match) /
+        sizeof(*kfree_addr_match);
+
+    uint64_t kfree_addr_masks[] = {
+        0xffffffff,     /* match exactly */
+        0x1f000000,     /* ignore everything */
+    };
+
+    xnu_pf_maskmatch(patchset, kfree_addr_match, kfree_addr_masks,
+            num_kfree_addr_matches, false, // XXX for testing,
+            kfree_addr_finder);
     xnu_pf_apply(__TEXT_EXEC, patchset);
 
     uint64_t sleh_synchronous_patcher_match[] = {
@@ -717,19 +805,13 @@ static void stalker_apply_patches(const char *cmd, char *args){
         0xffffffe0,     /* ignore Wn in MOV */
     };
 
-    /* xnu_pf_patchset_t *ss_patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT); */
-    /* xnu_pf_maskmatch(ss_patchset, sleh_synchronous_patcher_match, */
-    /*         sleh_synchronous_patcher_masks, num_ss_matches, false, // XXX for testing */
-    /*         sleh_synchronous_patcher); */
-    /* xnu_pf_apply(__TEXT_EXEC, ss_patchset); */
-    /* xnu_pf_emit(ss_patchset); */
-    /* xnu_pf_patchset_destroy(ss_patchset); */
+    /* sleep(1); */
 
     xnu_pf_maskmatch(patchset, sleh_synchronous_patcher_match,
             sleh_synchronous_patcher_masks, num_ss_matches, false, // XXX for testing
             sleh_synchronous_patcher);
     xnu_pf_apply(__TEXT_EXEC, patchset);
-    xnu_pf_emit(patchset);
+    /* xnu_pf_emit(patchset); */
     xnu_pf_patchset_destroy(patchset);
 
     puts("------stalker_apply_patches DONE------");

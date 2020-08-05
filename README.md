@@ -55,9 +55,7 @@ is not enabled for `pid`, all calls to `svc_stalker_ctl` with `SYSCALL_MANAGE`
 as `flavor` return `-1` with `errno` set to `EINVAL`. If `kalloc_canblock`
 fails for a new call list allocation, `-1` is returned and `errno` is set to
 `ENOMEM`. If you try to delete a system call which was never added, `-1` is
-returned and `errno` is set to `EINVAL`. If `arg2 == 0x4000`,
-the number that represents a free spot in the call list, `-1` is returned
-and `errno` is set to `EINVAL`. If the call list is full (which it shouldn't
+returned and `errno` is set to `EINVAL`. If the call list is full (which it shouldn't
 ever be), `-1` is returned and `errno` is set to `EINVAL`.
 
 For both `flavor` arguments, `0` is returned on success, unless you're checking
