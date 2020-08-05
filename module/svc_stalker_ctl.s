@@ -8,8 +8,6 @@
 ;
 ; Actual return value of this function gets set to errno later.
 ; retval, the second parameter, is the return value of this function.
-;
-; XXX XXX MUST DISABLE ANY PIDS THAT HAVE BEEN ENABLED BEFORE PROCESS EXIT
 _main:
     sub sp, sp, STACK
     stp x28, x27, [sp, STACK-0x60]
@@ -25,7 +23,6 @@ _main:
     mov x21, x2
 
     adr x22, CACHE_START
-    ;str x22, [sp, OFFSET_CACHE_PTR]
     ldr x23, [x22, STALKER_TABLE_CACHEOFF]
     str x23, [sp, STALKER_TABLE_PTR]
     ldr x23, [x22, IOLOG_FPTR_CACHEOFF]
@@ -75,7 +72,6 @@ add_pid:
     bl _get_nearest_free_stalker_ctl
     ; table at capacity?
     cmp x0, 0
-    ;brk 0
     b.eq out_einval
     ; at this point, we have a free stalker_ctl entry
     ; it's no longer free
@@ -101,7 +97,6 @@ delete_pid:
     mov w1, w22
     bl _stalker_ctl_from_table
     ; can't delete something that doesn't exist
-    ;brk 0
     cmp x0, 0
     b.eq out_einval
     ; at this point we have the stalker_ctl entry that belongs to pid
@@ -136,7 +131,6 @@ syscall_manage:
     ldr w1, [x20, PID_ARG]
     bl _stalker_ctl_from_table
     ; pid hasn't been added to stalker list?
-    ;brk 0
     cmp x0, 0
     b.eq out_einval
     ; at this point we have the stalker_ctl entry that belongs to pid

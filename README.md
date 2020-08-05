@@ -68,7 +68,8 @@ if `svc_stalker_ctl` was patched successfully.
 `example` directory for more usage.
 
 **FOR ANY PID YOU REGISTER FOR SYSTEM CALL/MACH TRAP INTERCEPTION, YOU MUST
-ALSO UN-REGISTER WHEN YOU ARE DONE.**
+ALSO UN-REGISTER WHEN YOU ARE DONE. Unregistering a previously-registered PID
+will free the `stalker_ctl` struct for that PID.**
 
 **A maximum of 1023 processes can have their system calls be intercepted
 simultaneously.** If you try and intercept system calls for a 1024th process,
