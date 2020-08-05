@@ -395,11 +395,11 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
      *     int32_t pid;
      *
      *       list of system call numbers to intercept & send to userland
-     *     int32_t *call_list;
+     *     int64_t *call_list;
      * };
      *
-     * Empty spots in the call list are represented by -0xffff because that
-     * doesn't represent any system call or mach trap.
+     * Empty spots in the call list are represented by 0x4000 
+     * because it doesn't represent any system call or mach trap.
      *
      * sizeof(struct stalker_ctl) = 0x10
      */

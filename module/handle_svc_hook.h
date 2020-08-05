@@ -41,6 +41,6 @@
 #define STALKER_CTL_CALL_LIST_OFF   (0x8)
 
 #define CALL_LIST_MAX               (1000)
-#define CALL_LIST_FREE_SLOT         (-0xffff)
+#define CALL_LIST_FREE_SLOT         (0x4000)
 
 #endif

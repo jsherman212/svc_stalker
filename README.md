@@ -52,7 +52,13 @@ For `SYSCALL_MANAGE`, `arg2` is a system call number, and `arg3`, if
 non-zero, adds, or if zero, deletes, `arg2` from the internally-managed list of
 system calls to intercept for the `pid` argument. If system call interception
 is not enabled for `pid`, all calls to `svc_stalker_ctl` with `SYSCALL_MANAGE`
-as `flavor` return `-1` with `errno` set to `EINVAL`.
+as `flavor` return `-1` with `errno` set to `EINVAL`. If `kalloc_canblock`
+fails for a new call list allocation, `-1` is returned and `errno` is set to
+`ENOMEM`. If you try to delete a system call which was never added, `-1` is
+returned and `errno` is set to `EINVAL`. If `arg2 == 0x4000`,
+the number that represents a free spot in the call list, `-1` is returned
+and `errno` is set to `EINVAL`. If the call list is full (which it shouldn't
+ever be), `-1` is returned and `errno` is set to `EINVAL`.
 
 For both `flavor` arguments, `0` is returned on success, unless you're checking
 if `svc_stalker_ctl` was patched successfully.

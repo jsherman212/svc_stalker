@@ -123,7 +123,7 @@ search0:
     b.eq found0
     add w10, w10, 1
     cmp w10, STALKER_TABLE_MAX
-    b.gt not_found0
+    b.ge not_found0
     add x11, x0, w10, lsl 4
     b search0
 
@@ -151,7 +151,7 @@ _should_intercept_syscall:
     b.eq do_not_intercept
 
     mov w9, 0
-    add x10, x10, w9, lsl 2
+    add x10, x10, w9, lsl 3
 
 search1:
     ldr w11, [x10]
@@ -159,8 +159,8 @@ search1:
     b.eq intercept
     add w9, w9, 1
     cmp w9, CALL_LIST_MAX 
-    b.gt do_not_intercept
-    add x10, x10, w9, lsl 2
+    b.ge do_not_intercept
+    add x10, x10, w9, lsl 3
     b search1
 
 do_not_intercept:

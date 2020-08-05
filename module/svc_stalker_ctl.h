@@ -31,6 +31,8 @@
 #define IOMALLOC_FPTR               (STACK-0x90)
 #define KALLOC_CANBLOCK_FPTR        (STACK-0x98)
 #define KFREE_ADDR_FPTR             (STACK-0xa0)
+#define CALL_LIST_KALLOC_SZ         (STACK-0xa8)
+#define CUR_STALKER_CTL             (STACK-0xb0)
 
 /* stalker table stuff */
 /* struct stalker_ctl {
@@ -41,7 +43,7 @@
  *     int32_t pid;
  *
  *       list of system call numbers to intercept & send to userland
- *     int32_t *call_list;
+ *     int64_t *call_list;
  * };
  *
  * Empty spots in the call list are represented by -0xffff because that
@@ -58,7 +60,7 @@
 #define STALKER_CTL_CALL_LIST_OFF   (0x8)
 
 #define CALL_LIST_MAX               (1000)
-#define CALL_LIST_FREE_SLOT         (-0xffff)
+#define CALL_LIST_FREE_SLOT         (0x4000)
 
 #define FREE                        (1)
 
