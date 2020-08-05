@@ -32,100 +32,81 @@ _main:
     str x23, [sp, IOLOG_FPTR]
     ldr x23, [x22, IOMALLOC_FPTR_CACHEOFF]
     str x23, [sp, IOMALLOC_FPTR]
+    ldr x23, [x22, KALLOC_CANBLOCK_FPTR_CACHEOFF]
+    str x23, [sp, KALLOC_CANBLOCK_FPTR]
+    ldr x23, [x22, KFREE_ADDR_FPTR_CACHEOFF]
+    str x23, [sp, KFREE_ADDR_FPTR]
 
-    ;ldr x9, [sp, IOMALLOC_FPTR]
-    ;mov w0, 4
-    ;blr x9
-    ;mov w1, 4
-    ;str w1, [x0]
-    ;brk 0
+    ; first, let's see if the user wants to check if this syscall was
+    ; patched correctly
+    ldr w22, [x20, FLAVOR_ARG]
+    cmp w22, PID_MANAGE
+    b.eq check_if_patched
+    cmp w22, SYSCALL_MANAGE
+    b.eq syscall_manage
+    b out_einval
 
-    ldr w22, [x20]
-    cmp w22, 0
-    b.lt maybebadpid
+check_if_patched:
+    ldr w22, [x20, PID_ARG]
+    cmp w22, -1
+    b.eq out_patched
 
-    ldr x22, [sp, STALKER_TABLE_PTR]
-    ldr w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
-    cmp w23, MAX_SIMULTANEOUS_PIDS
-    b.ge fulltable
-    
-    ldr w23, [x20, 8]
-    cbz w23, remove_pid
-    b add_pid
+    ; user doesn't want to see if this syscall was patched correctly. fall thru
 
-fulltable:
-    ; is the user trying to add another PID even though the table is full?
-    ldr w22, [x20, 8]
-    cbnz w22, out_einval
-
-    ; they're deleting a PID. fall through
-
-remove_pid:
-    ldr x0, [sp, STALKER_TABLE_PTR]
-    ldr w1, [x20]
-    bl _get_slot_ptr_for_pid
-    cmp x0, 0
-    ; can't remove something that doesn't exist
-    b.eq out_einval
-    ; mark this slot as usable
-    mov w1, OPEN_SLOT
-    str w1, [x0]
-    ;brk 0
-    ; decrement table size
-    ldr x22, [sp, STALKER_TABLE_PTR]
-    ldr w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
-    sub w23, w23, 1
-    str w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
-
-    b success 
+pid_manage:
+    ; if less than -1, pid doesn't make sense
+    b.lt out_einval
+    ; for this flavor, arg2 controls whether we're intercepting or not
+    ; intercepting system calls for this pid
+    ldr w23, [x20, ARG2]
+    cbnz add_pid
+    b delete_pid
 
 add_pid:
+    ; figure out if the user is already intercepting system calls for this pid
     ldr x0, [sp, STALKER_TABLE_PTR]
-    ldr w1, [x20]
-    ;ldr w2, [x0]
-    ;brk 0
-    bl _get_slot_ptr_for_pid
-    ; pid already exists in the table? if so, do nothing
+    mov w1, w22
+    bl _stalker_ctl_from_table
+    ; if already added, do nothing
     cmp x0, 0
     b.ne success
-
+    ; otherwise, create a new stalker_ctl entry in the stalker table
     ldr x0, [sp, STALKER_TABLE_PTR]
-    bl _get_nearest_empty_slot
-    ; we've already checked if the table is full
+    bl _get_nearest_free_stalker_ctl
+    ; table at capacity?
+    cmp x0, 0
+    b.eq out_einval
+    ; at this point, we have a free stalker_ctl entry
+    ; it's no longer free
+    str wzr, [x0, STALKER_CTL_FREE_OFF]
+    ; it belongs to the pid argument
+    ldr w22, [x20, PID_ARG]
+    str w22, [x0, STALKER_CTL_PID_OFF]
 
-    ; pid argument now owns this slot
-    ldr w22, [x20]
-    str w22, [x0]
+    ; call_list is freed/NULL'ed out upon deletion, no need to do anything
+    ; with it until the user adds a system call to intercept
 
-    ;brk 0
-    
-    ; increment table size
-    ldr x22, [sp, STALKER_TABLE_PTR]
-    ldr w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
-    add w23, w23, 1
-    str w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
+    b success
 
-    ;ldr x0, [sp, STALKER_TABLE_PTR]
-    ;ldr w1, [x0]
-    ;ldr w2, [x0, 4]
-    ;brk 0
+delete_pid:
 
-    b success 
 
-maybebadpid:
-    ; user may have passed -1 for pid to see if this syscall was patched
-    ; successfully
-    cmp w22, -1
-    b.ne out_einval
-    mov w0, 999
-    str w0, [x21]
-    mov w0, 0
-    b done
+    b success
+
+syscall_manage:
+
+
 
 out_einval:
     mov w0, -1
     str w0, [x21]
     mov w0, 22
+    b done
+
+out_patched:
+    mov w0, 999
+    str w0, [x21]
+    mov w0, 0
     b done
 
 success:
@@ -142,63 +123,69 @@ done:
     add sp, sp, STACK
     ret
 
-; this function returns a pointer to the slot a certain PID occupies
-; in the PID table
-; 
-; arguments
-;  X0, pid table pointer
-;  W1, pid
+; this function figures out if a pid is in the stalker table, and returns
+; a pointer to its corresponding stalker_ctl struct if it is there
 ;
-; returns: a pointer if the PID is found, otherwise NULL
-_get_slot_ptr_for_pid:
-    ldr w12, [x0, STALKER_TABLE_NUM_PIDS_OFF]
-    cmp w12, 0
-    b.eq not_found 
+; arguments:
+;   X0 = stalker table pointer
+;   W1 = pid
+;
+; returns: pointer if pid is in stalker table, NULL otherwise
+_stalker_ctl_from_table:
+    ; empty stalker table?
+    ldr w9, [x0, STALKER_TABLE_NUM_PIDS_OFF]
+    cmp w9, 0
+    b.eq not_found0
 
-    mov w9, 1
-    add x10, x0, w9, lsl 2
+    mov w10, 1
+    add x11, x0, w10, lsl 4
 
-slotloop:
-    ldr w11, [x10]
-    cmp w11, w1
-    b.eq found
-    add w9, w9, 1
-    ;cmp w9, w12
-    cmp w9, MAX_SIMULTANEOUS_PIDS
-    b.gt not_found
-    add x10, x0, w9, lsl 2
-    b slotloop
+search0:
+    ldr w12, [x11, STALKER_CTL_PID_OFF]
+    cmp w12, w1
+    b.eq found0
+    add w10, w10, 1
+    cmp w10, STALKER_TABLE_MAX
+    b.gt not_found0
+    add x11, x0, w10, lsl 4
+    b search0
 
-not_found:
+not_found0:
     mov x0, 0
     ret
 
-found:
+found0:
+    mov x0, x11
+    ret
+
+; this function returns a pointer to the free slot nearest to the address of
+; the stalker table
+;
+; arguments
+;  X0, stalker table pointer
+;
+; returns: pointer to nearest free slot, or NULL if there's no free slots
+_get_nearest_free_stalker_ctl:
+    ; full stalker table?
+    ldr w9, [x0, STALKER_TABLE_NUM_PIDS_OFF]
+    cmp w9, STALKER_TABLE_MAX
+    b.ge nofree
+
+    mov w9, 1
+    add x10, x0, w9, lsl 4
+
+freeloop:
+    ldr w11, [x10, STALKER_CTL_FREE_OFF]
+    cmp w11, FREE
+    b.eq foundfree
+    add w9, w9, 1
+    add x10, x0, w9, lsl 4
+    b freeloop
+
+foundfree:
     mov x0, x10
     ret
 
-; this function returns a pointer to the slot nearest to the address of
-; the pid table
-;
-; arguments
-;  X0, pid table pointer
-;
-; returns: pointer to nearest empty slot
-;
-; XXX I've already checked if the table is full before calling this function,
-; so save space by not checking again
-_get_nearest_empty_slot:
-    mov w9, 1
-    add x10, x0, w9, lsl 2
-
-emptyslotloop:
-    ldr w11, [x10]
-    cmp w11, OPEN_SLOT
-    b.eq foundempty
-    add w9, w9, 1
-    add x10, x0, w9, lsl 2
-    b emptyslotloop
-
-foundempty:
-    mov x0, x10
+nofree:
+    mov x0, 0
     ret

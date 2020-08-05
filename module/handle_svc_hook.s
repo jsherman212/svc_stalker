@@ -6,8 +6,6 @@
 ; this iterates through the PIDs/syscalls the user has registered through the
 ; svc_stalker_ctl syscall and calls exception_triage if current_proc()->p_pid
 ; is found in that list
-;
-; exception_triage will never be called for the patched system call
 _main:
     sub sp, sp, STACK
     stp x28, x27, [sp, STACK-0x60]
@@ -50,7 +48,7 @@ _main:
     ; does the user want this system call to be intercepted?
     ldr x19, [sp, SAVED_STATE_PTR]
     ldr x1, [x19, 0x88]
-    ; X0 = stalker_ctl struct for proc_pid(current_proc())
+    ; X0 = pointer to stalker_ctl struct for proc_pid(current_proc())
     bl _should_intercept_syscall
     cmp x0, 0
     ; if user does not want this system call intercepted, we're done
@@ -147,7 +145,7 @@ found0:
 ; returns: 1 if system call number is present inside the stalker_ctl's call list,
 ;   0 otherwise
 _should_intercept_syscall:
-    ; empty stalker system call list?
+    ; empty system call list for this stalker_ctl struct pointer?
     ldr x10, [x0, STALKER_CTL_CALL_LIST_OFF]
     cmp x10, 0
     b.eq do_not_intercept

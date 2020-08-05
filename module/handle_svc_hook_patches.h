@@ -36,7 +36,6 @@ WRITE_INSTR(0xf9404661); /* 0xfffffff0156b72c8    ldr	x1, [x19, #0x88]          
 WRITE_INSTR(0x94000025); /* 0xfffffff0156b72cc    bl	_should_intercept_syscall  */ \
 WRITE_INSTR(0xf100001f); /* 0xfffffff0156b72d0    cmp	x0, #0x0                  */ \
 WRITE_INSTR(0x54000140); /* 0xfffffff0156b72d4    b.eq	done                     */ \
-/*                                           send_exc_msg:                      */ \
 WRITE_INSTR(0xd2800160); /* 0xfffffff0156b72d8    mov	x0, #0xb                  */ \
 WRITE_INSTR(0xf940b7e1); /* 0xfffffff0156b72dc    ldr	x1, [sp, #0x168]          */ \
 WRITE_INSTR(0xf9404421); /* 0xfffffff0156b72e0    ldr	x1, [x1, #0x88]           */ \

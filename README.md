@@ -61,7 +61,8 @@ if `svc_stalker_ctl` was patched successfully.
 `example` directory for more usage.
 
 **A maximum of 1023 processes can have their system calls be intercepted
-simultaneously.**
+simultaneously.** If you try and intercept system calls for a 1024th process,
+`-1` is returned and `errno` is set to `EINVAL`.
 
 **You need to register exception ports for your process before you enable
 system call interception for it.** The `handle_svc` hook doesn't check if

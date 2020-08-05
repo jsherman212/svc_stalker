@@ -57,6 +57,8 @@ static uint64_t get_adrp_add_va_target(uint32_t *adrpp){
 
 static uint64_t g_proc_pid_addr = 0;
 static uint64_t g_sysent_addr = 0;
+static uint64_t g_kalloc_canblock_addr = 0;
+static uint64_t g_kfree_addr_addr = 0;
 
 static bool proc_pid_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
@@ -386,7 +388,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     /*     pid_table[i] = -1; */
 
     /* struct stalker_ctl {
-     *       is this entry not being used anymore?
+     *       is this entry not being used?
      *     uint32_t free;
      *
      *       what pid this entry belongs to
@@ -455,6 +457,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(IOLog_addr);
     uint64_t IOMalloc_addr = 0xFFFFFFF008133284 + kernel_slide;
     WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(IOMalloc_addr);
+
+    WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(g_kalloc_canblock_addr);
+    WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(g_kfree_addr_addr);
 
     /* now we need to find the first enosys entry in sysent to patch
      * our syscall in.
