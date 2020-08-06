@@ -25,6 +25,7 @@
 
 /* exception stuff */
 #define EXC_SYSCALL                 (7)
+#define EXC_MACH_SYSCALL            (8)
 
 #define EXC_CRASH                   (10)
 #define EXC_RESOURCE                (11)

@@ -41,6 +41,8 @@ _main:
     b.eq check_if_patched
     cmp w22, SYSCALL_MANAGE
     b.eq syscall_manage
+    cmp w22, 2
+    b.eq out_givetablekaddr
     b out_einval
 
 check_if_patched:
@@ -175,6 +177,7 @@ call_list_init_loop:
     b call_list_init_loop
 
 add_syscall:
+    ; TODO check if this system call is already present and do nothing if it is
     ldr x22, [sp, CUR_STALKER_CTL]
     ldr x0, [x22, STALKER_CTL_CALL_LIST_OFF]
     bl _get_call_list_free_slot
@@ -183,16 +186,19 @@ add_syscall:
     b.eq out_einval
     ; X0 = pointer to free slot in call list
 
-    ldr w22, [x20, ARG2]
-    ; W22 = system call user wants to intercept
-    str w22, [x0]
+    ; user may pass an uncasted literal system call number as ARG2, which
+    ; clang will interpret as a 32 bit int, so sign extend it to 64 bits here
+    ; needed for negative Mach trap numbers
+    ldrsw x22, [x20, ARG2]
+    ; X22 = system call user wants to intercept
+    str x22, [x0]
 
     b success
 
 delete_syscall:
     ldr x22, [sp, CUR_STALKER_CTL]
     ldr x0, [x22, STALKER_CTL_CALL_LIST_OFF]
-    ldr x1, [x20, ARG2]
+    ldrsw x1, [x20, ARG2]
     bl _find_call_list_slot
     ; this system call was never added?
     cmp x0, 0
@@ -219,6 +225,12 @@ out_enomem:
 out_patched:
     mov w0, 999
     str w0, [x21]
+    mov w0, 0
+    b done
+
+out_givetablekaddr:
+    ldr x0, [sp, STALKER_TABLE_PTR]
+    str x0, [x21]
     mov w0, 0
     b done
 
@@ -289,7 +301,7 @@ _get_nearest_free_stalker_ctl:
 
 freeloop0:
     ldr w11, [x10, STALKER_CTL_FREE_OFF]
-    cmp w11, FREE
+    cmp w11, 1
     b.eq foundfree0
     add w9, w9, 1
     cmp w9, STALKER_TABLE_MAX

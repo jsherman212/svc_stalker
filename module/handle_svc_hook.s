@@ -37,8 +37,6 @@ _main:
     ldr x19, [sp, PROC_PID_FPTR]
     blr x19
     ; W0 = proc_pid(current_proc())
-    ; XXX why am I saving this return value
-    str w0, [sp, CUR_PID]
     mov w1, w0
     ldr x0, [sp, STALKER_TABLE_PTR]
     bl _stalker_ctl_from_table
@@ -48,32 +46,27 @@ _main:
     ; does the user want this system call to be intercepted?
     ldr x19, [sp, SAVED_STATE_PTR]
     ldr x1, [x19, 0x88]
+    ;cmp x1, 0
+    ;b.lt send_exc_msg
     ; X0 = pointer to stalker_ctl struct for proc_pid(current_proc())
     bl _should_intercept_syscall
     cmp x0, 0
     ; if user does not want this system call intercepted, we're done
     b.eq done
     
-    ;cmp x19, 2  ;fork
-    ;b.eq send_exc_msg 
-    ;cmp x19, 20 ;getpid
-    ;b.eq send_exc_msg
-    ;cmp x19, 4  ;write
-    ;b.eq send_exc_msg
-
     ; TODO re-implement the sanity checks we overwrote
 
     ; call exception_triage
-    ; TODO distinguish between unix syscalls and mach traps and set the
-    ; exception number accordingly
-    ;mov x0, EXC_SYSCALL                     ; exception
     ; EXC_GUARD, EXC_RESOURCE exceptions cause exception_triage to return to caller
-    ;mov x0, EXC_GUARD
-;send_exc_msg:
-    mov x0, EXC_RESOURCE
-    ldr x1, [sp, SAVED_STATE_PTR]
-    ldr x1, [x1, 0x88]                      ; X16, system call number
-    str x1, [sp, EXC_CODES]
+send_exc_msg:
+    ;mov x0, EXC_RESOURCE
+    mov x0, EXC_SYSCALL
+    mov x1, EXC_MACH_SYSCALL
+    ldr x2, [sp, SAVED_STATE_PTR]
+    ldr x2, [x2, 0x88]                      ; X16, system call number
+    cmp x2, 0
+    csel x0, x1, x0, lt
+    str x2, [sp, EXC_CODES]
     str xzr, [sp, EXC_CODES+8]
     add x1, sp, EXC_CODES                   ; code
     mov w2, 2                               ; codeCnt
@@ -152,7 +145,6 @@ _should_intercept_syscall:
 
     mov w9, 0
     mov x10, x0
-    ;add x10, x10, w9, lsl 3
 
 search1:
     ldr x11, [x10]

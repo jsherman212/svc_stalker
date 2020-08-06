@@ -89,4 +89,5 @@ of code which modifies the page tables of `alloc_static`'ed memory to mark it
 as executable.
 
 ## Other Notes
-I don't know if this will work on devices with a 4k page size.
+I've tested this on four phones, all with a 16k page size. I don't know if this
+will work on devices with a 4k page size.

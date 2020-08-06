@@ -20,6 +20,13 @@ static uint64_t sign_extend(uint64_t number, uint32_t numbits){
 
 static struct mach_header_64 *mh_execute_header;
 static uint64_t kernel_slide;
+#define sa_for_va(va)	((uint64_t) (va) - kernel_slide)
+#define va_for_sa(sa)	((uint64_t) (sa) + kernel_slide)
+#define ptr_for_sa(sa)	((void *) (((sa) - 0xFFFFFFF007004000uLL) + (uint8_t *) mh_execute_header))
+#define ptr_for_va(va)	(ptr_for_sa(sa_for_va(va)))
+#define sa_for_ptr(ptr)	((uint64_t) ((uint8_t *) (ptr) - (uint8_t *) mh_execute_header) + 0xFFFFFFF007004000uLL)
+#define va_for_ptr(ptr)	(va_for_sa(sa_for_ptr(ptr)))
+#define pa_for_ptr(ptr)	(sa_for_ptr(ptr) - gBootArgs->virtBase + gBootArgs->physBase)
 
 static void stalker_fatal(void){
     /* puts("failed: spinning forever"); */
@@ -644,12 +651,12 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
             *(uint64_t *)(sysent_to_patch + 0x8) = 0;
 
             /* this syscall will return an integer */
-            *(int32_t *)(sysent_to_patch + 0x10) = 1; /* _SYSCALL_RET_INT_T */
+            *(int32_t *)(sysent_to_patch + 0x10) = 4;//1; /* _SYSCALL_RET_INT_T */
 
             /* this syscall has four arguments */
             *(int16_t *)(sysent_to_patch + 0x14) = 4;
 
-            /* four integer arguments, so arguments total sixteen bytes */
+            /* four 32 bit arguments, so arguments total 32 bytes */
             *(uint16_t *)(sysent_to_patch + 0x16) = 0x10;
 
             break;
@@ -722,11 +729,28 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     puts("*********************");
 
 
-
     // XXX commenting out for testing
     write_blr(8, branch_from, last_TEXT_EXEC_sect_end + handle_svc_hook_cache_size);
     /* there's an extra B.NE after the five instrs we overwrote, so NOP it out */
     *(uint32_t *)(branch_from + (4*5)) = 0xd503201f;
+
+
+    /* XXX return from exception_triage_thread on EXC_SYSCALL & EXC_MACH_SYSCALL */
+    uint64_t cmp_addr1 = ptr_for_sa(0xFFFFFFF007BF859C);
+    uint64_t cmp_addr2 = ptr_for_sa(0xFFFFFFF007BF86AC);
+    
+    /* both cmp w25, #-3 */
+    *(uint32_t *)cmp_addr1 = 0x31000F3F;
+    *(uint32_t *)cmp_addr2 = 0x31000F3F;
+
+    uint64_t branch_addr1 = ptr_for_sa(0xFFFFFFF007BF85A0);
+    /* b.cc --> b.lt */
+    *(uint32_t *)branch_addr1 = 0x540008ab;
+
+
+    uint64_t branch_addr2 = ptr_for_sa(0xFFFFFFF007BF86B0);
+    /* b.cc --> b.ge */
+    *(uint32_t *)branch_addr2 = 0x54fff7aa;
 
     return true;
 }
