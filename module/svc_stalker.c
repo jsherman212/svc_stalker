@@ -382,7 +382,7 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
             if((opcode_stream[1] & 0xff000000) == 0x54000000){
                 /* this branch's condition code is cs or cc? */
                 if(((opcode_stream[1] & 0xe) >> 1) == 1){
-                    puts("here");
+                    /* puts("here"); */
                     /* condition code is cs? */
                     if((opcode_stream[1] & 1) == 0){
                         cmp_wn_4_first = opcode_stream;
@@ -423,11 +423,25 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
     puts("");
 
     uint32_t cmn_w0_negative_3 = 0x31000c1f;
-    print_register(cmn_w0_negative_3 | (*cmp_wn_4_first & 0x3e0));
+    uint32_t cmn_wn_negative_3 = cmn_w0_negative_3 | (*cmp_wn_4_first & 0x3e0);
+    /* print_register(cmn_w0_negative_3 | (*cmp_wn_4_first & 0x3e0)); */
+
+    puts("new b.cs");
+    print_register((*b_cs & ~0xf) | 0xb);
+    puts("new b.cc");
+    print_register((*b_cc & ~0xf) | 0xa);
 
     /* both cmp Wn, 4 --> cmn Wn, -3 */
-    /* *cmp_wn_4_first = 0x31000f3f; */
-    /* *cmp_wn_4_second = 0x31000f3f; */
+    *cmp_wn_4_first = cmn_wn_negative_3;
+    *cmp_wn_4_second = cmn_wn_negative_3;
+
+    /* b.cs --> b.lt */
+    *b_cs = (*b_cs & ~0xf) | 0xb;
+
+    /* b.cc --> b.ge */
+    *b_cc = (*b_cc & ~0xf) | 0xa;
+
+    puts("svc_stalker: patched exception_triage_thread");
 
     return true;
 }
@@ -778,9 +792,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
             /* sy_call */
             if(!tagged_ptr)
-                (void)0;
+                /* (void)0; */
                 // XXX
-                /* *(uint64_t *)sysent_to_patch = (uint64_t)xnu_ptr_to_va(scratch_space); */
+                *(uint64_t *)sysent_to_patch = (uint64_t)xnu_ptr_to_va(scratch_space);
             else{
                 uint64_t untagged = ((uint64_t)xnu_ptr_to_va(scratch_space) &
                     0xffffffffffff) - kernel_slide;
@@ -789,7 +803,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
                 uint64_t new_sy_call = untagged | ((uint64_t)old_tag << 48);
 
                 // XXX
-                /* *(uint64_t *)sysent_to_patch = new_sy_call; */
+                *(uint64_t *)sysent_to_patch = new_sy_call;
             }
 
             /* no 32 bit processes on iOS 11+, so no argument munger */
@@ -829,7 +843,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     IMPORTANT_MSG("this patched system call.");
     puts("*********************");
 
-    return true;
+    /* return true; */
 
     // XXX commenting out for testing
     write_blr(8, branch_from, last_TEXT_EXEC_sect_end + handle_svc_hook_cache_size);
@@ -840,21 +854,21 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     // XXX
     /* return true; */
     /* XXX return to caller from exception_triage_thread on EXC_SYSCALL & EXC_MACH_SYSCALL */
-    uint64_t cmp_addr1 = ptr_for_sa(0xFFFFFFF007BF859C);
-    uint64_t cmp_addr2 = ptr_for_sa(0xFFFFFFF007BF86AC);
+    /* uint64_t cmp_addr1 = ptr_for_sa(0xFFFFFFF007BF859C); */
+    /* uint64_t cmp_addr2 = ptr_for_sa(0xFFFFFFF007BF86AC); */
     
     /* both cmp w25, #-3 */
-    *(uint32_t *)cmp_addr1 = 0x31000F3F;
-    *(uint32_t *)cmp_addr2 = 0x31000F3F;
+    /* *(uint32_t *)cmp_addr1 = 0x31000F3F; */
+    /* *(uint32_t *)cmp_addr2 = 0x31000F3F; */
 
-    uint64_t branch_addr1 = ptr_for_sa(0xFFFFFFF007BF85A0);
-    /* b.cc --> b.lt */
-    *(uint32_t *)branch_addr1 = 0x540008ab;
+    /* uint64_t branch_addr1 = ptr_for_sa(0xFFFFFFF007BF85A0); */
+    /* b.cs --> b.lt */
+    /* *(uint32_t *)branch_addr1 = 0x540008ab; */
 
 
-    uint64_t branch_addr2 = ptr_for_sa(0xFFFFFFF007BF86B0);
+    /* uint64_t branch_addr2 = ptr_for_sa(0xFFFFFFF007BF86B0); */
     /* b.cc --> b.ge */
-    *(uint32_t *)branch_addr2 = 0x54fff7aa;
+    /* *(uint32_t *)branch_addr2 = 0x54fff7aa; */
 
     return true;
 }

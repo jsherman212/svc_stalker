@@ -205,17 +205,17 @@ int main(int argc, char **argv, const char **envp){
     /* getchar(); */
 
     // XXX this may cause problems!!
-    /* usleep(2000 * 1000); */
+    usleep(2000 * 1000);
 
-    /* err = pongo_send_command(pongo_device, "bootx\n"); */
+    err = pongo_send_command(pongo_device, "bootx\n");
 
-    /* if(err < 0){ */
-    /*     printf("pongo_send_command: %s\n", libusb_error_name(err)); */
-    /*     libusb_release_interface(pongo_device, 0); */
-    /*     libusb_close(pongo_device); */
-    /*     libusb_exit(NULL); */
-    /*     return 1; */
-    /* } */
+    if(err < 0){
+        printf("pongo_send_command: %s\n", libusb_error_name(err));
+        libusb_release_interface(pongo_device, 0);
+        libusb_close(pongo_device);
+        libusb_exit(NULL);
+        return 1;
+    }
 
     libusb_release_interface(pongo_device, 0);
     libusb_close(pongo_device);
