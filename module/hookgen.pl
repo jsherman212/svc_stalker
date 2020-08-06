@@ -33,7 +33,7 @@ while(my $line = <DISFILE>){
             printf(HEADER "/*                                           %-35s*/ \\\n", "$curlabel:");
         }
 
-        printf(HEADER "WRITE_INSTR(0x$4$3$2$1); /* %#x    %-30s*/", $curkaddr, "$5");
+        printf(HEADER "$ARGV[1](0x$4$3$2$1); /* %#x    %-30s*/", $curkaddr, "$5");
         $curkaddr += 4;
 
         if(eof){

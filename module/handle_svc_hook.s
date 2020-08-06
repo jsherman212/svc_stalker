@@ -46,8 +46,6 @@ _main:
     ; does the user want this system call to be intercepted?
     ldr x19, [sp, SAVED_STATE_PTR]
     ldr x1, [x19, 0x88]
-    ;cmp x1, 0
-    ;b.lt send_exc_msg
     ; X0 = pointer to stalker_ctl struct for proc_pid(current_proc())
     bl _should_intercept_syscall
     cmp x0, 0
@@ -56,10 +54,6 @@ _main:
     
     ; TODO re-implement the sanity checks we overwrote
 
-    ; call exception_triage
-    ; EXC_GUARD, EXC_RESOURCE exceptions cause exception_triage to return to caller
-send_exc_msg:
-    ;mov x0, EXC_RESOURCE
     mov x0, EXC_SYSCALL
     mov x1, EXC_MACH_SYSCALL
     ldr x2, [sp, SAVED_STATE_PTR]
@@ -72,16 +66,6 @@ send_exc_msg:
     mov w2, 2                               ; codeCnt
     ldr x19, [sp, EXCEPTION_TRIAGE_FPTR]
     blr x19
-
-    ; need to patch exception_triage to return on EXC_SYSCALL / EXC_MACH_SYSCALL
-    ; XXX if I'm going to do that, I need to patch out the one place
-    ; EXC_SYSCALL is used: mach_syscall @ bsd_arm64.c
-
-    ; if it does return, don't overwrite retval and panic
-    ;mov x1, 0x4141
-    ;mov x2, 0x4242
-    ;mov x3, 0x4343
-    ;brk 0
 
 done:
     ldp x29, x30, [sp, STACK-0x10]

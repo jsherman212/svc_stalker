@@ -3,16 +3,14 @@
 
 #define STACK                       (0x200)
 
-#define NUM_CACHED_PTRS             (5)
+#define NUM_CACHED_PTRS             (3)
 #define NUM_INSTRS_BEFORE_CACHE     (11)
 /* offset of start of cached kernel pointers */
 #define CACHE_START                 (-((4*NUM_INSTRS_BEFORE_CACHE)+(8*NUM_CACHED_PTRS)))
 
 #define STALKER_TABLE_CACHEOFF      (0x0)
-#define IOLOG_FPTR_CACHEOFF         (0x8)
-#define IOMALLOC_FPTR_CACHEOFF      (0x10)
-#define KALLOC_CANBLOCK_FPTR_CACHEOFF (0x18)
-#define KFREE_ADDR_FPTR_CACHEOFF    (0x20)
+#define KALLOC_CANBLOCK_FPTR_CACHEOFF (0x8)
+#define KFREE_ADDR_FPTR_CACHEOFF    (0x10)
 
 /* parameters */
 #define PID_ARG                     (0x0)

@@ -62,11 +62,7 @@ static int pongo_discard_bulk_upload(libusb_device_handle *pongo_device){
 
 static int pongo_do_bulk_upload(libusb_device_handle *pongo_device,
         void *data, size_t len){
-    int transferred = 0;
-    int ret= libusb_bulk_transfer(pongo_device, 2, data, len, &transferred, 0);
-    printf("%s: transferred %#x\n", __func__, transferred);
-    return ret;
-
+    return libusb_bulk_transfer(pongo_device, 2, data, len, NULL, 0);
 }
 
 int main(int argc, char **argv, const char **envp){
@@ -136,7 +132,7 @@ int main(int argc, char **argv, const char **envp){
     }
 
     size_t module_size = st.st_size;
-    printf("module size %#lx\n", module_size);
+    /* printf("module size %#lx\n", module_size); */
     void *module_data = mmap(NULL, module_size, PROT_READ, MAP_PRIVATE,
             module_fd, 0);
 
@@ -147,9 +143,6 @@ int main(int argc, char **argv, const char **envp){
         libusb_exit(NULL);
         return 1;
     }
-
-    /* err = pongo_discard_bulk_upload(pongo_device); */
-    /* printf("pongo_discard_bulk_upload %s\n", libusb_error_name(err)); */
 
     err = pongo_init_bulk_upload(pongo_device);
 
@@ -201,21 +194,17 @@ int main(int argc, char **argv, const char **envp){
         return 1;
     }
 
-    /* printf("Hit enter to boot XNU\n"); */
-    /* getchar(); */
+    /* usleep(2000 * 1000); */
 
-    // XXX this may cause problems!!
-    usleep(2000 * 1000);
+    /* err = pongo_send_command(pongo_device, "bootx\n"); */
 
-    err = pongo_send_command(pongo_device, "bootx\n");
-
-    if(err < 0){
-        printf("pongo_send_command: %s\n", libusb_error_name(err));
-        libusb_release_interface(pongo_device, 0);
-        libusb_close(pongo_device);
-        libusb_exit(NULL);
-        return 1;
-    }
+    /* if(err < 0){ */
+    /*     printf("pongo_send_command: %s\n", libusb_error_name(err)); */
+    /*     libusb_release_interface(pongo_device, 0); */
+    /*     libusb_close(pongo_device); */
+    /*     libusb_exit(NULL); */
+    /*     return 1; */
+    /* } */
 
     libusb_release_interface(pongo_device, 0);
     libusb_close(pongo_device);

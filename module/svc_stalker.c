@@ -1,4 +1,5 @@
 #include "handle_svc_hook_patches.h"
+#include "pagetable_patches.h"
 #include "pongo.h"
 #include "svc_stalker_ctl_patches.h"
 
@@ -73,7 +74,7 @@ static uint64_t g_proc_pid_addr = 0;
 static uint64_t g_sysent_addr = 0;
 static uint64_t g_kalloc_canblock_addr = 0;
 static uint64_t g_kfree_addr_addr = 0;
-static uint64_t g_exception_triage_addr = 0;
+static uint64_t g_phystokv_addr = 0;
 
 static bool proc_pid_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
@@ -292,17 +293,8 @@ static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
 
     uint32_t *epilogue = opcode_stream;
 
-    /* print_register(branch_from); */
-    /* print_register(epilogue); */
-    /* puts(""); */
-    /* print_register(*branch_from); */
-    /* print_register(*epilogue); */
-    /* puts(""); */
-
     uint32_t imm26 = (epilogue - branch_from) & 0x3ffffff;
     uint32_t epilogue_branch = (5 << 26) | imm26;
-
-    /* print_register(epilogue_branch); */
 
     /* bl _panic --> branch to mach_syscall epilogue */
     *branch_from = epilogue_branch;
@@ -312,9 +304,46 @@ static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* static bool exception_triage_thread_patcher(xnu_pf_patch_t *patch, */
-/*         void *cacheable_stream){ */
-/* static bool exception_triage_thread_patcher(uint32_t *opcode_stream){ */
+static bool phystokv_finder(xnu_pf_patch_t *patch, void *cacheable_stream){
+    uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
+    uint64_t addr_va = 0;
+
+    if(bits(opcode_stream[2], 31, 31) == 0)
+        addr_va = get_adr_va_target(opcode_stream + 2);
+    else
+        addr_va = get_adrp_add_va_target(opcode_stream + 2);
+
+    char *string = xnu_va_to_ptr(addr_va);
+
+    const char *match = "RAMDisk";
+    size_t matchlen = strlen(match);
+
+    if(!memmem(string, matchlen + 1, match, matchlen))
+        return false;
+
+    xnu_pf_disable_patch(patch);
+
+    /* after this point, the first BL will be branching to phystokv */
+    uint32_t instr_limit = 30;
+
+    while((*opcode_stream & 0xfc000000) != 0x94000000){
+        if(instr_limit-- == 0){
+            puts("svc_stalker: phystokv_finder: couldn't find phystokv");
+            return false;
+        }
+
+        opcode_stream++;
+    }
+
+    int32_t imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28);
+    g_phystokv_addr = imm26 + xnu_ptr_to_va(opcode_stream);
+
+    puts("svc_stalker: found phystokv");
+    /* print_register(g_phystokv_addr); */
+
+    return true;
+}
+
 static bool patch_exception_triage_thread(uint32_t *opcode_stream){
     /* patch exception_triage_thread to return to its caller on EXC_SYSCALL and
      * EXC_MACH_SYSCALL
@@ -324,12 +353,6 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
      * in front of us. Then we can calculate where the branch goes and set
      * opcode stream accordingly.
      */
-    for(int i=0; i<2; i++){
-        print_register(opcode_stream[i]);
-    }
-
-    puts("");
-
     uint32_t instr_limit = 5;
 
     while((*opcode_stream & 0xfc000000) != 0x14000000){
@@ -339,21 +362,10 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
         opcode_stream++;
     }
 
-    print_register(*opcode_stream);
-    puts("");
-    print_register((*opcode_stream & 0x3ffffff) << 2);
-
     int32_t imm26 = sign_extend((*opcode_stream & 0x3ffffff) << 2, 26);
-    print_register((int32_t)imm26);
 
     /* opcode_stream points to beginning of exception_triage_thread */
     opcode_stream = (uint32_t *)((intptr_t)opcode_stream + imm26);
-
-    for(int i=0; i<10; i++){
-        print_register(opcode_stream[i]);
-    }
-    
-    puts("");
 
     /* We're looking for two clusters of instructions:
      *
@@ -382,7 +394,6 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
             if((opcode_stream[1] & 0xff000000) == 0x54000000){
                 /* this branch's condition code is cs or cc? */
                 if(((opcode_stream[1] & 0xe) >> 1) == 1){
-                    /* puts("here"); */
                     /* condition code is cs? */
                     if((opcode_stream[1] & 1) == 0){
                         cmp_wn_4_first = opcode_stream;
@@ -416,20 +427,8 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
         return false;
     }
 
-    print_register(xnu_ptr_to_va(cmp_wn_4_first) - kernel_slide);
-    print_register(xnu_ptr_to_va(b_cs) - kernel_slide);
-    print_register(xnu_ptr_to_va(cmp_wn_4_second) - kernel_slide);
-    print_register(xnu_ptr_to_va(b_cc) - kernel_slide);
-    puts("");
-
     uint32_t cmn_w0_negative_3 = 0x31000c1f;
     uint32_t cmn_wn_negative_3 = cmn_w0_negative_3 | (*cmp_wn_4_first & 0x3e0);
-    /* print_register(cmn_w0_negative_3 | (*cmp_wn_4_first & 0x3e0)); */
-
-    puts("new b.cs");
-    print_register((*b_cs & ~0xf) | 0xb);
-    puts("new b.cc");
-    print_register((*b_cc & ~0xf) | 0xa);
 
     /* both cmp Wn, 4 --> cmn Wn, -3 */
     *cmp_wn_4_first = cmn_wn_negative_3;
@@ -449,7 +448,8 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
 static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     if(g_proc_pid_addr == 0 || g_sysent_addr == 0 ||
-            g_kalloc_canblock_addr == 0 || g_kfree_addr_addr == 0){
+            g_kalloc_canblock_addr == 0 || g_kfree_addr_addr == 0 ||
+            g_phystokv_addr == 0){
         puts("svc_stalker: error: missing offsets before we patch sleh_synchronous:");
         
         if(g_proc_pid_addr == 0)
@@ -464,6 +464,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         if(g_kfree_addr_addr == 0)
             puts("     kfree_addr");
 
+        if(g_phystokv_addr == 0)
+            puts("     phystokv");
+        
         return false;
     }
 
@@ -585,8 +588,6 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         opcode_stream++;
     }
 
-    /* print_register(*opcode_stream); */
-
     int32_t imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28);
     uint64_t current_proc_addr = imm26 + xnu_ptr_to_va(opcode_stream);
 
@@ -608,18 +609,21 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         opcode_stream++;
     }
 
+    /* we're at BRK n, go up one for the branch to exception_triage */
     opcode_stream--;
 
     imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28);
-    g_exception_triage_addr = imm26 + xnu_ptr_to_va(opcode_stream);
+    uint64_t exception_triage_addr = imm26 + xnu_ptr_to_va(opcode_stream);
 
     puts("svc_stalker: found exception_triage");
-    /* print_register(g_exception_triage_addr); */
 
-    if(!patch_exception_triage_thread(xnu_va_to_ptr(g_exception_triage_addr))){
+    if(!patch_exception_triage_thread(xnu_va_to_ptr(exception_triage_addr))){
         puts("svc_stalker: failed patching exception_triage_thread");
         return false;
     }
+
+    // XXX XXX
+    return true;
     
     /* we're gonna put everything inside of the empty space right
      * before the end of __TEXT_EXEC that forces it to be page aligned
@@ -632,44 +636,62 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     for(uint32_t i=0; i<__TEXT_EXEC->nsects-1; i++)
         last_TEXT_EXEC_sect++;
 
-    uint64_t last_TEXT_EXEC_sect_end = last_TEXT_EXEC_sect->addr + last_TEXT_EXEC_sect->size;
+    uint64_t last_TEXT_EXEC_sect_end = last_TEXT_EXEC_sect->addr +
+        last_TEXT_EXEC_sect->size;
     uint64_t __TEXT_EXEC_end = __TEXT_EXEC->vmaddr + __TEXT_EXEC->vmsize;
-    uint64_t num_free_instrs = (__TEXT_EXEC_end - last_TEXT_EXEC_sect_end) / sizeof(uint32_t);
+    uint64_t num_free_instrs = (__TEXT_EXEC_end - last_TEXT_EXEC_sect_end) /
+        sizeof(uint32_t);
 
-    uint32_t *scratch_space = xnu_va_to_ptr(last_TEXT_EXEC_sect_end);
+    uint32_t *exec_scratch_space = xnu_va_to_ptr(last_TEXT_EXEC_sect_end);
+    const uint32_t *exec_scratch_space_begin = exec_scratch_space;
 
+    /* two pages worth is enough space for our code
+     *
+     * this memory will be marked as executable by code inside exec_scratch_space
+     */
+    size_t noexec_scratch_space_sz = 0x8000;
+    uint32_t *noexec_scratch_space = (uint32_t *)alloc_static(noexec_scratch_space_sz);
+    const uint32_t *noexec_scratch_space_begin = noexec_scratch_space;
+
+    uint64_t exec_cache_size = 0;
     uint64_t handle_svc_hook_cache_size = 0;
     uint64_t svc_stalker_ctl_cache_size = 0;
 
-#define WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(qword) \
+#define WRITE_QWORD_TO_EXEC_CACHE(qword) \
     if(num_free_instrs < 2){ \
         puts("svc_stalker: sleh_synchronous_patcher: ran out of space for hook"); \
         return false; \
     } \
-    *(uint64_t *)scratch_space = (qword); \
-    scratch_space += 2; \
+    *(uint64_t *)exec_scratch_space = (qword); \
+    exec_scratch_space += 2; \
+    exec_cache_size += 8; \
     num_free_instrs -= 2; \
+
+#define WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(qword) \
+    *(uint64_t *)noexec_scratch_space = (qword); \
+    noexec_scratch_space += 2; \
     handle_svc_hook_cache_size += 8; \
 
 #define WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(qword) \
-    if(num_free_instrs < 2){ \
-        puts("svc_stalker: sleh_synchronous_patcher: ran out of space for hook"); \
-        return false; \
-    } \
-    *(uint64_t *)scratch_space = (qword); \
-    scratch_space += 2; \
-    num_free_instrs -= 2; \
+    *(uint64_t *)noexec_scratch_space = (qword); \
+    noexec_scratch_space += 2; \
     svc_stalker_ctl_cache_size += 8; \
 
-#define WRITE_INSTR(opcode) \
+#define WRITE_INSTR_TO_EXEC(opcode) \
     do { \
         if(num_free_instrs == 0){ \
             puts("svc_stalker: sleh_synchronous_patcher: ran out of space for hook"); \
             return false; \
         } \
-        *scratch_space = (opcode); \
-        scratch_space++; \
+        *exec_scratch_space = (opcode); \
+        exec_scratch_space++; \
         num_free_instrs--; \
+    } while (0) \
+
+#define WRITE_INSTR_TO_NOEXEC(opcode) \
+    do { \
+        *noexec_scratch_space = (opcode); \
+        noexec_scratch_space++; \
     } while (0) \
 
     /* struct stalker_ctl {
@@ -714,13 +736,10 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         cur_stalker_ctl += 0x10;
     }
 
-    /* print_register(cur_stalker_ctl); */
-
     /* stash these pointers so we have them after xnu boot */
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_exception_triage_addr);
+    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(exception_triage_addr);
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(current_proc_addr);
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_proc_pid_addr);
-    /* WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(xnu_ptr_to_va(pid_table)); */
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(xnu_ptr_to_va(stalker_table));
 
     /* autogenerated by hookgen.pl, see handle_svc_patches.h */
@@ -731,23 +750,12 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
     /* write the stalker table pointer so the patched syscall can get it easily
      *
-     * needs to be here so opcode_stream points after this when we go
+     * needs to be here so noexec_scratch_space points after this when we go
      * to patch the sysent entry
      */
-    /* WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(xnu_ptr_to_va(pid_table)); */
     WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(xnu_ptr_to_va(stalker_table));
-
-    /* iphone 8 13.6 */
-    uint64_t IOLog_addr = 0xFFFFFFF008134654 + kernel_slide;
-    WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(IOLog_addr);
-    uint64_t IOMalloc_addr = 0xFFFFFFF008133284 + kernel_slide;
-    WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(IOMalloc_addr);
-
     WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(g_kalloc_canblock_addr);
     WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(g_kfree_addr_addr);
-
-    // XXX
-    /* return true; */
 
     /* now we need to find the first enosys entry in sysent to patch
      * our syscall in.
@@ -791,18 +799,17 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
             patched_syscall_num = i;
 
             /* sy_call */
-            if(!tagged_ptr)
-                /* (void)0; */
-                // XXX
-                *(uint64_t *)sysent_to_patch = (uint64_t)xnu_ptr_to_va(scratch_space);
+            if(!tagged_ptr){
+                *(uint64_t *)sysent_to_patch =
+                    (uint64_t)xnu_ptr_to_va(noexec_scratch_space);
+            }
             else{
-                uint64_t untagged = ((uint64_t)xnu_ptr_to_va(scratch_space) &
+                uint64_t untagged = ((uint64_t)xnu_ptr_to_va(noexec_scratch_space) &
                     0xffffffffffff) - kernel_slide;
 
                 /* re-tag */
                 uint64_t new_sy_call = untagged | ((uint64_t)old_tag << 48);
 
-                // XXX
                 *(uint64_t *)sysent_to_patch = new_sy_call;
             }
 
@@ -843,38 +850,26 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     IMPORTANT_MSG("this patched system call.");
     puts("*********************");
 
-    /* return true; */
+    uint64_t handle_svc_hook_va =
+        xnu_ptr_to_va(noexec_scratch_space + handle_svc_hook_cache_size);
 
-    // XXX commenting out for testing
-    write_blr(8, branch_from, last_TEXT_EXEC_sect_end + handle_svc_hook_cache_size);
+    WRITE_QWORD_TO_EXEC_CACHE(handle_svc_hook_va);
+    /* how many pages of noexec scratch space we're using */
+    WRITE_QWORD_TO_EXEC_CACHE(noexec_scratch_space_sz / 0x4000);
+    WRITE_QWORD_TO_EXEC_CACHE(g_phystokv_addr);
+
+    /* autogenerated by hookgen.pl, see pagetable_patches.h */
+    DO_PAGETABLE_PATCHES;
+
+    write_blr(8, branch_from, last_TEXT_EXEC_sect_end + exec_cache_size);
+
     /* there's an extra B.NE after the five instrs we overwrote, so NOP it out */
     *(uint32_t *)(branch_from + (4*5)) = 0xd503201f;
-
-
-    // XXX
-    /* return true; */
-    /* XXX return to caller from exception_triage_thread on EXC_SYSCALL & EXC_MACH_SYSCALL */
-    /* uint64_t cmp_addr1 = ptr_for_sa(0xFFFFFFF007BF859C); */
-    /* uint64_t cmp_addr2 = ptr_for_sa(0xFFFFFFF007BF86AC); */
-    
-    /* both cmp w25, #-3 */
-    /* *(uint32_t *)cmp_addr1 = 0x31000F3F; */
-    /* *(uint32_t *)cmp_addr2 = 0x31000F3F; */
-
-    /* uint64_t branch_addr1 = ptr_for_sa(0xFFFFFFF007BF85A0); */
-    /* b.cs --> b.lt */
-    /* *(uint32_t *)branch_addr1 = 0x540008ab; */
-
-
-    /* uint64_t branch_addr2 = ptr_for_sa(0xFFFFFFF007BF86B0); */
-    /* b.cc --> b.ge */
-    /* *(uint32_t *)branch_addr2 = 0x54fff7aa; */
 
     return true;
 }
 
 static void stalker_apply_patches(const char *cmd, char *args){
-    /* puts("inside stalker_apply_patches"); */
     xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
 
     uint64_t proc_pid_finder_match[] = {
@@ -988,6 +983,26 @@ static void stalker_apply_patches(const char *cmd, char *args){
             mach_syscall_patcher);
     xnu_pf_apply(__TEXT_EXEC, patchset);
 
+    uint64_t phystokv_finder_match[] = {
+        0xf9400008,     /* LDR X8, [X0] */
+        0xf9400108,     /* LDR X8, [X8, n] */
+        0x10000001,     /* ADRP X1, n or ADR X1, n */
+    };
+
+    const size_t num_phystokv_matches = sizeof(phystokv_finder_match) /
+        sizeof(*phystokv_finder_match);
+
+    uint64_t phystokv_finder_masks[] = {
+        0xffffffff,     /* match exactly */
+        0xffc003ff,     /* match all but immediate */
+        0x1f00001f,     /* ignore immediate */
+    };
+
+    xnu_pf_maskmatch(patchset, phystokv_finder_match, phystokv_finder_masks,
+            num_phystokv_matches, false, // XXX for testing,
+            phystokv_finder);
+    xnu_pf_apply(__TEXT_EXEC, patchset);
+
     uint64_t sleh_synchronous_patcher_match[] = {
         0xb9408a60,     /* LDR Wn, [X19, #0x88] (trap_no = state->__x[16] */
         0xd538d080,     /* MRS Xn, TPIDR_EL1    (Xn = current_thread()) */
@@ -1008,21 +1023,6 @@ static void stalker_apply_patches(const char *cmd, char *args){
             sleh_synchronous_patcher);
     xnu_pf_apply(__TEXT_EXEC, patchset);
     xnu_pf_patchset_destroy(patchset);
-
-    /* now we have the address of exception_triage */
-    /* xnu_pf_patchset_t *et_patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT); */
-    /* xnu_pf_range_t *exception_triage_range = */
-    /*     xnu_pf_range_from_va(g_exception_triage_addr, 0x8); */
-
-    /* print_register(exception_triage_range); */
-
-    /* xnu_pf_maskmatch(et_patchset, NULL, NULL, 0, false, */
-    /*         exception_triage_thread_patcher); */
-    /* xnu_pf_apply(exception_triage_range, et_patchset); */
-    /* xnu_pf_patchset_destroy(et_patchset); */
-
-
-
 
     puts("------stalker_apply_patches DONE------");
 }

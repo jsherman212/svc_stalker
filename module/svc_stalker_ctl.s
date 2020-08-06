@@ -4,7 +4,7 @@
 #include "svc_stalker_ctl.h"
 
 ; This is the system call we replaced the first enosys sysent entry
-; with. It manages the list of PIDs we're intercepting syscalls for.
+; with. It manages the list of PIDs we're intercepting syscalls/Mach traps for.
 ;
 ; Actual return value of this function gets set to errno later.
 ; retval, the second parameter, is the return value of this function.
@@ -25,10 +25,6 @@ _main:
     adr x22, CACHE_START
     ldr x23, [x22, STALKER_TABLE_CACHEOFF]
     str x23, [sp, STALKER_TABLE_PTR]
-    ldr x23, [x22, IOLOG_FPTR_CACHEOFF]
-    str x23, [sp, IOLOG_FPTR]
-    ldr x23, [x22, IOMALLOC_FPTR_CACHEOFF]
-    str x23, [sp, IOMALLOC_FPTR]
     ldr x23, [x22, KALLOC_CANBLOCK_FPTR_CACHEOFF]
     str x23, [sp, KALLOC_CANBLOCK_FPTR]
     ldr x23, [x22, KFREE_ADDR_FPTR_CACHEOFF]
