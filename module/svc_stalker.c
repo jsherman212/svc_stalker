@@ -196,10 +196,6 @@ static bool kalloc_canblock_finder(xnu_pf_patch_t *patch,
     g_kalloc_canblock_addr = xnu_ptr_to_va(opcode_stream);
     /* print_register(g_kalloc_canblock_addr); */
 
-    /* for(int i=0; i<10; i++){ */
-    /*     print_register(opcode_stream[i]); */
-    /* } */
-
     return true;
 }
 
@@ -241,11 +237,81 @@ static bool kfree_addr_finder(xnu_pf_patch_t *patch,
 
     puts("svc_stalker: found kfree_addr");
     g_kfree_addr_addr = xnu_ptr_to_va(opcode_stream);
-    /* print_register(g_kfree_addr_addr); */
-    /* for(int i=0; i<10; i++){ */
-    /*     print_register(opcode_stream[i]); */
-    /* } */
 
+    return true;
+}
+
+static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
+        void *cacheable_stream){
+    uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
+    uint64_t addr_va = 0;
+
+    /* since we're patching exception_triage_thread to return to caller
+     * on EXC_SYSCALL & EXC_MACH_SYSCALL, we need to patch out the call
+     * to exception_triage and the panic about returning from it on a bad
+     * Mach trap number (who even uses this functionality anyway?)
+     */
+    if(bits(opcode_stream[1], 31, 31) == 0)
+        addr_va = get_adr_va_target(opcode_stream + 1);
+    else
+        addr_va = get_adrp_add_va_target(opcode_stream + 1);
+
+    char *string = xnu_va_to_ptr(addr_va);
+
+    const char *match = "Returned from exception_triage()?";
+    size_t matchlen = strlen(match);
+
+    if(!memmem(string, matchlen + 1, match, matchlen))
+        return false;
+
+    xnu_pf_disable_patch(patch);
+
+    /* bl exception_triage/adrp/add or bl exception_triage/adr/nop --> nop/nop/nop */
+    opcode_stream[0] = 0xd503201f;
+    opcode_stream[1] = 0xd503201f;
+    opcode_stream[2] = 0xd503201f;
+
+    /* those are patched out, but we can't just return from this function
+     * without fixing up the stack, so find mach_syscall's epilogue
+     *
+     * search up, looking for ldp x29, x30, [sp, n]
+     */
+    uint32_t *branch_from = opcode_stream + 3;
+
+    uint32_t instr_limit = 200;
+
+    while((*opcode_stream & 0xffc07fff) != 0xa9407bfd){
+        if(instr_limit-- == 0){
+            puts("svc_stalker: mach_syscall_patcher: couldn't find epilogue");
+            return false;
+        }
+
+        opcode_stream--;
+    }
+
+    uint32_t *epilogue = opcode_stream;
+
+/*     print_register(branch_from); */
+/*     print_register(epilogue); */
+/*     puts(""); */
+/*     print_register(*branch_from); */
+/*     print_register(*epilogue); */
+/*     puts(""); */
+
+    uint32_t imm26 = (epilogue - branch_from) & 0x3ffffff;
+    /* uint32_t imm26 = (branch_from - epilogue) & 0x3ffffff; */
+    uint32_t epilogue_branch = (5 << 26) | imm26;
+
+    /* print_register(epilogue_branch); */
+
+    /* bl _panic --> branch to mach_syscall epilogue */
+    *branch_from = epilogue_branch;
+
+    /* *branch_from = (5 << 26) | imm26; */
+    /* print_register(*branch_from); */
+
+
+    puts("svc_stalker: patched mach_syscall");
 
     return true;
 }
@@ -471,25 +537,6 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         num_free_instrs--; \
     } while (0) \
 
-    /* this is where we'll keep track of the processes we trace syscalls for */
-    /* size_t pid_table_maxelems = 4096; */
-
-    /* the first uint32_t in this table will hold the number of PIDs
-     * currently having their system calls intercepted
-     */
-    /* uint32_t *pid_table = (uint32_t *)alloc_static(sizeof(uint32_t) * pid_table_maxelems); */
-
-    /* if(!pid_table){ */
-    /*     puts("svc_stalker: alloc_static returned NULL"); */
-    /*     return false; */
-    /* } */
-
-    /* *pid_table = 0; */
-
-    /* /1* XXX is this needed? *1/ */ 
-    /* for(int i=1; i<pid_table_maxelems; i++) */
-    /*     pid_table[i] = -1; */
-
     /* struct stalker_ctl {
      *       is this entry not being used?
      *     uint32_t free;
@@ -595,9 +642,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         /* tagged pointer */
         if((sy_call & 0xffff000000000000) != 0xffff000000000000){
             old_tag = (sy_call >> 48);
-            /* print_register(sy_call); */
-            /* print_register(old_tag); */
-            /* return  true; */
+
             sy_call |= 0xffff000000000000;
             sy_call += kernel_slide;
 
@@ -616,35 +661,19 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
             /* return true; */
 
             /* sy_call */
-            if(tagged_ptr){
-                /* puts("TAGGED PTRS"); */
-                /* print_register(*(uint64_t *)sysent_stream); */
-                /* print_register(old_tag); */
-
-                uint64_t untagged = (uint64_t)xnu_ptr_to_va(scratch_space) & 0xffffffffffff;
-                /* print_register(untagged); */
-                untagged -= kernel_slide;
-                /* print_register(untagged); */
+            if(!tagged_ptr)
+                (void)0;
+                // XXX
+                /* *(uint64_t *)sysent_to_patch = (uint64_t)xnu_ptr_to_va(scratch_space); */
+            else{
+                uint64_t untagged = ((uint64_t)xnu_ptr_to_va(scratch_space) &
+                    0xffffffffffff) - kernel_slide;
 
                 /* re-tag */
                 uint64_t new_sy_call = untagged | ((uint64_t)old_tag << 48);
 
-                /* print_register(new_sy_call); */
-                /* return true; */
-
-                *(uint64_t *)sysent_to_patch = new_sy_call;
-            }
-            else{
-                /* puts("NO TAGGED PTRS"); */
-                /* puts("old sy_call:"); */
-                /* print_register(*(uint64_t *)sysent_to_patch); */
-
-                *(uint64_t *)sysent_to_patch = (uint64_t)xnu_ptr_to_va(scratch_space);
-                /* print_register(*(uint64_t *)scratch_space); */
-
-                /* puts("new sy_call:"); */
-                /* print_register(xnu_ptr_to_va(opcode_stream)); */
-
+                // XXX
+                /* *(uint64_t *)sysent_to_patch = new_sy_call; */
             }
 
             /* no 32 bit processes on iOS 11+, so no argument munger */
@@ -682,52 +711,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     IMPORTANT_MSG("Please refer back to the");
     IMPORTANT_MSG("README for info about");
     IMPORTANT_MSG("this patched system call.");
-    /* IMPORTANT_MSG("system calls for. The"); */
-    /* IMPORTANT_MSG("Please see sample/sample.c"); */
-    /* IMPORTANT_MSG("for proper usage and for"); */
-    /* IMPORTANT_MSG("more information."); */
-    /* IMPORTANT_MSG(""); */
-    /* IMPORTANT_MSG("maximum amount of"); */
-    /* IMPORTANT_MSG("processes you can"); */
-    /* IMPORTANT_MSG("*simultaneously* intercept"); */
-    /* IMPORTANT_MSG("system calls for is 4095."); */
-    /* IMPORTANT_MSG("Please see sample/sample.c"); */
-    /* IMPORTANT_MSG("for proper usage and for"); */
-    /* IMPORTANT_MSG("more information."); */
-    /* IMPORTANT_MSG(""); */
-    /* IMPORTANT_MSG("USAGE"); */
-    /* /1* printf("*  syscall(%#x, pid, enable);\n", patched_syscall_num); *1/ */
-    /* printf("*  syscall(%#x, flavor, arg1);\n", patched_syscall_num); */
-    /* IMPORTANT_MSG(""); */
-    /* IMPORTANT_MSG("ARGUMENTS"); */
-    /* IMPORTANT_MSG(" flavor"); */
-    /* IMPORTANT_MSG("   The process you want to"); */
-    /* IMPORTANT_MSG("   intercept system calls for."); */
-    /* IMPORTANT_MSG(" arg1"); */
-    /* IMPORTANT_MSG("   If non-zero, enable system"); */
-    /* IMPORTANT_MSG("   call interception for this"); */
-    /* IMPORTANT_MSG("   process. Otherwise, disable."); */
-    /* IMPORTANT_MSG(""); */
-    /* IMPORTANT_MSG("RETURN VALUES"); */
-    /* IMPORTANT_MSG(" On success, 0 is returned."); */
-    /* IMPORTANT_MSG(" Otherwise, -1 is returned and"); */
-    /* IMPORTANT_MSG(" errno is set."); */
-    /* IMPORTANT_MSG(""); */
-    /* IMPORTANT_MSG("ERRORS"); */
-    /* IMPORTANT_MSG(" EINVAL"); */
-    /* IMPORTANT_MSG("   `pid` did not make sense,"); */
-    /* IMPORTANT_MSG("   4095 processes are already"); */
-    /* IMPORTANT_MSG("   simultaneously being watched,"); */
-    /* IMPORTANT_MSG("   or `pid` wasn't already being"); */
-    /* IMPORTANT_MSG("   watched before being disabled."); */
-    /* IMPORTANT_MSG(""); */
-    /* printf("* You can check if system call %#x\n", patched_syscall_num); */
-    /* IMPORTANT_MSG("was successfully patched by"); */
-    /* IMPORTANT_MSG("passing -1 for the `flavor` argument."); */
-    /* IMPORTANT_MSG("If it has been patched"); */
-    /* IMPORTANT_MSG("successfully, 999 will be returned."); */
     puts("*********************");
 
+    return true;
 
     // XXX commenting out for testing
     write_blr(8, branch_from, last_TEXT_EXEC_sect_end + handle_svc_hook_cache_size);
@@ -735,7 +721,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     *(uint32_t *)(branch_from + (4*5)) = 0xd503201f;
 
 
-    /* XXX return from exception_triage_thread on EXC_SYSCALL & EXC_MACH_SYSCALL */
+    // XXX
+    /* return true; */
+    /* XXX return to caller from exception_triage_thread on EXC_SYSCALL & EXC_MACH_SYSCALL */
     uint64_t cmp_addr1 = ptr_for_sa(0xFFFFFFF007BF859C);
     uint64_t cmp_addr2 = ptr_for_sa(0xFFFFFFF007BF86AC);
     
@@ -847,6 +835,27 @@ static void stalker_apply_patches(const char *cmd, char *args){
     xnu_pf_maskmatch(patchset, kfree_addr_match, kfree_addr_masks,
             num_kfree_addr_matches, false, // XXX for testing,
             kfree_addr_finder);
+    xnu_pf_apply(__TEXT_EXEC, patchset);
+
+    uint64_t mach_syscall_patcher_match[] = {
+        0x94000000,     /* BL n (_exception_triage) */
+        /* ADRP X0, n or ADR X0, n
+         * (X0 = panic string)
+         */
+        0x10000000,
+    };
+
+    const size_t num_mach_syscall_matches = sizeof(mach_syscall_patcher_match) /
+        sizeof(*mach_syscall_patcher_match);
+
+    uint64_t mach_syscall_patcher_masks[] = {
+        0xfc000000,     /* ignore BL immediate */
+        0x1f00001f,     /* ignore immediate */
+    };
+
+    xnu_pf_maskmatch(patchset, mach_syscall_patcher_match, mach_syscall_patcher_masks,
+            num_mach_syscall_matches, false, // XXX for testing,
+            mach_syscall_patcher);
     xnu_pf_apply(__TEXT_EXEC, patchset);
 
     uint64_t sleh_synchronous_patcher_match[] = {

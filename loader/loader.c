@@ -62,7 +62,11 @@ static int pongo_discard_bulk_upload(libusb_device_handle *pongo_device){
 
 static int pongo_do_bulk_upload(libusb_device_handle *pongo_device,
         void *data, size_t len){
-    return libusb_bulk_transfer(pongo_device, 2, data, len, NULL, 0);
+    int transferred = 0;
+    int ret= libusb_bulk_transfer(pongo_device, 2, data, len, &transferred, 0);
+    printf("%s: transferred %#x\n", __func__, transferred);
+    return ret;
+
 }
 
 int main(int argc, char **argv, const char **envp){
@@ -104,6 +108,8 @@ int main(int argc, char **argv, const char **envp){
 
     if(err < 0){
         printf("libusb_claim_interface: %s\n", libusb_error_name(err));
+        libusb_release_interface(pongo_device, 0);
+        libusb_close(pongo_device);
         libusb_exit(NULL);
         return 1;
     }
@@ -113,6 +119,8 @@ int main(int argc, char **argv, const char **envp){
     
     if(stat(module_path, &st)){
         printf("Problem stat'ing '%s': %s\n", module_path, strerror(errno));
+        libusb_release_interface(pongo_device, 0);
+        libusb_close(pongo_device);
         libusb_exit(NULL);
         return 1;
     }
@@ -121,26 +129,35 @@ int main(int argc, char **argv, const char **envp){
 
     if(module_fd < 0){
         printf("Problem open'ing '%s': %s\n", module_path, strerror(errno));
+        libusb_release_interface(pongo_device, 0);
+        libusb_close(pongo_device);
         libusb_exit(NULL);
         return 1;
     }
 
     size_t module_size = st.st_size;
-    /* printf("module size %#lx\n", module_size); */
+    printf("module size %#lx\n", module_size);
     void *module_data = mmap(NULL, module_size, PROT_READ, MAP_PRIVATE,
             module_fd, 0);
 
     if(module_data == MAP_FAILED){
         printf("Problem mmap'ing '%s': %s\n", module_path, strerror(errno));
+        libusb_release_interface(pongo_device, 0);
+        libusb_close(pongo_device);
         libusb_exit(NULL);
         return 1;
     }
+
+    /* err = pongo_discard_bulk_upload(pongo_device); */
+    /* printf("pongo_discard_bulk_upload %s\n", libusb_error_name(err)); */
 
     err = pongo_init_bulk_upload(pongo_device);
 
     if(err < 0){
         printf("pongo_init_bulk_upload: %s\n", libusb_error_name(err));
         munmap(module_data, module_size);
+        libusb_release_interface(pongo_device, 0);
+        libusb_close(pongo_device);
         libusb_exit(NULL);
         return 1;
     }
@@ -150,15 +167,21 @@ int main(int argc, char **argv, const char **envp){
     if(err < 0){
         printf("pongo_do_bulk_upload: %s\n", libusb_error_name(err));
         munmap(module_data, module_size);
+        libusb_release_interface(pongo_device, 0);
+        libusb_close(pongo_device);
         libusb_exit(NULL);
         return 1;
     }
+
+    /* usleep(2000 * 1000); */
 
     err = pongo_send_command(pongo_device, "modload\n");
 
     if(err < 0){
         printf("pongo_send_command: %s\n", libusb_error_name(err));
         munmap(module_data, module_size);
+        libusb_release_interface(pongo_device, 0);
+        libusb_close(pongo_device);
         libusb_exit(NULL);
         return 1;
     }
@@ -172,6 +195,8 @@ int main(int argc, char **argv, const char **envp){
 
     if(err < 0){
         printf("pongo_send_command: %s\n", libusb_error_name(err));
+        libusb_release_interface(pongo_device, 0);
+        libusb_close(pongo_device);
         libusb_exit(NULL);
         return 1;
     }
@@ -180,16 +205,20 @@ int main(int argc, char **argv, const char **envp){
     /* getchar(); */
 
     // XXX this may cause problems!!
-    usleep(1000 * 1000);
+    /* usleep(2000 * 1000); */
 
-    err = pongo_send_command(pongo_device, "bootx\n");
+    /* err = pongo_send_command(pongo_device, "bootx\n"); */
 
-    if(err < 0){
-        printf("pongo_send_command: %s\n", libusb_error_name(err));
-        libusb_exit(NULL);
-        return 1;
-    }
+    /* if(err < 0){ */
+    /*     printf("pongo_send_command: %s\n", libusb_error_name(err)); */
+    /*     libusb_release_interface(pongo_device, 0); */
+    /*     libusb_close(pongo_device); */
+    /*     libusb_exit(NULL); */
+    /*     return 1; */
+    /* } */
 
+    libusb_release_interface(pongo_device, 0);
+    libusb_close(pongo_device);
     libusb_exit(NULL);
 
     return 0;
