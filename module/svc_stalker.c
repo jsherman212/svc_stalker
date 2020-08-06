@@ -11,7 +11,7 @@ static uint64_t bits(uint64_t number, uint64_t start, uint64_t end){
     return (number & mask) >> start;
 }
 
-static uint64_t sign_extend(uint64_t number, uint32_t numbits){
+static uint64_t sign_extend(uint64_t number, uint32_t numbits /* signbit */){
     if(number & ((uint64_t)1 << (numbits - 1)))
         return number | ~(((uint64_t)1 << numbits) - 1);
 
@@ -73,6 +73,7 @@ static uint64_t g_proc_pid_addr = 0;
 static uint64_t g_sysent_addr = 0;
 static uint64_t g_kalloc_canblock_addr = 0;
 static uint64_t g_kfree_addr_addr = 0;
+static uint64_t g_exception_triage_addr = 0;
 
 static bool proc_pid_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
@@ -94,7 +95,7 @@ static bool proc_pid_finder(xnu_pf_patch_t *patch,
     const char *match = "AMFI: hook..execve() killing pid %u:";
     size_t matchlen = strlen(match);
 
-    if(!memmem(string, matchlen + 20, match, matchlen))
+    if(!memmem(string, matchlen + 1, match, matchlen))
         return false;
 
     /* at this point, we've hit one of those three strings, so the branch
@@ -214,7 +215,7 @@ static bool kfree_addr_finder(xnu_pf_patch_t *patch,
     const char *match = "kfree on an address not in the kernel";
     size_t matchlen = strlen(match);
 
-    if(!memmem(string, matchlen + 20, match, matchlen))
+    if(!memmem(string, matchlen + 1, match, matchlen))
         return false;
 
     /* at this point, we're guarenteed to be inside kfree_addr,
@@ -291,15 +292,14 @@ static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
 
     uint32_t *epilogue = opcode_stream;
 
-/*     print_register(branch_from); */
-/*     print_register(epilogue); */
-/*     puts(""); */
-/*     print_register(*branch_from); */
-/*     print_register(*epilogue); */
-/*     puts(""); */
+    /* print_register(branch_from); */
+    /* print_register(epilogue); */
+    /* puts(""); */
+    /* print_register(*branch_from); */
+    /* print_register(*epilogue); */
+    /* puts(""); */
 
     uint32_t imm26 = (epilogue - branch_from) & 0x3ffffff;
-    /* uint32_t imm26 = (branch_from - epilogue) & 0x3ffffff; */
     uint32_t epilogue_branch = (5 << 26) | imm26;
 
     /* print_register(epilogue_branch); */
@@ -307,11 +307,127 @@ static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
     /* bl _panic --> branch to mach_syscall epilogue */
     *branch_from = epilogue_branch;
 
-    /* *branch_from = (5 << 26) | imm26; */
-    /* print_register(*branch_from); */
-
-
     puts("svc_stalker: patched mach_syscall");
+
+    return true;
+}
+
+/* static bool exception_triage_thread_patcher(xnu_pf_patch_t *patch, */
+/*         void *cacheable_stream){ */
+/* static bool exception_triage_thread_patcher(uint32_t *opcode_stream){ */
+static bool patch_exception_triage_thread(uint32_t *opcode_stream){
+    /* patch exception_triage_thread to return to its caller on EXC_SYSCALL and
+     * EXC_MACH_SYSCALL
+     *
+     * we're using exception_triage as an entrypoint. The unconditional
+     * branch to exception_triage_thread should be no more than five instructions
+     * in front of us. Then we can calculate where the branch goes and set
+     * opcode stream accordingly.
+     */
+    for(int i=0; i<2; i++){
+        print_register(opcode_stream[i]);
+    }
+
+    puts("");
+
+    uint32_t instr_limit = 5;
+
+    while((*opcode_stream & 0xfc000000) != 0x14000000){
+        if(instr_limit-- == 0)
+            return false;
+
+        opcode_stream++;
+    }
+
+    print_register(*opcode_stream);
+    puts("");
+    print_register((*opcode_stream & 0x3ffffff) << 2);
+
+    int32_t imm26 = sign_extend((*opcode_stream & 0x3ffffff) << 2, 26);
+    print_register((int32_t)imm26);
+
+    /* opcode_stream points to beginning of exception_triage_thread */
+    opcode_stream = (uint32_t *)((intptr_t)opcode_stream + imm26);
+
+    for(int i=0; i<10; i++){
+        print_register(opcode_stream[i]);
+    }
+    
+    puts("");
+
+    /* We're looking for two clusters of instructions:
+     *
+     *  CMP             Wn, #4
+     *  B.CS            xxx
+     *
+     *  and
+     *
+     *  CMP             Wn, #4
+     *  B.CC            xxx
+     *
+     * Searching linearly will work fine.
+     */
+    uint32_t *cmp_wn_4_first = NULL;
+    uint32_t *b_cs = NULL;
+
+    uint32_t *cmp_wn_4_second = NULL;
+    uint32_t *b_cc = NULL;
+
+    instr_limit = 500;
+
+    while(instr_limit-- != 0){
+        /* found a cmp Wn, 4 */
+        if((*opcode_stream & 0xfffffc1f) == 0x7100101f){
+            /* next instruction is a conditional branch? */
+            if((opcode_stream[1] & 0xff000000) == 0x54000000){
+                /* this branch's condition code is cs or cc? */
+                if(((opcode_stream[1] & 0xe) >> 1) == 1){
+                    puts("here");
+                    /* condition code is cs? */
+                    if((opcode_stream[1] & 1) == 0){
+                        cmp_wn_4_first = opcode_stream;
+                        b_cs = opcode_stream + 1;
+                    }
+                    /* condition code is cc? */
+                    else{
+                        cmp_wn_4_second = opcode_stream;
+                        b_cc = opcode_stream + 1;
+                    }
+                }
+            }
+        }
+
+        if(cmp_wn_4_first && cmp_wn_4_second && b_cs && b_cc)
+            break;
+
+        opcode_stream++;
+    }
+    
+    if(!cmp_wn_4_first || !cmp_wn_4_second || !b_cs || !b_cc){
+        if(!cmp_wn_4_first)
+            puts("cmp_wn_4_first not found");
+        if(!cmp_wn_4_second)
+            puts("cmp_wn_4_second not found");
+        if(!b_cs)
+            puts("b_cs not found");
+        if(!b_cc)
+            puts("b_cc not found");
+
+        return false;
+    }
+
+    print_register(xnu_ptr_to_va(cmp_wn_4_first) - kernel_slide);
+    print_register(xnu_ptr_to_va(b_cs) - kernel_slide);
+    print_register(xnu_ptr_to_va(cmp_wn_4_second) - kernel_slide);
+    print_register(xnu_ptr_to_va(b_cc) - kernel_slide);
+    puts("");
+
+    uint32_t cmn_w0_negative_3 = 0x31000c1f;
+    print_register(cmn_w0_negative_3 | (*cmp_wn_4_first & 0x3e0));
+
+    /* both cmp Wn, 4 --> cmn Wn, -3 */
+    /* *cmp_wn_4_first = 0x31000f3f; */
+    /* *cmp_wn_4_second = 0x31000f3f; */
 
     return true;
 }
@@ -481,10 +597,15 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     opcode_stream--;
 
     imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28);
-    uint64_t exception_triage_addr = imm26 + xnu_ptr_to_va(opcode_stream);
+    g_exception_triage_addr = imm26 + xnu_ptr_to_va(opcode_stream);
 
     puts("svc_stalker: found exception_triage");
-    /* print_register(exception_triage_addr); */
+    /* print_register(g_exception_triage_addr); */
+
+    if(!patch_exception_triage_thread(xnu_va_to_ptr(g_exception_triage_addr))){
+        puts("svc_stalker: failed patching exception_triage_thread");
+        return false;
+    }
     
     /* we're gonna put everything inside of the empty space right
      * before the end of __TEXT_EXEC that forces it to be page aligned
@@ -582,7 +703,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     /* print_register(cur_stalker_ctl); */
 
     /* stash these pointers so we have them after xnu boot */
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(exception_triage_addr);
+    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_exception_triage_addr);
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(current_proc_addr);
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_proc_pid_addr);
     /* WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(xnu_ptr_to_va(pid_table)); */
@@ -654,11 +775,6 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         if(*(uint64_t *)xnu_va_to_ptr(sy_call) == 0xd65f03c0528009c0){
             sysent_to_patch = sysent_stream;
             patched_syscall_num = i;
-
-            /* print_register(*(uint64_t *)sysent_stream); */
-            /* print_register(*(uint64_t *)(sysent_stream + 8)); */
-            /* print_register(*(uint64_t *)(sysent_stream + 0x10)); */
-            /* return true; */
 
             /* sy_call */
             if(!tagged_ptr)
@@ -877,8 +993,22 @@ static void stalker_apply_patches(const char *cmd, char *args){
             sleh_synchronous_patcher_masks, num_ss_matches, false, // XXX for testing
             sleh_synchronous_patcher);
     xnu_pf_apply(__TEXT_EXEC, patchset);
-
     xnu_pf_patchset_destroy(patchset);
+
+    /* now we have the address of exception_triage */
+    /* xnu_pf_patchset_t *et_patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT); */
+    /* xnu_pf_range_t *exception_triage_range = */
+    /*     xnu_pf_range_from_va(g_exception_triage_addr, 0x8); */
+
+    /* print_register(exception_triage_range); */
+
+    /* xnu_pf_maskmatch(et_patchset, NULL, NULL, 0, false, */
+    /*         exception_triage_thread_patcher); */
+    /* xnu_pf_apply(exception_triage_range, et_patchset); */
+    /* xnu_pf_patchset_destroy(et_patchset); */
+
+
+
 
     puts("------stalker_apply_patches DONE------");
 }
