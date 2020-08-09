@@ -124,8 +124,6 @@ static bool proc_pid_finder(xnu_pf_patch_t *patch,
     g_proc_pid_addr = imm26 + xnu_ptr_to_va(opcode_stream);
 
     puts("svc_stalker: found proc_pid");
-    /* print_register(g_proc_pid_addr); */
-
 
     return true;
 }
@@ -165,9 +163,10 @@ static bool sysent_finder(xnu_pf_patch_t *patch,
             *(uint16_t *)(maybe_sysent + 0x16) == 0){
         xnu_pf_disable_patch(patch);
 
-        puts("svc_stalker: found sysent");
         g_sysent_addr = addr_va;
-        /* print_register(g_sysent_addr); */
+
+        puts("svc_stalker: found sysent");
+
         return true;
     }
 
@@ -195,9 +194,9 @@ static bool kalloc_canblock_finder(xnu_pf_patch_t *patch,
 
     xnu_pf_disable_patch(patch);
 
-    puts("svc_stalker: found kalloc_canblock");
     g_kalloc_canblock_addr = xnu_ptr_to_va(opcode_stream);
-    /* print_register(g_kalloc_canblock_addr); */
+
+    puts("svc_stalker: found kalloc_canblock");
 
     return true;
 }
@@ -240,8 +239,9 @@ static bool kfree_addr_finder(xnu_pf_patch_t *patch,
 
     xnu_pf_disable_patch(patch);
 
-    puts("svc_stalker: found kfree_addr");
     g_kfree_addr_addr = xnu_ptr_to_va(opcode_stream);
+
+    puts("svc_stalker: found kfree_addr");
 
     return true;
 }
@@ -347,7 +347,8 @@ static bool ExceptionVectorsBase_finder(xnu_pf_patch_t *patch,
     }
 
     if(!got_exc_vectors_table){
-        puts("svc_stalker: didn't find exc_vectors_table?");
+        puts("svc_stalker: didn't find");
+        puts("     exc_vectors_table?");
         stalker_fatal_error();
     }
 
@@ -359,9 +360,6 @@ static bool ExceptionVectorsBase_finder(xnu_pf_patch_t *patch,
 
     puts("svc_stalker: found unused executable code");
     g_exec_scratch_space_addr = xnu_ptr_to_va(opcode_stream);
-
-    /* print_register(g_exec_scratch_space_size); */
-    /* print_register(g_exec_scratch_space_addr - kernel_slide); */
     
     return true;
 }
@@ -625,7 +623,6 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     uint64_t current_proc_addr = imm26 + xnu_ptr_to_va(opcode_stream);
 
     puts("svc_stalker: found current_proc");
-    /* print_register(current_proc_addr); */
 
     /* now we need to find exception_triage. We can do this by going forward
      * until we hit a BRK, as it's right after the call to exception_triage
@@ -712,12 +709,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     }
 
     uint64_t num_free_instrs = g_exec_scratch_space_size / sizeof(uint32_t);
-
     uint32_t *scratch_space = xnu_va_to_ptr(g_exec_scratch_space_addr);
-    /* puts("scratch space:"); */
-    /* print_register(scratch_space); */
-    
-    /* return true; */
 
 #define WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(qword) \
     do { \
@@ -880,7 +872,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
             *(uint64_t *)(sysent_to_patch + 0x8) = 0;
 
             /* this syscall will return an integer */
-            *(int32_t *)(sysent_to_patch + 0x10) = 4;//1; /* _SYSCALL_RET_INT_T */
+            *(int32_t *)(sysent_to_patch + 0x10) = 1; /* _SYSCALL_RET_INT_T */
 
             /* this syscall has four arguments */
             *(int16_t *)(sysent_to_patch + 0x14) = 4;
@@ -1069,13 +1061,9 @@ static void stalker_prep(const char *cmd, char *args){
     xnu_pf_apply(AMFI___TEXT_EXEC, patchset);
     xnu_pf_apply(__TEXT_EXEC, patchset);
     xnu_pf_patchset_destroy(patchset);
-    puts("returned");
 }
 
 static void stalker_preboot_hook(void){
-    puts("Inside stalker_preboot_hook");
-    puts("Begin patching sleh_synchronous");
-
     /* Patch sleh_synchronous here so we're guarenteed to have all of
      * our offsets beforehand
      */
@@ -1103,8 +1091,6 @@ static void stalker_preboot_hook(void){
     xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
     xnu_pf_apply(__TEXT_EXEC, patchset);
     xnu_pf_patchset_destroy(patchset);
-
-    puts("-----DONE patching sleh_synchronous-----");
 
     if(next_preboot_hook)
         next_preboot_hook();

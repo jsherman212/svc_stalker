@@ -19,7 +19,7 @@
 #define ARG3                        (0x18)
 
 #define PID_MANAGE                  (0)
-#define SYSCALL_MANAGE              (1)
+#define CALL_LIST_MANAGE            (1)
 
 /* local variables */
 #define OFFSET_CACHE_PTR            (STACK-0x70)

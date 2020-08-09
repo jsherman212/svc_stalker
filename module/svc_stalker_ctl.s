@@ -35,7 +35,7 @@ _main:
     ; first, let's see if the user wants to check if this syscall was
     ; patched correctly
     b.eq check_if_patched
-    cmp w22, SYSCALL_MANAGE
+    cmp w22, CALL_LIST_MANAGE
     b.eq syscall_manage
     cmp w22, 2
     b.eq out_givetablekaddr
