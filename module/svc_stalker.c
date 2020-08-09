@@ -875,7 +875,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     write_blr(8, branch_from, branch_to);
 
     /* there's an extra B.NE after the five instrs we overwrote, so NOP it out */
-    *(uint32_t *)(branch_from + (4*5)) = 0xd503201f;
+    *(uint32_t *)(branch_from + (sizeof(uint32_t) * 5)) = 0xd503201f;
 
     puts("svc_stalker: patched sleh_synchronous");
 
@@ -899,6 +899,12 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 }
 
 static void stalker_apply_patches(const char *cmd, char *args){
+    /* We need to get these offsets in more or less this order so
+     * sleh_synchronous_patcher has all the required offsets to proceed
+     *
+     * Keep all the xnu_pf_apply calls where they are, and don't convert
+     * them to JIT
+     */
     xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
 
     uint64_t proc_pid_finder_match[] = {
@@ -925,8 +931,7 @@ static void stalker_apply_patches(const char *cmd, char *args){
 
     xnu_pf_range_t *AMFI___TEXT_EXEC = xnu_pf_segment(AMFI, "__TEXT_EXEC");
     xnu_pf_maskmatch(patchset, proc_pid_finder_match, proc_pid_finder_masks,
-            num_proc_pid_matches, false, // XXX for testing,
-            proc_pid_finder);
+            num_proc_pid_matches, false, proc_pid_finder);
     xnu_pf_apply(AMFI___TEXT_EXEC, patchset);
 
     uint64_t sysent_finder_match[] = {
@@ -946,8 +951,7 @@ static void stalker_apply_patches(const char *cmd, char *args){
 
     xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
     xnu_pf_maskmatch(patchset, sysent_finder_match, sysent_finder_masks,
-            num_sysent_matches, false, // XXX for testing,
-            sysent_finder);
+            num_sysent_matches, false, sysent_finder);
     xnu_pf_apply(__TEXT_EXEC, patchset);
 
     uint64_t kalloc_canblock_match[] = {
@@ -968,8 +972,7 @@ static void stalker_apply_patches(const char *cmd, char *args){
     };
 
     xnu_pf_maskmatch(patchset, kalloc_canblock_match, kalloc_canblock_masks,
-            num_kalloc_canblock_matches, false, // XXX for testing,
-            kalloc_canblock_finder);
+            num_kalloc_canblock_matches, false, kalloc_canblock_finder);
     xnu_pf_apply(__TEXT_EXEC, patchset);
 
     uint64_t kfree_addr_match[] = {
@@ -990,8 +993,7 @@ static void stalker_apply_patches(const char *cmd, char *args){
     };
 
     xnu_pf_maskmatch(patchset, kfree_addr_match, kfree_addr_masks,
-            num_kfree_addr_matches, false, // XXX for testing,
-            kfree_addr_finder);
+            num_kfree_addr_matches, false, kfree_addr_finder);
     xnu_pf_apply(__TEXT_EXEC, patchset);
 
     uint64_t mach_syscall_patcher_match[] = {
@@ -1015,8 +1017,7 @@ static void stalker_apply_patches(const char *cmd, char *args){
     };
 
     xnu_pf_maskmatch(patchset, mach_syscall_patcher_match, mach_syscall_patcher_masks,
-            num_mach_syscall_matches, false, // XXX for testing,
-            mach_syscall_patcher);
+            num_mach_syscall_matches, false, mach_syscall_patcher);
     xnu_pf_apply(__TEXT_EXEC, patchset);
 
     uint64_t ExceptionVectorsBase_finder_match[] = {
@@ -1040,9 +1041,8 @@ static void stalker_apply_patches(const char *cmd, char *args){
     };
 
     xnu_pf_maskmatch(patchset, ExceptionVectorsBase_finder_match,
-            ExceptionVectorsBase_finder_masks,
-            num_ExceptionVectorsBase_matches, false,
-            ExceptionVectorsBase_finder);
+            ExceptionVectorsBase_finder_masks, num_ExceptionVectorsBase_matches,
+            false, ExceptionVectorsBase_finder);
     xnu_pf_apply(__TEXT_EXEC, patchset);
 
     uint64_t sleh_synchronous_patcher_match[] = {
@@ -1061,17 +1061,10 @@ static void stalker_apply_patches(const char *cmd, char *args){
     };
 
     xnu_pf_maskmatch(patchset, sleh_synchronous_patcher_match,
-            sleh_synchronous_patcher_masks, num_ss_matches, false, // XXX for testing
+            sleh_synchronous_patcher_masks, num_ss_matches, false,
             sleh_synchronous_patcher);
     xnu_pf_apply(__TEXT_EXEC, patchset);
     xnu_pf_patchset_destroy(patchset);
-
-    puts("------stalker_apply_patches DONE------");
-}
-
-static void stalker_preboot_hook(void){
-    if(next_preboot_hook)
-        next_preboot_hook();
 }
 
 void module_entry(void){
@@ -1080,10 +1073,7 @@ void module_entry(void){
     mh_execute_header = xnu_header();
     kernel_slide = xnu_slide_value(mh_execute_header);
 
-    next_preboot_hook = preboot_hook;
-    preboot_hook = stalker_preboot_hook;
-
-    command_register("stalker-patch", "apply svc_stalker patches",
+    command_register("stalker-patch", "apply svc_stalker kernel patches",
             stalker_apply_patches);
 }
 
