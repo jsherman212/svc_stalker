@@ -80,4 +80,5 @@ system call interception for it.** The `handle_svc` hook doesn't check if
 you've done this to save space.
 
 ## Other Notes
-At the moment, this project assumes a 16k page size.
+At the moment, this project assumes a 16k page size. I've only tested this on
+phones running iOS 13 and higher.

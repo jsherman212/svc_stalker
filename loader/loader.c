@@ -181,7 +181,6 @@ int main(int argc, char **argv, const char **envp){
     
     munmap(module_data, module_size);
 
-    /* sleep(1); */
     usleep(200 * 1000);
 
     err = pongo_send_command(pongo_device, "stalker-patch\n");
@@ -194,7 +193,7 @@ int main(int argc, char **argv, const char **envp){
         return 1;
     }
 
-    usleep(2000 * 1000);
+    /* usleep(2000 * 1000); */
 
     err = pongo_send_command(pongo_device, "bootx\n");
 

@@ -157,9 +157,9 @@ static bool sysent_finder(xnu_pf_patch_t *patch,
             *(uint32_t *)(maybe_sysent + 0x10) == 1 &&
             *(uint16_t *)(maybe_sysent + 0x14) == 0 &&
             *(uint16_t *)(maybe_sysent + 0x16) == 0){
-        puts("svc_stalker: found sysent");
-
         xnu_pf_disable_patch(patch);
+
+        puts("svc_stalker: found sysent");
         g_sysent_addr = addr_va;
         /* print_register(g_sysent_addr); */
         return true;
@@ -692,9 +692,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     uint64_t num_free_instrs = g_exec_scratch_space_size / sizeof(uint32_t);
 
     uint32_t *scratch_space = xnu_va_to_ptr(g_exec_scratch_space_addr);
-    puts("scratch space:");
-    print_register(scratch_space);
-
+    /* puts("scratch space:"); */
+    /* print_register(scratch_space); */
+    
     /* return true; */
 
 #define WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(qword) \
@@ -705,7 +705,6 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         } \
         *(uint64_t *)scratch_space = (qword); \
         scratch_space += 2; \
-        /* handle_svc_hook_cache_size += 8; \ */ \
         num_free_instrs -= 2; \
     } while (0) \
 
@@ -717,7 +716,6 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         } \
         *(uint64_t *)scratch_space = (qword); \
         scratch_space += 2; \
-        /* svc_stalker_ctl_cache_size += 8; \ */ \
         num_free_instrs -= 2; \
     } while (0) \
 
@@ -874,7 +872,6 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
     uint64_t branch_to = g_exec_scratch_space_addr + handle_svc_hook_cache_size;
 
-    // XXX XXX commented for testing
     write_blr(8, branch_from, branch_to);
 
     /* there's an extra B.NE after the five instrs we overwrote, so NOP it out */
@@ -907,11 +904,9 @@ static void stalker_apply_patches(const char *cmd, char *args){
     uint64_t proc_pid_finder_match[] = {
         0x94000000,     /* BL n (_proc_pid) */
         0xf90003e0,     /* STR X0, [SP] (store _proc_pid return value) */
-
-        /* ADRP X0, n or ADR X0, n
-         * (X0 = format string which uses return value)
-         */
-        0x10000000,
+        0x10000000,     /* ADRP X0, n or ADR X0, n */
+        0x0,            /* ignore this instruction */
+        0x14000000,     /* B n or BL n */
     };
 
     const size_t num_proc_pid_matches = sizeof(proc_pid_finder_match) /
@@ -921,6 +916,8 @@ static void stalker_apply_patches(const char *cmd, char *args){
         0xfc000000,     /* ignore BL immediate */
         0xffffffff,     /* match exactly */
         0x1f00001f,     /* ignore immediate */
+        0x0,            /* ignore this instruction */
+        0x7c000000,     /* ignore everything except bits which indicate B or BL */
     };
 
     struct mach_header_64 *AMFI = xnu_pf_get_kext_header(mh_execute_header,
@@ -977,7 +974,9 @@ static void stalker_apply_patches(const char *cmd, char *args){
 
     uint64_t kfree_addr_match[] = {
         0xf90003f3,     /* STR X19, [SP] */
-        0x10000000,     /* ADRP Xn, n or ADR Xn, n */
+        0x10000000,     /* ADRP X0, n or ADR X0, n */
+        0x0,            /* ignore this instruction */
+        0x94000000,     /* BL n (_panic) */
     };
 
     const size_t num_kfree_addr_matches = sizeof(kfree_addr_match) /
@@ -985,7 +984,9 @@ static void stalker_apply_patches(const char *cmd, char *args){
 
     uint64_t kfree_addr_masks[] = {
         0xffffffff,     /* match exactly */
-        0x1f000000,     /* ignore everything */
+        0x1f00001f,     /* ignore immediate */
+        0x0,            /* ignore this instruction */
+        0xfc000000,     /* ignore BL immediate */
     };
 
     xnu_pf_maskmatch(patchset, kfree_addr_match, kfree_addr_masks,
@@ -999,6 +1000,8 @@ static void stalker_apply_patches(const char *cmd, char *args){
          * (X0 = panic string)
          */
         0x10000000,
+        0x0,            /* ignore this instruction */
+        0x94000000,     /* BL n (_panic) */
     };
 
     const size_t num_mach_syscall_matches = sizeof(mach_syscall_patcher_match) /
@@ -1007,6 +1010,8 @@ static void stalker_apply_patches(const char *cmd, char *args){
     uint64_t mach_syscall_patcher_masks[] = {
         0xfc000000,     /* ignore BL immediate */
         0x1f00001f,     /* ignore immediate */
+        0x0,            /* ignore this instruction */
+        0xfc000000,     /* ignore BL immediate */
     };
 
     xnu_pf_maskmatch(patchset, mach_syscall_patcher_match, mach_syscall_patcher_masks,
@@ -1065,8 +1070,6 @@ static void stalker_apply_patches(const char *cmd, char *args){
 }
 
 static void stalker_preboot_hook(void){
-    puts("inside stalker_preboot_hook");
-
     if(next_preboot_hook)
         next_preboot_hook();
 }
@@ -1080,7 +1083,7 @@ void module_entry(void){
     next_preboot_hook = preboot_hook;
     preboot_hook = stalker_preboot_hook;
 
-    command_register("stalker-patch", "apply sleh_synchronous patches",
+    command_register("stalker-patch", "apply svc_stalker patches",
             stalker_apply_patches);
 }
 
