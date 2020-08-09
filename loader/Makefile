@@ -1,5 +1,5 @@
 CC=clang
-CFLAGS=-g -framework CoreFoundation
+CFLAGS=-g
 LDFLAGS=-lusb-1.0
 
 TARGET=loader

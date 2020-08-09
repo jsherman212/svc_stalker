@@ -22,9 +22,9 @@ and the `svc_stalker` module.
 After you've built everything, have checkra1n boot your device to a pongo
 shell: `/Applications/checkra1n.app/Contents/MacOS/checkra1n -p`
 
-After the device is booted to pongoOS, and in the same directory you built
-the loader and the `svc_stalker` module, do `loader/loader module/svc_stalker`.
-`svc_stalker` will patch the kernel and in a few seconds XNU will boot.
+In the same directory you built the loader and the `svc_stalker` module,
+do `loader/loader module/svc_stalker`.  `svc_stalker` will patch the kernel and
+in a few seconds XNU will boot.
 
 ## svc_stalker_ctl
 svc_stalker will patch the first `sysent` struct in `_sysent` that has `sy_call`
@@ -78,6 +78,11 @@ simultaneously.** If you try and intercept system calls for a 1024th process,
 **You need to register exception ports for your process before you enable
 system call interception for it.** The `handle_svc` hook doesn't check if
 you've done this to save space.
+
+## Known Issues
+Sometimes a couple of my phones wouldn't boot after checkra1n's patchfinder
+finished. I have yet to figure out what causes this, but if this happens,
+just try again. Also, if the device hangs after `bootx`, try again.
 
 ## Other Notes
 At the moment, this project assumes a 16k page size. I've only tested this on

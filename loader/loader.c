@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,15 +17,8 @@ static int pongo_send_command(libusb_device_handle *pongo_device,
     if(command)
         command_len += strlen(command);
 
-    int ret = libusb_control_transfer(pongo_device, 0x21, 3, 0, 0,
+    return libusb_control_transfer(pongo_device, 0x21, 3, 0, 0,
             (unsigned char *)command, command_len, 0);
-
-    return ret;
-
-    /* if(ret < 0) */
-    /*     return ret; */
-
-    /* return libusb_control_transfer(pongo_device, 0x21, 4, 0, 0, NULL, 0, 0); */
 }
 
 static int pongo_init_bulk_upload(libusb_device_handle *pongo_device){
@@ -38,6 +32,11 @@ static int pongo_discard_bulk_upload(libusb_device_handle *pongo_device){
 static int pongo_do_bulk_upload(libusb_device_handle *pongo_device,
         void *data, size_t len){
     return libusb_bulk_transfer(pongo_device, 2, data, len, NULL, 0);
+}
+
+static int pongo_get_stdout(libusb_device_handle *pongo_device, char *outbuf){
+    return libusb_control_transfer(pongo_device, 0xa1, 1, 0, 0,
+            (unsigned char *)outbuf, 512, 0);
 }
 
 static int hotplug_callback(libusb_context *ctx, libusb_device *device,
@@ -175,7 +174,7 @@ int main(int argc, char **argv, const char **envp){
 
     usleep(200 * 1000);
 
-    err = pongo_send_command(pongo_device, "stalker-patch\n");
+    err = pongo_send_command(pongo_device, "stalker-prep\n");
 
     if(err < 0){
         printf("pongo_send_command: %s\n", libusb_error_name(err));

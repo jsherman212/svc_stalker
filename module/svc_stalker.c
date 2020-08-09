@@ -23,10 +23,17 @@ static uint64_t sign_extend(uint64_t number, uint32_t numbits /* signbit */){
 static struct mach_header_64 *mh_execute_header;
 static uint64_t kernel_slide;
 
-static void stalker_fatal(void){
-    /* puts("failed: spinning forever"); */
-    /* for(;;); */
-    panic("stalker: fatal error\n");
+/* XXX do not panic so user can see what screen says */
+__attribute__ ((noreturn)) static void stalker_fatal_error(void){
+    puts("svc_stalker: fatal error.");
+    puts("     Please file an issue");
+    puts("     on Github. Include");
+    puts("     output up to this");
+    puts("     point and device/iOS");
+    puts("     version.");
+    puts("Spinning forever.");
+
+    for(;;);
 }
 
 static void write_blr(uint32_t reg, uint64_t from, uint64_t to){
@@ -73,6 +80,8 @@ static uint64_t g_exec_scratch_space_addr = 0;
 /* don't count the first opcode */
 static uint64_t g_exec_scratch_space_size = -sizeof(uint32_t);
 
+static bool g_patched_mach_syscall = false;
+
 static bool proc_pid_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -103,13 +112,13 @@ static bool proc_pid_finder(xnu_pf_patch_t *patch,
     uint32_t instr_limit = 5;
 
     while((*opcode_stream & 0xfc000000) != 0x94000000){
-        if(instr_limit-- == 0){
-            puts("svc_stalker: proc_pid_finder: couldn't find proc_pid");
+        if(instr_limit-- == 0)
             return false;
-        }
 
         opcode_stream--;
     }
+
+    xnu_pf_disable_patch(patch);
 
     int32_t imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28);
     g_proc_pid_addr = imm26 + xnu_ptr_to_va(opcode_stream);
@@ -117,7 +126,6 @@ static bool proc_pid_finder(xnu_pf_patch_t *patch,
     puts("svc_stalker: found proc_pid");
     /* print_register(g_proc_pid_addr); */
 
-    xnu_pf_disable_patch(patch);
 
     return true;
 }
@@ -132,10 +140,8 @@ static bool sysent_finder(xnu_pf_patch_t *patch,
     uint32_t instr_limit = 10;
 
     while((*opcode_stream & 0x9f000000) != 0x90000000){
-        if(instr_limit-- == 0){
-            puts("svc_stalker: couldn't find sysent");
+        if(instr_limit-- == 0)
             return false;
-        }
 
         opcode_stream++;
     }
@@ -181,10 +187,8 @@ static bool kalloc_canblock_finder(xnu_pf_patch_t *patch,
     uint32_t instr_limit = 10;
 
     while((*opcode_stream & 0xffc003ff) != 0xd10003ff){
-        if(instr_limit-- == 0){
-            puts("svc_stalker: kalloc_canblock_finder: couldn't find kalloc_canblock");
+        if(instr_limit-- == 0)
             return false;
-        }
 
         opcode_stream--;
     }
@@ -225,8 +229,10 @@ static bool kfree_addr_finder(xnu_pf_patch_t *patch,
 
     while((*opcode_stream & 0xffc003ff) != 0xd10003ff){
         if(instr_limit-- == 0){
-            puts("svc_stalker: kfree_addr_finder: couldn't find kfree_addr");
-            return false;
+            puts("svc_stalker: kfree_addr_finder:");
+            puts("     couldn't find kfree_addr");
+            puts("     prologue");
+            stalker_fatal_error();
         }
 
         opcode_stream--;
@@ -281,7 +287,9 @@ static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
 
     while((*opcode_stream & 0xffc07fff) != 0xa9407bfd){
         if(instr_limit-- == 0){
-            puts("svc_stalker: mach_syscall_patcher: couldn't find epilogue");
+            puts("svc_stalker: mach_syscall_patcher:");
+            puts("     couldn't find epilogue");
+            puts("     for mach_syscall");
             return false;
         }
 
@@ -295,6 +303,7 @@ static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
 
     /* bl _panic --> branch to mach_syscall epilogue */
     *branch_from = epilogue_branch;
+    g_patched_mach_syscall = true;
 
     puts("svc_stalker: patched mach_syscall");
 
@@ -339,7 +348,7 @@ static bool ExceptionVectorsBase_finder(xnu_pf_patch_t *patch,
 
     if(!got_exc_vectors_table){
         puts("svc_stalker: didn't find exc_vectors_table?");
-        return false;
+        stalker_fatal_error();
     }
 
     /* we're currently at the upper 32 bits of the last pointer in
@@ -430,13 +439,17 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
     if(!cmp_wn_4_first || !cmp_wn_4_second || !b_cs || !b_cc){
         if(!cmp_wn_4_first)
             puts("cmp_wn_4_first not found");
+
         if(!cmp_wn_4_second)
             puts("cmp_wn_4_second not found");
+
         if(!b_cs)
             puts("b_cs not found");
+
         if(!b_cc)
             puts("b_cc not found");
 
+        /* return back so we can print what happened */
         return false;
     }
 
@@ -460,22 +473,33 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
 static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     if(g_proc_pid_addr == 0 || g_sysent_addr == 0 ||
-            g_kalloc_canblock_addr == 0 || g_kfree_addr_addr == 0){
-        puts("svc_stalker: error: missing offsets before we patch sleh_synchronous:");
+            g_kalloc_canblock_addr == 0 || g_kfree_addr_addr == 0 ||
+            !g_patched_mach_syscall){
+        puts("svc_stalker: error(s) before");
+        puts("     we patch sleh_synchronous:");
         
         if(g_proc_pid_addr == 0)
-            puts("     proc_pid");
+            puts("   proc_pid not found");
 
         if(g_sysent_addr == 0)
-            puts("     sysent");
+            puts("   sysent not found");
 
-        if(g_kalloc_canblock_addr == 0)
-            puts("     kalloc_canblock");
+        if(g_kalloc_canblock_addr == 0){
+            puts("   kalloc_canblock");
+            puts("   not found");
+        }
+            
+        if(g_kfree_addr_addr == 0){
+            puts("   kfree_addr");
+            puts("   not found");
+        }
 
-        if(g_kfree_addr_addr == 0)
-            puts("     kfree_addr");
+        if(!g_patched_mach_syscall){
+            puts("   did not patch");
+            puts("   mach_syscall");
+        }
 
-        return false;
+        stalker_fatal_error();
     }
 
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -506,7 +530,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     if(!IS_B_NE(*opcode_stream)){
         puts("sleh_synchronous_patcher: Not b.ne, opcode:");
         print_register(*opcode_stream);
-        return false;
+        stalker_fatal_error();
     }
 
     opcode_stream--;
@@ -515,7 +539,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     if((*opcode_stream & 0xfffffc1f) != 0x721e041f){
         puts("sleh_synchronous_patcher: Not tst Wn, 0xc, opcode:");
         print_register(*opcode_stream);
-        return false;
+        stalker_fatal_error();
     }
 
     opcode_stream--;
@@ -524,7 +548,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     if((*opcode_stream & 0xffc003e0) != 0x39400260){
         puts("sleh_synchronous_patcher: Not ldrb Wn, [x19, n], opcode:");
         print_register(*opcode_stream);
-        return false;
+        stalker_fatal_error();
     }
 
     opcode_stream--;
@@ -533,7 +557,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     if(!IS_B_NE(*opcode_stream)){
         puts("sleh_synchronous_patcher: Not b.ne, opcode:");
         print_register(*opcode_stream);
-        return false;
+        stalker_fatal_error();
     }
 
     opcode_stream--;
@@ -542,7 +566,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     if((*opcode_stream & 0xfffffc1f) != 0x7100541f){
         puts("sleh_synchronous_patcher: Not cmp Wn, 0x15, opcode:");
         print_register(*opcode_stream);
-        return false;
+        stalker_fatal_error();
     }
 
     opcode_stream--;
@@ -551,7 +575,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     if((*opcode_stream & 0xffffffe0) != 0xb9400260){
         puts("sleh_synchronous_patcher: Not ldr Wn, [x19], opcode:");
         print_register(*opcode_stream);
-        return false;
+        stalker_fatal_error();
     }
 
     /* don't need anymore */
@@ -568,9 +592,10 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
     for(;;){
         if(instr_limit-- == 0){
-            puts("svc_stalker: sleh_synchronous_patcher: couldn't find"
-                    " two MRS Xn, TPIDR_EL1 instrs");
-            return false;
+            puts("svc_stalker: didn't");
+            puts("     find two");
+            puts("     MRS Xn, TPIDR_EL1's");
+            stalker_fatal_error();
         }
 
         if((*opcode_stream & 0xffffffe0) == 0xd538d080){
@@ -588,9 +613,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
     while((*opcode_stream & 0xfc000000) != 0x94000000){
         if(instr_limit-- == 0){
-            puts("svc_stalker: sleh_synchronous_patcher: couldn't find"
-                    " current_proc");
-            return false;
+            puts("svc_stalker: couldn't find");
+            puts("     current_proc");
+            stalker_fatal_error();
         }
 
         opcode_stream++;
@@ -610,8 +635,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
     while((*opcode_stream & 0xffe0001f) != 0xd4200000){
         if(instr_limit-- == 0){
-            puts("svc_stalker: sleh_synchronous_patcher: couldn't find exception_triage");
-            return false;
+            puts("svc_stalker: couldn't");
+            puts("     find exception_triage");
+            stalker_fatal_error();
         }
 
         opcode_stream++;
@@ -626,14 +652,11 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     puts("svc_stalker: found exception_triage");
 
     if(!patch_exception_triage_thread(xnu_va_to_ptr(exception_triage_addr))){
-        puts("svc_stalker: failed patching exception_triage_thread");
-        // XXX
-        /* return false; */
+        puts("svc_stalker: failed");
+        puts("     patching");
+        puts("     exception_triage_thread");
+        stalker_fatal_error();
     }
-
-
-    // XXX XXX
-    /* return true; */
 
     uint64_t handle_svc_hook_cache_size = 4 * sizeof(uint64_t);
     uint64_t svc_stalker_ctl_cache_size = 3 * sizeof(uint64_t);
@@ -682,10 +705,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
             puts("     incompatible! couldn't");
             puts("     find a suitable place");
             puts("     to put our code!");
-            puts("svc_stalker: spinning forever");
-
-            // XXX
-            /* for(;;); */
+            puts("Spinning forever.");
+            for(;;);
+            __builtin_unreachable();
         }
     }
 
@@ -700,8 +722,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 #define WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(qword) \
     do { \
         if(num_free_instrs < 2){ \
-            puts("svc_stalker: sleh_synchronous_patcher: ran out of space for hook"); \
-            return false; \
+            puts("svc_stalker: ran out"); \
+            puts("     of space for hook"); \
+            stalker_fatal_error(); \
         } \
         *(uint64_t *)scratch_space = (qword); \
         scratch_space += 2; \
@@ -711,8 +734,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 #define WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(qword) \
     do { \
         if(num_free_instrs < 2){ \
-            puts("svc_stalker: sleh_synchronous_patcher: ran out of space for hook"); \
-            return false; \
+            puts("svc_stalker: ran out"); \
+            puts("     of space for hook"); \
+            stalker_fatal_error(); \
         } \
         *(uint64_t *)scratch_space = (qword); \
         scratch_space += 2; \
@@ -722,8 +746,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 #define WRITE_INSTR(opcode) \
     do { \
         if(num_free_instrs == 0){ \
-            puts("svc_stalker: sleh_synchronous_patcher: ran out of space for hook"); \
-            return false; \
+            puts("svc_stalker: ran out"); \
+            puts("     of space for hook"); \
+            stalker_fatal_error(); \
         } \
         *scratch_space = (opcode); \
         scratch_space++; \
@@ -751,8 +776,11 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     uint8_t *stalker_table = alloc_static(stalker_table_sz);
 
     if(!stalker_table){
-        puts("svc_stalker: alloc_static returned NULL");
-        return false;
+        puts("svc_stalker: alloc_static");
+        puts("     returned NULL when");
+        puts("     allocating mem for");
+        puts("     stalker table");
+        stalker_fatal_error();
     }
 
     /* the first uint128_t will hold the number of stalker structs that
@@ -812,8 +840,10 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
     for(uint32_t i=0; ; i++){
         if(limit-- == 0){
-            puts("svc_stalker: didn't find a sysent entry with enosys?");
-            return false;
+            puts("svc_stalker: didn't");
+            puts("     find a sysent entry");
+            puts("     with enosys?");
+            stalker_fatal_error();
         }
 
         uint64_t sy_call = *(uint64_t *)sysent_stream;
@@ -829,18 +859,15 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         }
 
         /* mov w0, ENOSYS; ret */
-        // XXX also check for orr w0, wzr, ENOSYS?
         if(*(uint64_t *)xnu_va_to_ptr(sy_call) == 0xd65f03c0528009c0){
             sysent_to_patch = sysent_stream;
             patched_syscall_num = i;
 
             /* sy_call */
-            if(!tagged_ptr){
-                *(uint64_t *)sysent_to_patch =
-                    (uint64_t)xnu_ptr_to_va(scratch_space);
-            }
+            if(!tagged_ptr)
+                *(uint64_t *)sysent_to_patch = xnu_ptr_to_va(scratch_space);
             else{
-                uint64_t untagged = ((uint64_t)xnu_ptr_to_va(scratch_space) &
+                uint64_t untagged = (xnu_ptr_to_va(scratch_space) &
                     0xffffffffffff) - kernel_slide;
 
                 /* re-tag */
@@ -885,8 +912,11 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     puts(x); \
 
     puts("***** IMPORTANT *****");
-    printf("* System call %#x has been\n", patched_syscall_num);
-    IMPORTANT_MSG("patched. It is your way");
+    IMPORTANT_MSG("System call ");
+    /* printf doesn't print this correctly? */
+    print_register(patched_syscall_num);
+    IMPORTANT_MSG("has been patched.");
+    IMPORTANT_MSG("It is your way");
     IMPORTANT_MSG("of controlling what");
     IMPORTANT_MSG("processes you intercept");
     IMPORTANT_MSG("system calls for.");
@@ -898,12 +928,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     return true;
 }
 
-static void stalker_apply_patches(const char *cmd, char *args){
-    /* We need to get these offsets in more or less this order so
-     * sleh_synchronous_patcher has all the required offsets to proceed
-     *
-     * Keep all the xnu_pf_apply calls where they are, and don't convert
-     * them to JIT
+static void stalker_prep(const char *cmd, char *args){
+    /* None of these patches are required so I can display an error message
+     * that the user can read if something isn't found instead of panicking
      */
     xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
 
@@ -926,13 +953,8 @@ static void stalker_apply_patches(const char *cmd, char *args){
         0x7c000000,     /* ignore everything except bits which indicate B or BL */
     };
 
-    struct mach_header_64 *AMFI = xnu_pf_get_kext_header(mh_execute_header,
-            "com.apple.driver.AppleMobileFileIntegrity");
-
-    xnu_pf_range_t *AMFI___TEXT_EXEC = xnu_pf_segment(AMFI, "__TEXT_EXEC");
     xnu_pf_maskmatch(patchset, proc_pid_finder_match, proc_pid_finder_masks,
             num_proc_pid_matches, false, proc_pid_finder);
-    xnu_pf_apply(AMFI___TEXT_EXEC, patchset);
 
     uint64_t sysent_finder_match[] = {
         0x1a803000,     /* CSEL Wn, Wn, Wn, CC */
@@ -949,10 +971,8 @@ static void stalker_apply_patches(const char *cmd, char *args){
         0x1f000000,     /* ignore everything */
     };
 
-    xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
     xnu_pf_maskmatch(patchset, sysent_finder_match, sysent_finder_masks,
             num_sysent_matches, false, sysent_finder);
-    xnu_pf_apply(__TEXT_EXEC, patchset);
 
     uint64_t kalloc_canblock_match[] = {
         0xaa0003f3,     /* MOV X19, X0 */
@@ -973,7 +993,6 @@ static void stalker_apply_patches(const char *cmd, char *args){
 
     xnu_pf_maskmatch(patchset, kalloc_canblock_match, kalloc_canblock_masks,
             num_kalloc_canblock_matches, false, kalloc_canblock_finder);
-    xnu_pf_apply(__TEXT_EXEC, patchset);
 
     uint64_t kfree_addr_match[] = {
         0xf90003f3,     /* STR X19, [SP] */
@@ -994,7 +1013,6 @@ static void stalker_apply_patches(const char *cmd, char *args){
 
     xnu_pf_maskmatch(patchset, kfree_addr_match, kfree_addr_masks,
             num_kfree_addr_matches, false, kfree_addr_finder);
-    xnu_pf_apply(__TEXT_EXEC, patchset);
 
     uint64_t mach_syscall_patcher_match[] = {
         0x94000000,     /* BL n (_exception_triage) */
@@ -1018,7 +1036,6 @@ static void stalker_apply_patches(const char *cmd, char *args){
 
     xnu_pf_maskmatch(patchset, mach_syscall_patcher_match, mach_syscall_patcher_masks,
             num_mach_syscall_matches, false, mach_syscall_patcher);
-    xnu_pf_apply(__TEXT_EXEC, patchset);
 
     uint64_t ExceptionVectorsBase_finder_match[] = {
         0xd538d092,     /* MRS X18, TPIDR_EL1 */
@@ -1040,10 +1057,29 @@ static void stalker_apply_patches(const char *cmd, char *args){
         0xffffffff,     /* match exactly */
     };
 
+    struct mach_header_64 *AMFI = xnu_pf_get_kext_header(mh_execute_header,
+            "com.apple.driver.AppleMobileFileIntegrity");
+    xnu_pf_range_t *AMFI___TEXT_EXEC = xnu_pf_segment(AMFI, "__TEXT_EXEC");
+    xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
+
     xnu_pf_maskmatch(patchset, ExceptionVectorsBase_finder_match,
             ExceptionVectorsBase_finder_masks, num_ExceptionVectorsBase_matches,
             false, ExceptionVectorsBase_finder);
+    xnu_pf_emit(patchset);
+    xnu_pf_apply(AMFI___TEXT_EXEC, patchset);
     xnu_pf_apply(__TEXT_EXEC, patchset);
+    xnu_pf_patchset_destroy(patchset);
+    puts("returned");
+}
+
+static void stalker_preboot_hook(void){
+    puts("Inside stalker_preboot_hook");
+    puts("Begin patching sleh_synchronous");
+
+    /* Patch sleh_synchronous here so we're guarenteed to have all of
+     * our offsets beforehand
+     */
+    xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
 
     uint64_t sleh_synchronous_patcher_match[] = {
         0xb9408a60,     /* LDR Wn, [X19, #0x88] (trap_no = state->__x[16]) */
@@ -1063,8 +1099,15 @@ static void stalker_apply_patches(const char *cmd, char *args){
     xnu_pf_maskmatch(patchset, sleh_synchronous_patcher_match,
             sleh_synchronous_patcher_masks, num_ss_matches, false,
             sleh_synchronous_patcher);
+    xnu_pf_emit(patchset);
+    xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
     xnu_pf_apply(__TEXT_EXEC, patchset);
     xnu_pf_patchset_destroy(patchset);
+
+    puts("-----DONE patching sleh_synchronous-----");
+
+    if(next_preboot_hook)
+        next_preboot_hook();
 }
 
 void module_entry(void){
@@ -1073,8 +1116,10 @@ void module_entry(void){
     mh_execute_header = xnu_header();
     kernel_slide = xnu_slide_value(mh_execute_header);
 
-    command_register("stalker-patch", "apply svc_stalker kernel patches",
-            stalker_apply_patches);
+    next_preboot_hook = preboot_hook;
+    preboot_hook = stalker_preboot_hook;
+
+    command_register("stalker-prep", "prep to patch sleh_synchronous", stalker_prep);
 }
 
 const char *module_name = "svc_stalker";
