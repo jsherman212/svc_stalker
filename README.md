@@ -79,14 +79,5 @@ simultaneously.** If you try and intercept system calls for a 1024th process,
 system call interception for it.** The `handle_svc` hook doesn't check if
 you've done this to save space.
 
-Ideally, I'd have as much space as I need to write `svc_stalker_ctl` and
-the `handle_svc` hook. Unfortunately, I have no way of marking memory returned by
-`alloc_static` as executable, so I use the space at the end of the very last
-section of `__TEXT_EXEC` that forces it to be page-aligned as executable
-scratch space. In the future, I plan to do away with putting everything inside
-this scratch space. Instead, I want to use this space to execute a small amount
-of code which modifies the page tables of `alloc_static`'ed memory to mark it
-as executable.
-
 ## Other Notes
 At the moment, this project assumes a 16k page size.

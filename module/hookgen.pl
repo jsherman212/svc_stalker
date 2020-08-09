@@ -16,12 +16,13 @@ printf(HEADER "#define $macroname \\\n");
 
 my $curlabel;
 # space used for caching offsets will also be counted as instructions
-my $cache_space = 0x20;
+my $cache_space = 0x70;
 my $instr_count = $cache_space / 4;
 
 # testing, iphone 8 13.6
 # incorrect for svc_stalker_ctl
-my $curkaddr = 0xFFFFFFF0156B7230 + $cache_space;
+my $curkaddr = 0xFFFFFFF0090A3230 + $cache_space;
+my $num_instrs = 0;
 
 while(my $line = <DISFILE>){
     chomp($line);
@@ -33,8 +34,9 @@ while(my $line = <DISFILE>){
             printf(HEADER "/*                                           %-35s*/ \\\n", "$curlabel:");
         }
 
-        printf(HEADER "$ARGV[1](0x$4$3$2$1); /* %#x    %-30s*/", $curkaddr, "$5");
+        printf(HEADER "WRITE_INSTR(0x$4$3$2$1); /* %#x    %-30s*/", $curkaddr, "$5");
         $curkaddr += 4;
+        $num_instrs += 1;
 
         if(eof){
             printf(HEADER " \n");
@@ -50,6 +52,7 @@ while(my $line = <DISFILE>){
     }
 }
 
+printf(HEADER "const static int g_$ARGV[0]_num_instrs = $num_instrs;\n");
 printf(HEADER "#endif\n");
 
 # iphone 7

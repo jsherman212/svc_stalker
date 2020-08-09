@@ -7,6 +7,11 @@
 ; svc_stalker_ctl syscall and calls exception_triage if current_proc()->p_pid
 ; is found in that list
 _main:
+    ; mov x0, 0x4141
+    ; mov x1, 0x4242
+    ; mov x2, 0x4343
+    ; mov x3, 0x4444
+    ; brk 0
     sub sp, sp, STACK
     stp x28, x27, [sp, STACK-0x60]
     stp x26, x25, [sp, STACK-0x50]

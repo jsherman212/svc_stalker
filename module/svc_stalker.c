@@ -1,7 +1,8 @@
 #include "handle_svc_hook_patches.h"
-#include "pagetable_patches.h"
 #include "pongo.h"
 #include "svc_stalker_ctl_patches.h"
+
+#define PAGE_SIZE (0x4000)
 
 static void (*next_preboot_hook)(void);
 
@@ -21,13 +22,6 @@ static uint64_t sign_extend(uint64_t number, uint32_t numbits /* signbit */){
 
 static struct mach_header_64 *mh_execute_header;
 static uint64_t kernel_slide;
-#define sa_for_va(va)	((uint64_t) (va) - kernel_slide)
-#define va_for_sa(sa)	((uint64_t) (sa) + kernel_slide)
-#define ptr_for_sa(sa)	((void *) (((sa) - 0xFFFFFFF007004000uLL) + (uint8_t *) mh_execute_header))
-#define ptr_for_va(va)	(ptr_for_sa(sa_for_va(va)))
-#define sa_for_ptr(ptr)	((uint64_t) ((uint8_t *) (ptr) - (uint8_t *) mh_execute_header) + 0xFFFFFFF007004000uLL)
-#define va_for_ptr(ptr)	(va_for_sa(sa_for_ptr(ptr)))
-#define pa_for_ptr(ptr)	(sa_for_ptr(ptr) - gBootArgs->virtBase + gBootArgs->physBase)
 
 static void stalker_fatal(void){
     /* puts("failed: spinning forever"); */
@@ -74,8 +68,10 @@ static uint64_t g_proc_pid_addr = 0;
 static uint64_t g_sysent_addr = 0;
 static uint64_t g_kalloc_canblock_addr = 0;
 static uint64_t g_kfree_addr_addr = 0;
-static uint64_t g_phystokv_addr = 0;
-static uint64_t g_cpu_tte_addr = 0;
+
+static uint64_t g_exec_scratch_space_addr = 0;
+/* don't count the first opcode */
+static uint64_t g_exec_scratch_space_size = -sizeof(uint32_t);
 
 static bool proc_pid_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
@@ -305,43 +301,59 @@ static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
     return true;
 }
 
-static bool phystokv_finder(xnu_pf_patch_t *patch, void *cacheable_stream){
+static bool ExceptionVectorsBase_finder(xnu_pf_patch_t *patch,
+        void *cacheable_stream){
+    /* According to XNU source, _ExceptionVectorsBase is page aligned. We're
+     * going to abuse that fact and use the executable free space before
+     * it to write the handle_svc hook and svc_stalker_ctl.
+     *
+     * For all the devices I've tested this with, the free space before
+     * _ExceptionVectorsBase is filled with NOPs, but I don't want to assume
+     * that will be the case for all kernels. The exc_vectors_table will be
+     * before _ExceptionVectorsBase, so I'll search up until I hit something
+     * which looks like a kernel pointer.
+     *
+     * see osfmk/arm64/locore.s inside XNU source
+     */
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
-    uint64_t addr_va = 0;
-
-    if(bits(opcode_stream[2], 31, 31) == 0)
-        addr_va = get_adr_va_target(opcode_stream + 2);
-    else
-        addr_va = get_adrp_add_va_target(opcode_stream + 2);
-
-    char *string = xnu_va_to_ptr(addr_va);
-
-    const char *match = "RAMDisk";
-    size_t matchlen = strlen(match);
-
-    if(!memmem(string, matchlen + 1, match, matchlen))
-        return false;
 
     xnu_pf_disable_patch(patch);
 
-    /* after this point, the first BL will be branching to phystokv */
-    uint32_t instr_limit = 30;
+    uint32_t limit = PAGE_SIZE / 4;
+    bool got_exc_vectors_table = false;
 
-    while((*opcode_stream & 0xfc000000) != 0x94000000){
-        if(instr_limit-- == 0){
-            puts("svc_stalker: phystokv_finder: couldn't find phystokv");
-            return false;
+    while(limit-- != 0){
+        uint32_t cur = *opcode_stream;
+
+        /* in case of tagged pointers */
+        cur |= (0xffff << 16);
+
+        if(cur == 0xfffffff0){
+            got_exc_vectors_table = true;
+            break;
         }
 
-        opcode_stream++;
+        g_exec_scratch_space_size += sizeof(uint32_t);
+        opcode_stream--;
     }
 
-    int32_t imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28);
-    g_phystokv_addr = imm26 + xnu_ptr_to_va(opcode_stream);
+    if(!got_exc_vectors_table){
+        puts("svc_stalker: didn't find exc_vectors_table?");
+        return false;
+    }
 
-    puts("svc_stalker: found phystokv");
-    /* print_register(g_phystokv_addr); */
+    /* we're currently at the upper 32 bits of the last pointer in
+     * exc_vectors_table
+     */
+    opcode_stream++;
+    g_exec_scratch_space_size -= sizeof(uint32_t);
 
+    puts("svc_stalker: found unused executable code");
+    g_exec_scratch_space_addr = xnu_ptr_to_va(opcode_stream);
+
+    /* print_register(g_exec_scratch_space_size); */
+    /* print_register(g_exec_scratch_space_addr - kernel_slide); */
+    
     return true;
 }
 
@@ -448,8 +460,7 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
 static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     if(g_proc_pid_addr == 0 || g_sysent_addr == 0 ||
-            g_kalloc_canblock_addr == 0 || g_kfree_addr_addr == 0 ||
-            g_phystokv_addr == 0 || g_cpu_tte_addr == 0){
+            g_kalloc_canblock_addr == 0 || g_kfree_addr_addr == 0){
         puts("svc_stalker: error: missing offsets before we patch sleh_synchronous:");
         
         if(g_proc_pid_addr == 0)
@@ -464,12 +475,6 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         if(g_kfree_addr_addr == 0)
             puts("     kfree_addr");
 
-        if(g_phystokv_addr == 0)
-            puts("     phystokv");
-
-        if(g_cpu_tte_addr == 0)
-            puts("     cpu_tte");
-        
         return false;
     }
 
@@ -622,115 +627,109 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
     if(!patch_exception_triage_thread(xnu_va_to_ptr(exception_triage_addr))){
         puts("svc_stalker: failed patching exception_triage_thread");
-        return false;
+        // XXX
+        /* return false; */
     }
 
+
     // XXX XXX
-    return true;
+    /* return true; */
+
+    uint64_t handle_svc_hook_cache_size = 4 * sizeof(uint64_t);
+    uint64_t svc_stalker_ctl_cache_size = 3 * sizeof(uint64_t);
     
-    /* we're gonna put everything inside of the empty space right
-     * before the end of __TEXT_EXEC that forces it to be page aligned
+    /* both defined in handle_svc_hook_patches.h & svc_stalker_ctl_patches.h */
+    size_t needed_sz =
+        /* instructions */
+        ((g_handle_svc_hook_num_instrs + g_svc_stalker_ctl_num_instrs) * 4) +
+        /* cache space */
+        handle_svc_hook_cache_size + svc_stalker_ctl_cache_size;
+
+    puts("Need at least this many bytes:");
+    print_register(needed_sz);
+
+    /* if there's not enough space between the end of exc_vectors_table
+     * and _ExceptionVectorsBase, maybe there's enough space at the last
+     * section of __TEXT_EXEC?
+     * 
+     * I don't think this will ever happen but just in case
      */
-    struct segment_command_64 *__TEXT_EXEC = macho_get_segment(mh_execute_header,
-            "__TEXT_EXEC");
-    struct section_64 *last_TEXT_EXEC_sect = (struct section_64 *)(__TEXT_EXEC + 1);
+    if(needed_sz > g_exec_scratch_space_size){
+        puts("svc_stalker: not enough space");
+        puts("     between exc_vectors_table");
+        puts("     and _ExceptionVectorsBase,");
+        puts("     falling back to end of");
+        puts("     last section in __TEXT_EXEC");
 
-    /* go to last section */
-    for(uint32_t i=0; i<__TEXT_EXEC->nsects-1; i++)
-        last_TEXT_EXEC_sect++;
+        struct segment_command_64 *__TEXT_EXEC = macho_get_segment(mh_execute_header,
+                "__TEXT_EXEC");
+        struct section_64 *last_TEXT_EXEC_sect =
+            &((struct section_64 *)(__TEXT_EXEC + 1))[__TEXT_EXEC->nsects - 1];
 
-    uint64_t last_TEXT_EXEC_sect_end = last_TEXT_EXEC_sect->addr +
-        last_TEXT_EXEC_sect->size;
-    uint64_t __TEXT_EXEC_end = __TEXT_EXEC->vmaddr + __TEXT_EXEC->vmsize;
-    uint64_t num_free_instrs = (__TEXT_EXEC_end - last_TEXT_EXEC_sect_end) /
-        sizeof(uint32_t);
+        uint64_t last_sect_end = last_TEXT_EXEC_sect->addr + last_TEXT_EXEC_sect->size;
 
-    /* exec_scratch_space vs noexec_scratch_space: couldn't think of better
-     * variable names.
-     *
-     * There are three main components of this project --- the handle_svc
-     * hook, the custom svc_stalker_ctl system call, and the pagetable code.
-     *
-     * The handle_svc hook is responsible for figuring out if a given
-     * system call/Mach trap should be intercepted by userland.
-     *
-     * svc_stalker_ctl is the user's way of managing what processes/system calls/
-     * Mach traps they want to intercept.
-     *
-     * With no way to mark memory returned by alloc_static as executable,
-     * I would use the empty space at the end of __TEXT_EXEC:initcode as
-     * already-executable scratch space for the handle_svc hook and
-     * svc_stalker_ctl. The problem with that is I have a limited amount of
-     * space (which isn't constant across different kernels) for code that
-     * could take up any amount of space. That's where the code inside pagetable.s
-     * comes in: instead of branching directly to handle_svc_hook from
-     * sleh_synchronous, I branch directly to the code inside pagetable.s.
-     * That code will mark the pages which contain the handle_svc hook and
-     * svc_stalker_ctl as executable before branching to them. Of course, this
-     * doesn't solve the problem of limited executable scratch space, but it
-     * is much better than sticking everything there and hoping there's enough
-     * space. The code inside pagetable.s takes up a much smaller amount of space
-     * than the handle_svc hook and svc_stalker_ctl.
-     *
-     * So:
-     * exec_scratch_space == space that is already executable, branched to by
-     *                       sleh_synchronous, to mark the memory pointed to
-     *                       by noexec_scratch_space as executable before
-     *                       branching to it.
-     *
-     * noexec_scratch_space == memory returned by alloc_static that contains
-     *                         the handle_svc hook and svc_stalker_ctl, which
-     *                         isn't executable inside pongoOS, but will be
-     *                         once sleh_synchronous branches to
-     *                         exec_scratch_space.
-     */
-    uint32_t *exec_scratch_space = xnu_va_to_ptr(last_TEXT_EXEC_sect_end);
-    const uint32_t *exec_scratch_space_begin = exec_scratch_space;
+        g_exec_scratch_space_addr = last_sect_end;
+        print_register(g_exec_scratch_space_addr);
 
-    /* two pages worth is enough space for our code */
-    size_t noexec_scratch_space_sz = 0x8000;
-    uint32_t *noexec_scratch_space = (uint32_t *)alloc_static(noexec_scratch_space_sz);
-    const uint32_t *noexec_scratch_space_begin = noexec_scratch_space;
+        uint64_t seg_end = __TEXT_EXEC->vmaddr + __TEXT_EXEC->vmsize;
 
-    uint64_t exec_cache_size = 0;
-    uint64_t handle_svc_hook_cache_size = 0;
-    uint64_t svc_stalker_ctl_cache_size = 0;
+        g_exec_scratch_space_size = seg_end - last_sect_end;
+        print_register(g_exec_scratch_space_size);
 
-#define WRITE_QWORD_TO_EXEC_CACHE(qword) \
-    if(num_free_instrs < 2){ \
-        puts("svc_stalker: sleh_synchronous_patcher: ran out of space for hook"); \
-        return false; \
-    } \
-    *(uint64_t *)exec_scratch_space = (qword); \
-    exec_scratch_space += 2; \
-    exec_cache_size += 8; \
-    num_free_instrs -= 2; \
+        /* still too little space? Incompatible kernel */
+        if(needed_sz > g_exec_scratch_space_size){
+            puts("svc_stalker: this kernel is");
+            puts("     incompatible! couldn't");
+            puts("     find a suitable place");
+            puts("     to put our code!");
+            puts("svc_stalker: spinning forever");
+
+            // XXX
+            /* for(;;); */
+        }
+    }
+
+    uint64_t num_free_instrs = g_exec_scratch_space_size / sizeof(uint32_t);
+
+    uint32_t *scratch_space = xnu_va_to_ptr(g_exec_scratch_space_addr);
+    puts("scratch space:");
+    print_register(scratch_space);
+
+    /* return true; */
 
 #define WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(qword) \
-    *(uint64_t *)noexec_scratch_space = (qword); \
-    noexec_scratch_space += 2; \
-    handle_svc_hook_cache_size += 8; \
+    do { \
+        if(num_free_instrs < 2){ \
+            puts("svc_stalker: sleh_synchronous_patcher: ran out of space for hook"); \
+            return false; \
+        } \
+        *(uint64_t *)scratch_space = (qword); \
+        scratch_space += 2; \
+        /* handle_svc_hook_cache_size += 8; \ */ \
+        num_free_instrs -= 2; \
+    } while (0) \
 
 #define WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(qword) \
-    *(uint64_t *)noexec_scratch_space = (qword); \
-    noexec_scratch_space += 2; \
-    svc_stalker_ctl_cache_size += 8; \
+    do { \
+        if(num_free_instrs < 2){ \
+            puts("svc_stalker: sleh_synchronous_patcher: ran out of space for hook"); \
+            return false; \
+        } \
+        *(uint64_t *)scratch_space = (qword); \
+        scratch_space += 2; \
+        /* svc_stalker_ctl_cache_size += 8; \ */ \
+        num_free_instrs -= 2; \
+    } while (0) \
 
-#define WRITE_INSTR_TO_EXEC(opcode) \
+#define WRITE_INSTR(opcode) \
     do { \
         if(num_free_instrs == 0){ \
             puts("svc_stalker: sleh_synchronous_patcher: ran out of space for hook"); \
             return false; \
         } \
-        *exec_scratch_space = (opcode); \
-        exec_scratch_space++; \
+        *scratch_space = (opcode); \
+        scratch_space++; \
         num_free_instrs--; \
-    } while (0) \
-
-#define WRITE_INSTR_TO_NOEXEC(opcode) \
-    do { \
-        *noexec_scratch_space = (opcode); \
-        noexec_scratch_space++; \
     } while (0) \
 
     /* struct stalker_ctl {
@@ -744,17 +743,17 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
      *     int64_t *call_list;
      * };
      *
-     * Empty spots in the call list are represented by 0x4000 
+     * Empty spots in the call list are represented by PAGE_SIZE 
      * because it doesn't represent any system call or mach trap.
      *
      * sizeof(struct stalker_ctl) = 0x10
      */
     size_t stalker_table_maxelems = 1023;
-    size_t stalker_table_sz = 0x4000;
-    uint8_t *stalker_table = (uint8_t *)alloc_static(stalker_table_sz);
+    size_t stalker_table_sz = PAGE_SIZE;
+    uint8_t *stalker_table = alloc_static(stalker_table_sz);
 
     if(!stalker_table){
-        puts("alloc_static returned NULL");
+        puts("svc_stalker: alloc_static returned NULL");
         return false;
     }
 
@@ -789,7 +788,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
     /* write the stalker table pointer so the patched syscall can get it easily
      *
-     * needs to be here so noexec_scratch_space points after this when we go
+     * needs to be here so scratch_space points after this when we go
      * to patch the sysent entry
      */
     WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(xnu_ptr_to_va(stalker_table));
@@ -832,7 +831,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         }
 
         /* mov w0, ENOSYS; ret */
-        // XXX also check for orr w0, wzr, ENOSYS? */
+        // XXX also check for orr w0, wzr, ENOSYS?
         if(*(uint64_t *)xnu_va_to_ptr(sy_call) == 0xd65f03c0528009c0){
             sysent_to_patch = sysent_stream;
             patched_syscall_num = i;
@@ -840,10 +839,10 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
             /* sy_call */
             if(!tagged_ptr){
                 *(uint64_t *)sysent_to_patch =
-                    (uint64_t)xnu_ptr_to_va(noexec_scratch_space);
+                    (uint64_t)xnu_ptr_to_va(scratch_space);
             }
             else{
-                uint64_t untagged = ((uint64_t)xnu_ptr_to_va(noexec_scratch_space) &
+                uint64_t untagged = ((uint64_t)xnu_ptr_to_va(scratch_space) &
                     0xffffffffffff) - kernel_slide;
 
                 /* re-tag */
@@ -873,18 +872,10 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     /* autogenerated by hookgen.pl, see svc_stalker_ctl_patches.h */
     DO_SVC_STALKER_CTL_PATCHES;
 
-    uint64_t handle_svc_hook_va =
-        xnu_ptr_to_va(noexec_scratch_space + handle_svc_hook_cache_size);
+    uint64_t branch_to = g_exec_scratch_space_addr + handle_svc_hook_cache_size;
 
-    WRITE_QWORD_TO_EXEC_CACHE(handle_svc_hook_va);
-    /* how many pages of noexec scratch space we're using */
-    WRITE_QWORD_TO_EXEC_CACHE(noexec_scratch_space_sz / 0x4000);
-    WRITE_QWORD_TO_EXEC_CACHE(g_phystokv_addr);
-
-    /* autogenerated by hookgen.pl, see pagetable_patches.h */
-    DO_PAGETABLE_PATCHES;
-
-    write_blr(8, branch_from, last_TEXT_EXEC_sect_end + exec_cache_size);
+    // XXX XXX commented for testing
+    write_blr(8, branch_from, branch_to);
 
     /* there's an extra B.NE after the five instrs we overwrote, so NOP it out */
     *(uint32_t *)(branch_from + (4*5)) = 0xd503201f;
@@ -957,7 +948,6 @@ static void stalker_apply_patches(const char *cmd, char *args){
     };
 
     xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
-
     xnu_pf_maskmatch(patchset, sysent_finder_match, sysent_finder_masks,
             num_sysent_matches, false, // XXX for testing,
             sysent_finder);
@@ -1024,28 +1014,34 @@ static void stalker_apply_patches(const char *cmd, char *args){
             mach_syscall_patcher);
     xnu_pf_apply(__TEXT_EXEC, patchset);
 
-    uint64_t phystokv_finder_match[] = {
-        0xf9400008,     /* LDR X8, [X0] */
-        0xf9400108,     /* LDR X8, [X8, n] */
-        0x10000001,     /* ADRP X1, n or ADR X1, n */
+    uint64_t ExceptionVectorsBase_finder_match[] = {
+        0xd538d092,     /* MRS X18, TPIDR_EL1 */
+        0xf9400252,     /* LDR X18, [X18, n] */
+        0xf9400252,     /* LDR X18, [X18, n] */
+        0xf9400252,     /* LDR X18, [X18] */
+        0xd61f0240,     /* BR X18 */
     };
 
-    const size_t num_phystokv_matches = sizeof(phystokv_finder_match) /
-        sizeof(*phystokv_finder_match);
+    const size_t num_ExceptionVectorsBase_matches =
+        sizeof(ExceptionVectorsBase_finder_match) /
+        sizeof(*ExceptionVectorsBase_finder_match);
 
-    uint64_t phystokv_finder_masks[] = {
+    uint64_t ExceptionVectorsBase_finder_masks[] = {
         0xffffffff,     /* match exactly */
         0xffc003ff,     /* match all but immediate */
-        0x1f00001f,     /* ignore immediate */
+        0xffc003ff,     /* match all but immediate */
+        0xffffffff,     /* match exactly */
+        0xffffffff,     /* match exactly */
     };
 
-    xnu_pf_maskmatch(patchset, phystokv_finder_match, phystokv_finder_masks,
-            num_phystokv_matches, false, // XXX for testing,
-            phystokv_finder);
+    xnu_pf_maskmatch(patchset, ExceptionVectorsBase_finder_match,
+            ExceptionVectorsBase_finder_masks,
+            num_ExceptionVectorsBase_matches, false,
+            ExceptionVectorsBase_finder);
     xnu_pf_apply(__TEXT_EXEC, patchset);
 
     uint64_t sleh_synchronous_patcher_match[] = {
-        0xb9408a60,     /* LDR Wn, [X19, #0x88] (trap_no = state->__x[16] */
+        0xb9408a60,     /* LDR Wn, [X19, #0x88] (trap_no = state->__x[16]) */
         0xd538d080,     /* MRS Xn, TPIDR_EL1    (Xn = current_thread()) */
         0x12800000,     /* MOV Wn, 0xFFFFFFFF   (Wn = THROTTLE_LEVEL_NONE) */
     };

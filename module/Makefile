@@ -7,10 +7,8 @@ TARGET=svc_stalker
 SOURCES=svc_stalker.c
 
 $(TARGET) : $(SOURCES) handle_svc_hook.s handle_svc_hook.h \
-	svc_stalker_ctl.s svc_stalker_ctl.h \
-	pagetable.s pagetable.h
+	svc_stalker_ctl.s svc_stalker_ctl.h
 	chmod +x ./hookgen.pl	# just in case
-	./hookgen.pl handle_svc_hook WRITE_INSTR_TO_NOEXEC
-	./hookgen.pl svc_stalker_ctl WRITE_INSTR_TO_NOEXEC
-	./hookgen.pl pagetable WRITE_INSTR_TO_EXEC
+	./hookgen.pl handle_svc_hook
+	./hookgen.pl svc_stalker_ctl
 	$(CC) $(CFLAGS) $(SOURCES) -o $(TARGET)
