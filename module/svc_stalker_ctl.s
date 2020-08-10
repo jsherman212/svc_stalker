@@ -37,8 +37,10 @@ _main:
     b.eq check_if_patched
     cmp w22, CALL_LIST_MANAGE
     b.eq syscall_manage
-    cmp w22, 2
-    b.eq out_givetablekaddr
+    ; if you're interested in checking out the stalker table in userland,
+    ; uncomment this stuff and out_givetablekaddr
+    ;cmp w22, 2
+    ;b.eq out_givetablekaddr
     b out_einval
 
 check_if_patched:
@@ -224,11 +226,11 @@ out_patched:
     mov w0, 0
     b done
 
-out_givetablekaddr:
-    ldr x0, [sp, STALKER_TABLE_PTR]
-    str x0, [x21]
-    mov w0, 0
-    b done
+; out_givetablekaddr:
+;     ldr x0, [sp, STALKER_TABLE_PTR]
+;     str x0, [x21]
+;     mov w0, 0
+;     b done
 
 success:
     mov w0, 0

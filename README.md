@@ -27,6 +27,11 @@ In the same directory you built the loader and the `svc_stalker` module,
 do `loader/loader module/svc_stalker`. `svc_stalker` will patch the kernel and
 in a few seconds XNU will boot.
 
+## Known Issues
+Sometimes a couple of my phones would get stuck at "booting". I have yet to figure
+out what causes this, but if it happens, try again. Also, if the device hangs
+after `bootx`, try again.
+
 ## svc_stalker_ctl
 svc_stalker will patch the first `sysent` struct in `_sysent` that has `sy_call`
 point to `_enosys` to instead point to a custom system call, `svc_stalker_ctl`.
@@ -99,11 +104,6 @@ simultaneously.**
 **You need to register exception ports for your process before you enable
 system call interception for it.** Nothing checks if you've done this to
 save space.
-
-## Known Issues
-Sometimes a couple of my phones won't boot after checkra1n's patchfinder
-finished. I have yet to figure out what causes this, but if this happens,
-try again. Also, if the device hangs after `bootx`, try again.
 
 ## Other Notes
 At the moment, this project assumes a 16k page size. I've only tested this on

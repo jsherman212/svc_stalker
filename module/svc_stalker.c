@@ -82,6 +82,7 @@ static uint64_t g_exec_scratch_space_size = -sizeof(uint32_t);
 
 static bool g_patched_mach_syscall = false;
 
+/* confirmed working on all kernels 13.0-13.6 */
 static bool proc_pid_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -128,6 +129,7 @@ static bool proc_pid_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
+/* confirmed working on all kernels 13.0-13.6 */
 static bool sysent_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -173,6 +175,7 @@ static bool sysent_finder(xnu_pf_patch_t *patch,
     return false;
 }
 
+/* confirmed working on all kernels 13.0-13.6 */
 static bool kalloc_canblock_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -201,6 +204,7 @@ static bool kalloc_canblock_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
+/* confirmed working on all kernels 13.0-13.6 */
 static bool kfree_addr_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -246,30 +250,54 @@ static bool kfree_addr_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
+/* confirmed working on all kernels 13.0-13.6 */
 static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
-    uint64_t addr_va = 0;
 
-    /* since we're patching exception_triage_thread to return to caller
+    /* make sure we're inside of mach_syscall by looking for a call
+     * to panic with "Returned from exception_triage()?"
+     *
+     * since we're patching exception_triage_thread to return to caller
      * on EXC_SYSCALL & EXC_MACH_SYSCALL, we need to patch out the call
      * to exception_triage and the panic about returning from it on a bad
      * Mach trap number (who even uses this functionality anyway?)
+     *
+     * go forward and check ADRP,ADD/ADR,NOP pairs
      */
-    if(bits(opcode_stream[1], 31, 31) == 0)
-        addr_va = get_adr_va_target(opcode_stream + 1);
-    else
-        addr_va = get_adrp_add_va_target(opcode_stream + 1);
+    uint32_t instr_limit = 200;
+    int inside_mach_syscall = 0;
 
-    char *string = xnu_va_to_ptr(addr_va);
+    while(instr_limit-- != 0){
+        if((*opcode_stream & 0x1f000000) == 0x10000000){
+            uint64_t addr_va = 0;
 
-    const char *match = "Returned from exception_triage()?";
-    size_t matchlen = strlen(match);
+            if(bits(*opcode_stream, 31, 31) == 0)
+                addr_va = get_adr_va_target(opcode_stream);
+            else
+                addr_va = get_adrp_add_va_target(opcode_stream);
 
-    if(!memmem(string, matchlen + 1, match, matchlen))
-        return false;
+            char *string = xnu_va_to_ptr(addr_va);
+
+            const char *match = "Returned from exception_triage()?";
+            size_t matchlen = strlen(match);
+
+            if(memmem(string, matchlen + 1, match, matchlen)){
+                inside_mach_syscall = 1;
+                break;
+            }
+        }
+
+        opcode_stream++;
+    }
+
+    if(!inside_mach_syscall)
+        return 0;
 
     xnu_pf_disable_patch(patch);
+
+    /* sitting on the ADRP or ADR right after bl exception_triage, go back one */
+    opcode_stream--;
 
     /* bl exception_triage/adrp/add or bl exception_triage/adr/nop --> nop/nop/nop */
     opcode_stream[0] = 0xd503201f;
@@ -283,7 +311,7 @@ static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
      */
     uint32_t *branch_from = opcode_stream + 3;
 
-    uint32_t instr_limit = 200;
+    instr_limit = 200;
 
     while((*opcode_stream & 0xffc07fff) != 0xa9407bfd){
         if(instr_limit-- == 0){
@@ -665,8 +693,8 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         /* cache space */
         handle_svc_hook_cache_size + svc_stalker_ctl_cache_size;
 
-    puts("Need at least this many bytes:");
-    print_register(needed_sz);
+    /* puts("Need at least this many bytes:"); */
+    /* print_register(needed_sz); */
 
     /* if there's not enough space between the end of exc_vectors_table
      * and _ExceptionVectorsBase, maybe there's enough space at the last
@@ -703,6 +731,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
             puts("     find a suitable place");
             puts("     to put our code!");
             puts("Spinning forever.");
+
             for(;;);
             __builtin_unreachable();
         }
@@ -711,6 +740,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     uint64_t num_free_instrs = g_exec_scratch_space_size / sizeof(uint32_t);
     uint32_t *scratch_space = xnu_va_to_ptr(g_exec_scratch_space_addr);
 
+    /* TODO merge, don't need to calc cache sizes here anymore */
 #define WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(qword) \
     do { \
         if(num_free_instrs < 2){ \
@@ -839,6 +869,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         }
 
         uint64_t sy_call = *(uint64_t *)sysent_stream;
+        /* uint64_t old_sy_call = sy_call; */
 
         /* tagged pointer */
         if((sy_call & 0xffff000000000000) != 0xffff000000000000){
@@ -1007,23 +1038,18 @@ static void stalker_prep(const char *cmd, char *args){
             num_kfree_addr_matches, false, kfree_addr_finder);
 
     uint64_t mach_syscall_patcher_match[] = {
-        0x94000000,     /* BL n (_exception_triage) */
-        /* ADRP X0, n or ADR X0, n
-         * (X0 = panic string)
-         */
-        0x10000000,
-        0x0,            /* ignore this instruction */
-        0x94000000,     /* BL n (_panic) */
+        0xd538d080,     /* MRS Xn, TPIDR_EL1 */
+        0xf9400000,     /* LDR Xn, [Xn, n] */
+        0xb900001f,     /* STR WZR, [Xn, n] */
     };
 
     const size_t num_mach_syscall_matches = sizeof(mach_syscall_patcher_match) /
         sizeof(*mach_syscall_patcher_match);
 
     uint64_t mach_syscall_patcher_masks[] = {
-        0xfc000000,     /* ignore BL immediate */
-        0x1f00001f,     /* ignore immediate */
-        0x0,            /* ignore this instruction */
-        0xfc000000,     /* ignore BL immediate */
+        0xffffffe0,     /* ignore Rn */
+        0xffc00000,     /* ignore everything */
+        0xffc0001f,     /* ignore everything but Rt */
     };
 
     xnu_pf_maskmatch(patchset, mach_syscall_patcher_match, mach_syscall_patcher_masks,
@@ -1064,11 +1090,6 @@ static void stalker_prep(const char *cmd, char *args){
 }
 
 static void stalker_preboot_hook(void){
-    /* Patch sleh_synchronous here so we're guarenteed to have all of
-     * our offsets beforehand
-     */
-    xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
-
     uint64_t sleh_synchronous_patcher_match[] = {
         0xb9408a60,     /* LDR Wn, [X19, #0x88] (trap_no = state->__x[16]) */
         0xd538d080,     /* MRS Xn, TPIDR_EL1    (Xn = current_thread()) */
@@ -1084,12 +1105,15 @@ static void stalker_preboot_hook(void){
         0xffffffe0,     /* ignore Wn in MOV */
     };
 
+    xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
+
+    xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
     xnu_pf_maskmatch(patchset, sleh_synchronous_patcher_match,
             sleh_synchronous_patcher_masks, num_ss_matches, false,
             sleh_synchronous_patcher);
     xnu_pf_emit(patchset);
-    xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
     xnu_pf_apply(__TEXT_EXEC, patchset);
+
     xnu_pf_patchset_destroy(patchset);
 
     if(next_preboot_hook)
@@ -1097,7 +1121,7 @@ static void stalker_preboot_hook(void){
 }
 
 void module_entry(void){
-    puts("svc_stalker pongoOS module entry");
+    puts("svc_stalker: loaded!");
 
     mh_execute_header = xnu_header();
     kernel_slide = xnu_slide_value(mh_execute_header);
