@@ -52,7 +52,7 @@ _main:
     cmp x0, 0
     ; if user does not want this system call intercepted, we're done
     b.eq done
-    
+
     ; TODO re-implement the sanity checks we overwrote
 
     mov x0, EXC_SYSCALL

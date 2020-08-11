@@ -1,5 +1,9 @@
 # svc_stalker
 
+![alt text](https://raw.githubusercontent.com/jsherman212/svc_stalker/master/mini_strace.png)
+<sup>*Output from intercepting some system calls/Mach traps for the App Store from
+example/mini_strace.c*</sup>
+
 svc_stalker is a pongoOS module which modifies XNU's `sleh_synchronous` to
 call `exception_triage` on a supervisor call exception, sending a mach exception message to
 userland exception ports. This message is sent before the system call/mach trap
@@ -30,7 +34,7 @@ do `loader/loader module/svc_stalker`. `svc_stalker` will patch the kernel and
 in a few seconds XNU will boot.
 
 ## Known Issues
-Sometimes a couple of my phones would get stuck at "booting". I have yet to figure
+Sometimes a couple of my phones would get stuck at "booting...". I have yet to figure
 out what causes this, but if it happens, try again. Also, if the device hangs
 after `bootx`, try again.
 

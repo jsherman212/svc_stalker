@@ -931,6 +931,8 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     DO_SVC_STALKER_CTL_PATCHES;
 
     uint64_t branch_to = g_exec_scratch_space_addr + handle_svc_hook_cache_size;
+    /* print_register(*(uint32_t *)branch_from); */
+    /* print_register(*(uint32_t *)(branch_from + (sizeof(uint32_t) * 5))); */
 
     write_blr(8, branch_from, branch_to);
 
