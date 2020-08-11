@@ -696,9 +696,6 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         /* cache space */
         handle_svc_hook_cache_size + svc_stalker_ctl_cache_size;
 
-    /* puts("Need at least this many bytes:"); */
-    /* print_register(needed_sz); */
-
     /* if there's not enough space between the end of exc_vectors_table
      * and _ExceptionVectorsBase, maybe there's enough space at the last
      * section of __TEXT_EXEC?
@@ -931,8 +928,6 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     DO_SVC_STALKER_CTL_PATCHES;
 
     uint64_t branch_to = g_exec_scratch_space_addr + handle_svc_hook_cache_size;
-    /* print_register(*(uint32_t *)branch_from); */
-    /* print_register(*(uint32_t *)(branch_from + (sizeof(uint32_t) * 5))); */
 
     write_blr(8, branch_from, branch_to);
 

@@ -18,6 +18,9 @@ placed in `code[1]`. `exception` will hold either `EXC_SYSCALL` or `EXC_MACH_SYS
 depending on what was intercepted. You can also find the system call/Mach trap
 number in `x16` in the saved state of the `thread` parameter.
 
+When svc_stalker is patching the kernel, it will print the patched system
+call number to the device's framebuffer.
+
 Requires `libusb`: `brew install libusb`
 
 Requires `perl`: `brew install perl`
