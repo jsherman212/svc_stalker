@@ -338,6 +338,7 @@ static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
     return true;
 }
 
+/* confirmed working on all kernels 13.0-13.6 */
 static bool ExceptionVectorsBase_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     /* According to XNU source, _ExceptionVectorsBase is page aligned. We're
@@ -392,6 +393,7 @@ static bool ExceptionVectorsBase_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
+/* confirmed working on all kernels 13.0-13.6 */
 static bool patch_exception_triage_thread(uint32_t *opcode_stream){
     /* patch exception_triage_thread to return to its caller on EXC_SYSCALL and
      * EXC_MACH_SYSCALL
@@ -496,6 +498,7 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
     return true;
 }
 
+/* confirmed working on all kernels 13.0-13.6 */
 static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     if(g_proc_pid_addr == 0 || g_sysent_addr == 0 ||
@@ -793,8 +796,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
      *
      * sizeof(struct stalker_ctl) = 0x10
      */
-    size_t stalker_table_maxelems = 1023;
-    size_t stalker_table_sz = PAGE_SIZE;
+    const size_t sizeof_struct_stalker_ctl = 0x10;
+    size_t stalker_table_capacity = 1024;
+    size_t stalker_table_sz = stalker_table_capacity * sizeof_struct_stalker_ctl;
     uint8_t *stalker_table = alloc_static(stalker_table_sz);
 
     if(!stalker_table){
@@ -805,21 +809,27 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         stalker_fatal_error();
     }
 
-    /* the first uint128_t will hold the number of stalker structs that
+    const uint8_t *stalker_table_end = stalker_table + stalker_table_sz;
+
+    /* the first uint64_t will hold the number of stalker structs that
      * are currently in the table
      */
     *(uint64_t *)stalker_table = 0;
+
+    /* the second uint64_t represents nothing, but zero it out anyway */
     *(uint64_t *)(stalker_table + 0x8) = 0;
 
-    uint8_t *cur_stalker_ctl = stalker_table + 0x10;
+    uint8_t *cursor = stalker_table + sizeof_struct_stalker_ctl;
 
-    for(int i=0; i<stalker_table_maxelems; i++){
-        /* all initial stalker structs are free */
-        *(uint32_t *)cur_stalker_ctl = 1;
-        *(int32_t *)(cur_stalker_ctl + 0x4) = -1;
-        *(uintptr_t *)(cur_stalker_ctl + 0x8) = 0;
+    while(cursor < stalker_table_end){
+        /* all initial stalker_ctl structs are free */
+        *(uint32_t *)cursor = 1;
+        /* free stalker_ctl structs belong to no one */
+        *(int32_t *)(cursor + 0x4) = 0;
+        /* free stalker_ctl structs have no call list */
+        *(uintptr_t *)(cursor + 0x8) = 0;
 
-        cur_stalker_ctl += 0x10;
+        cursor += sizeof_struct_stalker_ctl;
     }
 
     /* stash these pointers so we have them after xnu boot */

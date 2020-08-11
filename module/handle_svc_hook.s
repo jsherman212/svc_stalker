@@ -37,6 +37,7 @@ _main:
     ldr x19, [sp, PROC_PID_FPTR]
     blr x19
     ; W0 = proc_pid(current_proc())
+    str w0, [sp, CUR_PID]
     mov w1, w0
     ldr x0, [sp, STALKER_TABLE_PTR]
     bl _stalker_ctl_from_table
@@ -61,7 +62,8 @@ _main:
     cmp x2, 0
     csel x0, x1, x0, lt
     str x2, [sp, EXC_CODES]
-    str xzr, [sp, EXC_CODES+8]
+    ldr w2, [sp, CUR_PID]
+    str x2, [sp, EXC_CODES+8]
     add x1, sp, EXC_CODES                   ; code
     mov w2, 2                               ; codeCnt
     ldr x19, [sp, EXCEPTION_TRIAGE_FPTR]

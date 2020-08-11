@@ -7,9 +7,11 @@ happens, so you're free to view/modify registers inside your exception handler
 before returning from it & giving control back to the kernel to carry out the
 system call/mach trap.
 
-When `catch_mach_exception_raise` is called, the call number is placed
-in `code[0]`. `exception` will hold either `EXC_SYSCALL` or `EXC_MACH_SYSCALL`,
-depending on what was intercepted.
+When `catch_mach_exception_raise` is called, the call number is placed in
+`code[0]`. The PID of the process who performed the system call/Mach trap is
+placed in `code[1]`. `exception` will hold either `EXC_SYSCALL` or `EXC_MACH_SYSCALL`,
+depending on what was intercepted. You can also find the system call/Mach trap
+number in `x16` in the saved state of the `thread` parameter.
 
 Requires `libusb`: `brew install libusb`
 
