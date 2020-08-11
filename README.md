@@ -1,6 +1,7 @@
 # svc_stalker
 
-![alt text](https://raw.githubusercontent.com/jsherman212/svc_stalker/master/mini_strace.png)
+![alt text](https://github.com/jsherman212/svc_stalker/blob/master/mini_strace.png)
+
 <sup>*Output from intercepting some system calls/Mach traps for the App Store from
 example/mini_strace.c*</sup>
 
