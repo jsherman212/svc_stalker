@@ -88,6 +88,8 @@ static uint64_t g_exec_scratch_space_addr = 0;
 /* don't count the first opcode */
 static uint64_t g_exec_scratch_space_size = -sizeof(uint32_t);
 
+static uint64_t g_sysctl__kern_children_addr = 0;
+
 static bool g_patched_mach_syscall = false;
 
 /* confirmed working on all kernels 13.0-13.6 */
@@ -401,6 +403,43 @@ static bool ExceptionVectorsBase_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
+static bool sysctl__kern_children_finder(xnu_pf_patch_t *patch,
+        void *cacheable_stream){
+    uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
+
+    /* we should have landed right inside _kmeminit.
+     *
+     * The ADRP X20, n or ADR X20, n will lead us to sysctl__kern_children.
+     */
+    xnu_pf_disable_patch(patch);
+
+    /* advance to the ADRP X20, n or ADR X20 */
+    opcode_stream += 2;
+
+    uint64_t addr_va = 0;
+
+    if(bits(*opcode_stream, 31, 31) == 0)
+        addr_va = get_adr_va_target(opcode_stream);
+    else
+        addr_va = get_adrp_add_va_target(opcode_stream);
+
+    g_sysctl__kern_children_addr = *(uint64_t *)xnu_va_to_ptr(addr_va);
+
+    /* tagged pointer */
+    if((g_sysctl__kern_children_addr & 0xffff000000000000) != 0xffff000000000000){
+        /* untag and slide */
+        g_sysctl__kern_children_addr |= ((uint64_t)0xffff << 48);
+        g_sysctl__kern_children_addr += kernel_slide;
+    }
+
+    puts("svc_stalker: found sysctl__kern_children");
+
+    /* print_register(g_sysctl__kern_children_addr); */
+    /* for(;;); */
+
+    return true;
+}
+
 /* confirmed working on all kernels 13.0-13.6 */
 static bool patch_exception_triage_thread(uint32_t *opcode_stream){
     /* patch exception_triage_thread to return to its caller on EXC_SYSCALL and
@@ -511,7 +550,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     if(g_proc_pid_addr == 0 || g_sysent_addr == 0 ||
             g_kalloc_canblock_addr == 0 || g_kfree_addr_addr == 0 ||
-            !g_patched_mach_syscall){
+            !g_patched_mach_syscall || g_sysctl__kern_children_addr == 0){
         puts("svc_stalker: error(s) before");
         puts("     we patch sleh_synchronous:");
         
@@ -523,17 +562,22 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
         if(g_kalloc_canblock_addr == 0){
             puts("   kalloc_canblock");
-            puts("   not found");
+            puts("     not found");
         }
             
         if(g_kfree_addr_addr == 0){
             puts("   kfree_addr");
-            puts("   not found");
+            puts("     not found");
         }
 
         if(!g_patched_mach_syscall){
             puts("   did not patch");
-            puts("   mach_syscall");
+            puts("     mach_syscall");
+        }
+
+        if(g_sysctl__kern_children_addr == 0){
+            puts("   sysctl__kern_children");
+            puts("     not found");
         }
 
         stalker_fatal_error();
@@ -901,7 +945,8 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(xnu_ptr_to_va(sysctl_fmt_loc));
 
     /* iphone 8, 13.6, _sysctl__kern_children */
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(0xFFFFFFF009257EF0 + kernel_slide);
+    /* WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(0xFFFFFFF009257EF0 + kernel_slide); */
+    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_sysctl__kern_children_addr);
     /* iphone 8, 13.6, _sysctl_register_oid */
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(0xFFFFFFF00800CBD4 + kernel_slide);
     /* iphone 8, 13.6, _sysctl_handle_long */
@@ -1041,6 +1086,10 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     IMPORTANT_MSG("Please refer back to the");
     IMPORTANT_MSG("README for info about");
     IMPORTANT_MSG("this patched system call.");
+    IMPORTANT_MSG("You can also use");
+    IMPORTANT_MSG("sysctlbyname to query");
+    IMPORTANT_MSG("for the patched system");
+    IMPORTANT_MSG("call.");
     puts("*********************");
 
     return true;
@@ -1170,14 +1219,50 @@ static void stalker_prep(const char *cmd, char *args){
         0xffffffff,     /* match exactly */
     };
 
+    xnu_pf_maskmatch(patchset, ExceptionVectorsBase_finder_match,
+            ExceptionVectorsBase_finder_masks, num_ExceptionVectorsBase_matches,
+            false, ExceptionVectorsBase_finder);
+
+    uint64_t sysctl__kern_children_finder_matches[] = {
+        0x10000013,     /* ADRP X19, n or ADR X19, n */
+        0x0,            /* ignore this instruction */
+        0x10000014,     /* ADRP X20, n or ADR X20, n */
+        0x0,            /* ignore this instruction */
+        0x10000015,     /* ADRP X21, n or ADR X21, n */
+        0x0,            /* ignore this instruction */
+        0x10000016,     /* ADRP X22, n or ADR X22, n */
+        0x0,            /* ignore this instruction */
+        0x10000017,     /* ADRP X23, n or ADR X23, n */
+        0x0,            /* ignore this instruction */
+    };
+
+    const size_t num_sysctl__kern_children_finder_matches =
+        sizeof(sysctl__kern_children_finder_matches) /
+        sizeof(*sysctl__kern_children_finder_matches);
+
+    uint64_t sysctl__kern_children_finder_masks[] = {
+        0x1f00001f,     /* ignore immediate */
+        0x0,            /* ignore this instruction */
+        0x1f00001f,     /* ignore immediate */
+        0x0,            /* ignore this instruction */
+        0x1f00001f,     /* ignore immediate */
+        0x0,            /* ignore this instruction */
+        0x1f00001f,     /* ignore immediate */
+        0x0,            /* ignore this instruction */
+        0x1f00001f,     /* ignore immediate */
+        0x0,            /* ignore this instruction */
+    };
+
+    xnu_pf_maskmatch(patchset, sysctl__kern_children_finder_matches,
+            sysctl__kern_children_finder_masks,
+            num_sysctl__kern_children_finder_matches, false,
+            sysctl__kern_children_finder);
+
     struct mach_header_64 *AMFI = xnu_pf_get_kext_header(mh_execute_header,
             "com.apple.driver.AppleMobileFileIntegrity");
     xnu_pf_range_t *AMFI___TEXT_EXEC = xnu_pf_segment(AMFI, "__TEXT_EXEC");
     xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
 
-    xnu_pf_maskmatch(patchset, ExceptionVectorsBase_finder_match,
-            ExceptionVectorsBase_finder_masks, num_ExceptionVectorsBase_matches,
-            false, ExceptionVectorsBase_finder);
     xnu_pf_emit(patchset);
     xnu_pf_apply(AMFI___TEXT_EXEC, patchset);
     xnu_pf_apply(__TEXT_EXEC, patchset);
