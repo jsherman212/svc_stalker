@@ -1,6 +1,7 @@
 CC=clang
 SDK=$(shell xcrun --sdk iphoneos --show-sdk-path)
 CFLAGS=-isysroot $(SDK) -arch arm64 -mabi=aapcs -Xlinker -kext -nostdlib
+CFLAGS+=-Wno-string-plus-int
 
 TARGET=svc_stalker
 

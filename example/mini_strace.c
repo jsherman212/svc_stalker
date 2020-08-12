@@ -11,7 +11,8 @@
 
 static pid_t g_pid = 0;
 
-#define SYS_svc_stalker_ctl         8
+static long SYS_svc_stalker_ctl = 0;
+
 #define PID_MANAGE                  0
 #define CALL_LIST_MANAGE            1
 
@@ -149,10 +150,21 @@ int main(int argc, char **argv){
         return 1;
     }
 
+    /* before we begin, figure out what system call was patched */
+    size_t oldlen = sizeof(long);
+    int ret = sysctlbyname("kern.svc_stalker_ctl_callnum", &SYS_svc_stalker_ctl,
+            &oldlen, NULL, NULL);
+
+    if(ret == -1){
+        printf("sysctlbyname with kern.svc_stalker_ctl_callnum failed: %s\n",
+                strerror(errno));
+        return 1;
+    }
+
     /* first, was svc_stalker_ctl patched correctly? For all my phones, the patched
      * system call is always number 8. It could be different for you.
      */
-    int ret = syscall(SYS_svc_stalker_ctl, -1, PID_MANAGE, 0, 0);
+    ret = syscall(SYS_svc_stalker_ctl, -1, PID_MANAGE, 0, 0);
 
     if(ret != 999){
         printf("svc_stalker_ctl wasn't patched correctly\n");

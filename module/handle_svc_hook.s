@@ -29,7 +29,87 @@ _main:
     str x20, [sp, PROC_PID_FPTR]
     ldr x20, [x19, STALKER_TABLE_CACHEOFF]
     str x20, [sp, STALKER_TABLE_PTR]
+    ldr x20, [x19, PATCHED_SYSCALL_NUM_CACHEOFF]
+    str x20, [sp, PATCHED_SYSCALL_NUM]
+    ldr x20, [x19, SYSCTL_NAME_CACHEOFF]
+    str x20, [sp, SYSCTL_NAME]
+    ldr x20, [x19, SYSCTL_DESCR_CACHEOFF]
+    str x20, [sp, SYSCTL_DESCR]
+    ldr x20, [x19, SYSCTL_FMT_CACHEOFF]
+    str x20, [sp, SYSCTL_FMT]
+    ldr x20, [x19, SYSCTL__KERN_CHILDREN_CACHEOFF]
+    str x20, [sp, SYSCTL__KERN_CHILDREN_PTR]
+    ldr x20, [x19, SYSCTL_REGISTER_OID_FPTR_CACHEOFF]
+    str x20, [sp, SYSCTL_REGISTER_OID_FPTR]
+    ldr x20, [x19, SYSCTL_HANDLE_LONG_CACHEOFF]
+    str x20, [sp, SYSCTL_HANDLE_LONG_FPTR]
+    ; ldr x20, [x19, IOLOG_FPTR_CACHEOFF]
+    ; str x20, [sp, IOLOG_FPTR]
+    ; ldr x20, [x19, IOLOG_FMT_CACHEOFF]
+    ; str x20, [sp, IOLOG_FMT]
 
+
+    ; ldr x0, [sp, SYSCTL_NAME]
+    ; str x0, [sp]
+    ; ldr x0, [sp, SYSCTL_FMT]
+    ; str x0, [sp, 8]
+    ; ldr x0, [sp, IOLOG_FMT]
+    ; ldr x19, [sp, IOLOG_FPTR]
+    ; blr x19
+
+    ldr x19, [sp, STALKER_TABLE_PTR]
+    ldr x20, [x19, STALKER_TABLE_REGISTERED_SYSCTL_OFF]
+    ; if we've already registered the sysctl, don't do it again
+    cbnz x20, maybeintercept
+
+    ; set up the kern.svc_stalker_ctl_callnum sysctl
+    ; oid_parent, _kern
+    ldr x19, [sp, SYSCTL__KERN_CHILDREN_PTR]
+    str x19, [sp, SYSCTL_OID_STRUCT]
+    ; oid_link.sle_next
+    str xzr, [sp, SYSCTL_OID_STRUCT+0x8]
+    ; oid_number
+    mov w19, OID_AUTO
+    str w19, [sp, SYSCTL_OID_STRUCT+0x10]
+    ; oid_kind, (CTLTYPE_INT | CTLFLAG_RD | CTLFLAG_ANYBODY)
+    mov w19, CTLTYPE_INT
+    orr w19, w19, CTLFLAG_RD
+    orr w19, w19, CTLFLAG_ANYBODY
+    str w19, [sp, SYSCTL_OID_STRUCT+0x14]
+    ; oid_arg1, pointer to svc_stalker_ctl call number
+    ldr x19, [sp, OFFSET_CACHE_PTR]
+    add x19, x19, PATCHED_SYSCALL_NUM_CACHEOFF
+    str x19, [sp, SYSCTL_OID_STRUCT+0x18]
+    ; oid_arg2, nothing
+    str wzr, [sp, SYSCTL_OID_STRUCT+0x20]
+    ; oid_name, "svc_stalker_ctl_callnum"
+    ldr x19, [sp, SYSCTL_NAME]
+    str x19, [sp, SYSCTL_OID_STRUCT+0x28]
+    ; oid_handler
+    ldr x19, [sp, SYSCTL_HANDLE_LONG_FPTR]
+    str x19, [sp, SYSCTL_OID_STRUCT+0x30]
+    ; oid_fmt
+    ldr x19, [sp, SYSCTL_FMT]
+    str x19, [sp, SYSCTL_OID_STRUCT+0x38]
+    ; oid_descr
+    ldr x19, [sp, SYSCTL_DESCR]
+    str x19, [sp, SYSCTL_OID_STRUCT+0x40]
+    ; oid_version
+    mov w19, SYSCTL_OID_VERSION
+    str w19, [sp, SYSCTL_OID_STRUCT+0x48]
+    ; oid_refcnt
+    str wzr, [sp, SYSCTL_OID_STRUCT+0x4c]
+
+    ; register this sysctl
+    add x0, sp, SYSCTL_OID_STRUCT
+    ldr x19, [sp, SYSCTL_REGISTER_OID_FPTR]
+    blr x19
+
+    ldr x19, [sp, STALKER_TABLE_PTR]
+    mov x20, 1
+    str x20, [x19, STALKER_TABLE_REGISTERED_SYSCTL_OFF]
+
+maybeintercept:
     ; figure out if the system call made by this PID should be
     ; reported back to userland
     ldr x19, [sp, CURRENT_PROC_FPTR]
@@ -42,16 +122,14 @@ _main:
     ldr x0, [sp, STALKER_TABLE_PTR]
     bl _stalker_ctl_from_table
     ; user doesn't want to intercept any system calls from this pid, bail
-    cmp x0, 0
-    b.eq done
+    cbz x0, done
     ; does the user want this system call to be intercepted?
     ldr x19, [sp, SAVED_STATE_PTR]
     ldr x1, [x19, 0x88]
     ; X0 = pointer to stalker_ctl struct for proc_pid(current_proc())
     bl _should_intercept_syscall
-    cmp x0, 0
     ; if user does not want this system call intercepted, we're done
-    b.eq done
+    cbz x0, done
 
     ; TODO re-implement the sanity checks we overwrote
 

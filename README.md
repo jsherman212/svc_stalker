@@ -18,8 +18,16 @@ placed in `code[1]`. `exception` will hold either `EXC_SYSCALL` or `EXC_MACH_SYS
 depending on what was intercepted. You can also find the system call/Mach trap
 number in `x16` in the saved state of the `thread` parameter.
 
-When svc_stalker is patching the kernel, it will print the patched system
-call number to the device's framebuffer.
+svc_stalker adds a new sysctl, `kern.svc_stalker_ctl_callnum`. This allows you
+to figure out which system call was patched to svc_stalker_ctl:
+
+```
+size_t oldlen = sizeof(long);
+long SYS_svc_stalker_ctl = 0;
+sysctlbyname("kern.svc_stalker_ctl_callnum", &SYS_svc_stalker_ctl, &oldlen, NULL, NULL);
+```
+
+After this, SYS_svc_stalker_ctl contains svc_stalker_ctl's system call number.
 
 Requires `libusb`: `brew install libusb`
 
@@ -38,16 +46,17 @@ do `loader/loader module/svc_stalker`. `svc_stalker` will patch the kernel and
 in a few seconds XNU will boot.
 
 ## Known Issues
-Sometimes a couple of my phones would get stuck at "booting...". I have yet to figure
-out what causes this, but if it happens, try again. Also, if the device hangs
-after `bootx`, try again.
+Sometimes a couple of my phones would get stuck at "Booting" after checkra1n's KPF
+runs. I have yet to figure out what causes this, but if it happens, try again.
+Also, if the device hangs after `bootx`, try again.
 
 ## svc_stalker_ctl
-svc_stalker will patch the first `sysent` struct in `_sysent` that has `sy_call`
-point to `_enosys` to instead point to a custom system call, `svc_stalker_ctl`.
+svc_stalker will patch the first `_enosys` system call in `_sysent` 
+to instead point to a custom system call, `svc_stalker_ctl`.
 In my experience, the system call that ends up being patched is #8. In
 case it isn't, the module prints the patched system call number to the
-device's framebuffer anyway.
+device's framebuffer anyway. You can also use `sysctlbyname` to query for it
+(see above).
 
 `svc_stalker_ctl` is your way of managing system call/Mach trap interception
 for different processes. It takes four arguments, `pid`, `flavor`, `arg2`,
