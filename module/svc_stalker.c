@@ -447,11 +447,17 @@ static bool sysctl_register_oid_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
 
-    xnu_pf_disable_patch(patch);
-
     /* the BL we matched is branching to sysctl_register_oid */
     int32_t imm26 = sign_extend((opcode_stream[3] & 0x3ffffff) << 2, 26);
     uint32_t *sysctl_register_oid = (uint32_t *)((intptr_t)(opcode_stream + 3) + imm26);
+
+    /* check if this is sysctl_register_oid. if it is, the ninth instruction
+     * will be TBNZ W8, n, n
+     */
+    if((sysctl_register_oid[8] & 0xff00001f) != 0x37000008)
+        return false;
+
+    xnu_pf_disable_patch(patch);
 
     g_sysctl_register_oid_addr = xnu_ptr_to_va(sysctl_register_oid);
 
