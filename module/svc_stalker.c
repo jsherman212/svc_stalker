@@ -89,6 +89,7 @@ static uint64_t g_exec_scratch_space_addr = 0;
 static uint64_t g_exec_scratch_space_size = -sizeof(uint32_t);
 
 static uint64_t g_sysctl__kern_children_addr = 0;
+static uint64_t g_sysctl_register_oid_addr = 0;
 
 static bool g_patched_mach_syscall = false;
 
@@ -403,6 +404,7 @@ static bool ExceptionVectorsBase_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
+/* confirmed working on all kernels 13.0-13.6 */
 static bool sysctl__kern_children_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -436,6 +438,25 @@ static bool sysctl__kern_children_finder(xnu_pf_patch_t *patch,
 
     /* print_register(g_sysctl__kern_children_addr); */
     /* for(;;); */
+
+    return true;
+}
+
+/* confirmed working on all kernels 13.0-13.6 */
+static bool sysctl_register_oid_finder(xnu_pf_patch_t *patch,
+        void *cacheable_stream){
+    uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
+
+    xnu_pf_disable_patch(patch);
+
+    /* the BL we matched is branching to sysctl_register_oid */
+    int32_t imm26 = sign_extend((opcode_stream[3] & 0x3ffffff) << 2, 26);
+    uint32_t *sysctl_register_oid = (uint32_t *)((intptr_t)(opcode_stream + 3) + imm26);
+
+    g_sysctl_register_oid_addr = xnu_ptr_to_va(sysctl_register_oid);
+
+    puts("svc_stalker: found sysctl_register_oid");
+    print_register(g_sysctl_register_oid_addr - kernel_slide);
 
     return true;
 }
@@ -550,7 +571,8 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     if(g_proc_pid_addr == 0 || g_sysent_addr == 0 ||
             g_kalloc_canblock_addr == 0 || g_kfree_addr_addr == 0 ||
-            !g_patched_mach_syscall || g_sysctl__kern_children_addr == 0){
+            !g_patched_mach_syscall || g_sysctl__kern_children_addr == 0 ||
+            g_sysctl_register_oid_addr == 0){
         puts("svc_stalker: error(s) before");
         puts("     we patch sleh_synchronous:");
         
@@ -577,6 +599,11 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
         if(g_sysctl__kern_children_addr == 0){
             puts("   sysctl__kern_children");
+            puts("     not found");
+        }
+
+        if(g_sysctl_register_oid_addr == 0){
+            puts("   sysctl_register_oid");
             puts("     not found");
         }
 
@@ -805,26 +832,6 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         num_free_instrs -= 2; \
     } while (0) \
 
-/* #define WRITE_CSTRING_TO_HANDLE_SVC_HOOK_CACHE(str) \ */
-/*     do { \ */
-/*         size_t __len = strlen(str); \ */
-/*         size_t __aligned_len = (__len + 8) & ~7; \ */
-/*         uint64_t __instrs_worth = __aligned_len / sizeof(uint32_t); \ */
-/*         if(__instrs_worth < num_free_instrs){ \ */
-/*             puts("svc_stalker: ran out"); \ */
-/*             puts("     of space for hook"); \ */
-/*             stalker_fatal_error(); \ */
-/*         } \ */
-/*         const char *__end = str + __len; \ */
-/*         char *__cursor = str; \ */
-/*         while(__cursor < __end){ \ */
-/*             *(char *)scratch_space++ = *__cursor++; \ */
-/*         } \ */
-/*         size_t __left = __aligned_len - __len; \ */
-/*         scratch_space = (uint32_t *)((uint8_t *)scratch_space + __left); \ */
-/*         num_free_instrs -= __instrs_worth; \ */
-/*     } while (0) \ */
-
 #define WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(qword) \
     do { \
         if(num_free_instrs < 2){ \
@@ -948,7 +955,8 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     /* WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(0xFFFFFFF009257EF0 + kernel_slide); */
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_sysctl__kern_children_addr);
     /* iphone 8, 13.6, _sysctl_register_oid */
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(0xFFFFFFF00800CBD4 + kernel_slide);
+    /* WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(0xFFFFFFF00800CBD4 + kernel_slide); */
+    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_sysctl_register_oid_addr);
     /* iphone 8, 13.6, _sysctl_handle_long */
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(0xFFFFFFF00800D508 + kernel_slide);
 
@@ -1257,6 +1265,29 @@ static void stalker_prep(const char *cmd, char *args){
             sysctl__kern_children_finder_masks,
             num_sysctl__kern_children_finder_matches, false,
             sysctl__kern_children_finder);
+
+    uint64_t sysctl_register_oid_finder_matches[] = {
+        0xf94002c0,     /* LDR X0, [X22, n] */
+        0x39400008,     /* LDRB W8, [X0, n] */
+        0x37080008,     /* TBNZ W8, 1, n */
+        0x94000000,     /* BL n (_sysctl_register_oid) */
+    };
+
+    const size_t num_sysctl_register_oid_finder_matches =
+        sizeof(sysctl_register_oid_finder_matches) /
+        sizeof(*sysctl_register_oid_finder_matches);
+
+    uint64_t sysctl_register_oid_finder_masks[] = {
+        0xffc003ff,     /* ignore immediate */
+        0xffc003ff,     /* ignore immediate */
+        0xfff8001f,     /* ignore immediate */
+        0xfc000000,     /* ignore immediate */
+    };
+
+    xnu_pf_maskmatch(patchset, sysctl_register_oid_finder_matches,
+            sysctl_register_oid_finder_masks,
+            num_sysctl_register_oid_finder_matches, false,
+            sysctl_register_oid_finder);
 
     struct mach_header_64 *AMFI = xnu_pf_get_kext_header(mh_execute_header,
             "com.apple.driver.AppleMobileFileIntegrity");
