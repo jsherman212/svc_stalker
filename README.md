@@ -29,6 +29,9 @@ sysctlbyname("kern.svc_stalker_ctl_callnum", &SYS_svc_stalker_ctl, &oldlen, NULL
 
 After this, SYS_svc_stalker_ctl contains svc_stalker_ctl's system call number.
 
+**I am currently working on making this sysctl accessible to sandboxed processes
+in the `develop` branch.**
+
 Requires `libusb`: `brew install libusb`
 
 Requires `perl`: `brew install perl`
