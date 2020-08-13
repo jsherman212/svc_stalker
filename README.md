@@ -127,3 +127,6 @@ save space.
 ## Other Notes
 At the moment, this project assumes a 16k page size. I've only tested this on
 phones running iOS 13 and higher.
+
+I try my best to make sure the patchfinder works on all kernels iOS 13+, but
+if something isn't working, please file an issue.

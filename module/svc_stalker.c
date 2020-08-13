@@ -94,54 +94,36 @@ static uint64_t g_sysctl_handle_long_addr = 0;
 
 static bool g_patched_mach_syscall = false;
 
-/* confirmed working on all kernels 13.0-13.6 */
+/* confirmed working on all kernels 13.0-13.6.1 */
 static bool proc_pid_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
 
-    uint64_t imm = 0;
+    xnu_pf_disable_patch(patch);
 
-    if(bits(opcode_stream[2], 31, 31) == 0)
-        imm = get_adr_va_target(opcode_stream + 2);
-    else
-        imm = get_adrp_add_va_target(opcode_stream + 2);
-
-    char *string = xnu_va_to_ptr(imm);
-
-    /* there's three of these in the function we're targetting, but all
-     * use proc_pid's return value as the first and only format string
-     * argument, so any one of the three works
+    /* we've landed inside proc_check_inherit_ipc_ports,
+     * the first BL from this point on is branching to proc_pid
      */
-    const char *match = "AMFI: hook..execve() killing pid %u:";
-    size_t matchlen = strlen(match);
-
-    if(!memmem(string, matchlen + 1, match, matchlen))
-        return false;
-
-    /* at this point, we've hit one of those three strings, so the branch
-     * to proc_pid should be at most five instructions above where we are
-     * currently
-     */
-    uint32_t instr_limit = 5;
+    uint32_t instr_limit = 20;
 
     while((*opcode_stream & 0xfc000000) != 0x94000000){
         if(instr_limit-- == 0)
             return false;
 
-        opcode_stream--;
+        opcode_stream++;
     }
 
-    xnu_pf_disable_patch(patch);
+    int32_t imm26 = sign_extend((*opcode_stream & 0x3ffffff) << 2, 26);
+    uint32_t *proc_pid = (uint32_t *)((intptr_t)opcode_stream + imm26);
 
-    int32_t imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28);
-    g_proc_pid_addr = imm26 + xnu_ptr_to_va(opcode_stream);
+    g_proc_pid_addr = xnu_ptr_to_va(proc_pid);
 
     puts("svc_stalker: found proc_pid");
 
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6 */
+/* confirmed working on all kernels 13.0-13.6.1 */
 static bool sysent_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -187,7 +169,7 @@ static bool sysent_finder(xnu_pf_patch_t *patch,
     return false;
 }
 
-/* confirmed working on all kernels 13.0-13.6 */
+/* confirmed working on all kernels 13.0-13.6.1 */
 static bool kalloc_canblock_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -350,7 +332,7 @@ static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6 */
+/* confirmed working on all kernels 13.0-13.6.1 */
 static bool ExceptionVectorsBase_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     /* According to XNU source, _ExceptionVectorsBase is page aligned. We're
@@ -405,7 +387,7 @@ static bool ExceptionVectorsBase_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6 */
+/* confirmed working on all kernels 13.0-13.6.1 */
 static bool sysctl__kern_children_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -440,17 +422,17 @@ static bool sysctl__kern_children_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6 */
+/* confirmed working on all kernels 13.0-13.6.1 */
 static bool sysctl_register_oid_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
 
-    /* the BL we matched is branching to sysctl_register_oid */
+    /* the BL we matched should be branching to sysctl_register_oid */
     int32_t imm26 = sign_extend((opcode_stream[3] & 0x3ffffff) << 2, 26);
     uint32_t *sysctl_register_oid = (uint32_t *)((intptr_t)(opcode_stream + 3) + imm26);
 
     /* check if this is sysctl_register_oid. if it is, the eighth instruction
-     * from this point will be TBNZ W8, n, n
+     * from the beginning of sysctl_register_oid's prologue will be TBNZ W8, n, n
      */
     if((sysctl_register_oid[8] & 0xff00001f) != 0x37000008)
         return false;
@@ -464,7 +446,7 @@ static bool sysctl_register_oid_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6 */
+/* confirmed working on all kernels 13.0-13.6.1 */
 static bool sysctl_handle_long_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -472,7 +454,7 @@ static bool sysctl_handle_long_finder(xnu_pf_patch_t *patch,
     xnu_pf_disable_patch(patch);
 
     /* the patchfinder landed us at sysctl_handle_long or sysctl_handle_quad,
-     * whichever came first, because these functions are identical.
+     * whichever came first in the kernelcache, because these functions are identical.
      * Both of them can act as sysctl_handle_long and be fine.
      */
     g_sysctl_handle_long_addr = xnu_ptr_to_va(opcode_stream);
@@ -482,7 +464,7 @@ static bool sysctl_handle_long_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6 */
+/* confirmed working on all kernels 13.0-13.6.1 */
 static bool patch_exception_triage_thread(uint32_t *opcode_stream){
     /* patch exception_triage_thread to return to its caller on EXC_SYSCALL and
      * EXC_MACH_SYSCALL
@@ -1115,22 +1097,18 @@ static void stalker_prep(const char *cmd, char *args){
     xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
 
     uint64_t proc_pid_finder_match[] = {
-        0x94000000,     /* BL n (_proc_pid) */
-        0xf90003e0,     /* STR X0, [SP] (store _proc_pid return value) */
-        0x10000000,     /* ADRP X0, n or ADR X0, n */
-        0x0,            /* ignore this instruction */
-        0x14000000,     /* B n or BL n */
+        0xb4000000,     /* CBZ X0, n */
+        0xaa0303fa,     /* MOV X26, X3 */
+        0xb4000003,     /* CBZ X3, n */
     };
 
     const size_t num_proc_pid_matches = sizeof(proc_pid_finder_match) /
         sizeof(*proc_pid_finder_match);
 
     uint64_t proc_pid_finder_masks[] = {
-        0xfc000000,     /* ignore BL immediate */
+        0xff00001f,     /* ignore immediate */
         0xffffffff,     /* match exactly */
-        0x1f00001f,     /* ignore immediate */
-        0x0,            /* ignore this instruction */
-        0x7c000000,     /* ignore everything except bits which indicate B or BL */
+        0xff00001f,     /* ignore immediate */
     };
 
     xnu_pf_maskmatch(patchset, proc_pid_finder_match, proc_pid_finder_masks,
@@ -1327,6 +1305,7 @@ static void stalker_prep(const char *cmd, char *args){
             num_sysctl_handle_long_finder_matches, false,
             sysctl_handle_long_finder);
 
+    /* AMFI for proc_pid */
     struct mach_header_64 *AMFI = xnu_pf_get_kext_header(mh_execute_header,
             "com.apple.driver.AppleMobileFileIntegrity");
     xnu_pf_range_t *AMFI___TEXT_EXEC = xnu_pf_segment(AMFI, "__TEXT_EXEC");
