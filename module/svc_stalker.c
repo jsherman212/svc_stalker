@@ -407,12 +407,12 @@ static bool sysctl__kern_children_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
 
+    xnu_pf_disable_patch(patch);
+
     /* we should have landed right inside _kmeminit.
      *
      * The ADRP X20, n or ADR X20, n will lead us to sysctl__kern_children.
      */
-    xnu_pf_disable_patch(patch);
-
     /* advance to the ADRP X20, n or ADR X20 */
     opcode_stream += 2;
 
@@ -440,19 +440,13 @@ static bool sysctl__kern_children_finder(xnu_pf_patch_t *patch,
 /* confirmed working on all kernels 13.0-13.6.1 */
 static bool sysctl_register_oid_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
+    xnu_pf_disable_patch(patch);
+
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
 
-    /* the BL we matched should be branching to sysctl_register_oid */
-    int32_t imm26 = sign_extend((opcode_stream[3] & 0x3ffffff) << 2, 26);
-    uint32_t *sysctl_register_oid = (uint32_t *)((intptr_t)(opcode_stream + 3) + imm26);
-
-    /* check if this is sysctl_register_oid. if it is, the eighth instruction
-     * from the beginning of sysctl_register_oid's prologue will be TBNZ W8, n, n
-     */
-    if((sysctl_register_oid[8] & 0xff00001f) != 0x37000008)
-        return false;
-
-    xnu_pf_disable_patch(patch);
+    /* the BL we matched is guarenteed to be sysctl_register_oid */
+    int32_t imm26 = sign_extend((opcode_stream[5] & 0x3ffffff) << 2, 26);
+    uint32_t *sysctl_register_oid = (uint32_t *)((intptr_t)(opcode_stream + 5) + imm26);
 
     g_sysctl_register_oid_addr = xnu_ptr_to_va(sysctl_register_oid);
 
@@ -469,8 +463,9 @@ static bool sysctl_handle_long_finder(xnu_pf_patch_t *patch,
     xnu_pf_disable_patch(patch);
 
     /* the patchfinder landed us at sysctl_handle_long or sysctl_handle_quad,
-     * whichever came first in the kernelcache, because these functions are identical.
-     * Both of them can act as sysctl_handle_long and be fine.
+     * whichever came first in the kernelcache, because these functions are
+     * pretty much identical. Both of them can act as sysctl_handle_long and
+     * be fine.
      */
     g_sysctl_handle_long_addr = xnu_ptr_to_va(opcode_stream);
 
@@ -1267,9 +1262,11 @@ static void stalker_prep(const char *cmd, char *args){
             sysctl__kern_children_finder);
 
     uint64_t sysctl_register_oid_finder_matches[] = {
-        0xf94002c0,     /* LDR X0, [X22, n] */
-        0x39400008,     /* LDRB W8, [X0, n] */
-        0x37080008,     /* TBNZ W8, 1, n */
+        0xb4000013,     /* CBZ X19, n */
+        0xf9000013,     /* STR X19, [Xn, n] */
+        0x91002000,     /* ADD Xn, Xn, 8 */
+        0xf9000260,     /* STR Xn, [X19, n] */
+        0xf9400000,     /* LDR X0, [Xn, n] */
         0x94000000,     /* BL n (_sysctl_register_oid) */
     };
 
@@ -1278,9 +1275,11 @@ static void stalker_prep(const char *cmd, char *args){
         sizeof(*sysctl_register_oid_finder_matches);
 
     uint64_t sysctl_register_oid_finder_masks[] = {
-        0xffc003ff,     /* ignore immediate */
-        0xffc003ff,     /* ignore immediate */
-        0xfff8001f,     /* ignore immediate */
+        0xff00001f,     /* ignore immediate */
+        0xffc0001f,     /* ignore all but Rt */
+        0xfffffc00,     /* only match immediate */
+        0xffc003e0,     /* ignore immediate and Rt */
+        0xffc0001f,     /* ignore all but Rt */
         0xfc000000,     /* ignore immediate */
     };
 
