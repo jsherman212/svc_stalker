@@ -43,19 +43,6 @@ _main:
     str x20, [sp, SYSCTL_REGISTER_OID_FPTR]
     ldr x20, [x19, SYSCTL_HANDLE_LONG_CACHEOFF]
     str x20, [sp, SYSCTL_HANDLE_LONG_FPTR]
-    ; ldr x20, [x19, IOLOG_FPTR_CACHEOFF]
-    ; str x20, [sp, IOLOG_FPTR]
-    ; ldr x20, [x19, IOLOG_FMT_CACHEOFF]
-    ; str x20, [sp, IOLOG_FMT]
-
-
-    ; ldr x0, [sp, SYSCTL_NAME]
-    ; str x0, [sp]
-    ; ldr x0, [sp, SYSCTL_FMT]
-    ; str x0, [sp, 8]
-    ; ldr x0, [sp, IOLOG_FMT]
-    ; ldr x19, [sp, IOLOG_FPTR]
-    ; blr x19
 
     ldr x19, [sp, STALKER_TABLE_PTR]
     ldr x20, [x19, STALKER_TABLE_REGISTERED_SYSCTL_OFF]

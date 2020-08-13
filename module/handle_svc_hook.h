@@ -19,8 +19,6 @@
 #define SYSCTL__KERN_CHILDREN_CACHEOFF (0x40)
 #define SYSCTL_REGISTER_OID_FPTR_CACHEOFF (0x48)
 #define SYSCTL_HANDLE_LONG_CACHEOFF (0x50)
-/* #define IOLOG_FPTR_CACHEOFF         (0x38) */
-/* #define IOLOG_FMT_CACHEOFF          (0x40) */
 
 /* local variables */
 #define OFFSET_CACHE_PTR            (STACK-0x70)
@@ -40,9 +38,6 @@
 #define SYSCTL_HANDLE_LONG_FPTR     (STACK-0xe8)
 #define SYSCTL_OID_STRUCT           (STACK-0x140)  /* XXX sizeof(sysctl_oid) == 0x50 */
 
-/* #define IOLOG_FPTR                  (STACK-0xd0) */
-/* #define IOLOG_FMT                   (STACK-0xd8) */
-
 /* sysctl stuff */
 #define OID_AUTO                    (-1)
 
@@ -55,11 +50,6 @@
 /* exception stuff */
 #define EXC_SYSCALL                 (7)
 #define EXC_MACH_SYSCALL            (8)
-
-#define EXC_CRASH                   (10)
-#define EXC_RESOURCE                (11)
-#define EXC_GUARD                   (12)
-#define EXC_CORPSE_NOTIFY           (13)
 
 /* stalker table stuff */
 #define STALKER_TABLE_MAX           (1023)

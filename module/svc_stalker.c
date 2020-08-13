@@ -198,44 +198,58 @@ static bool kalloc_canblock_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6 */
+/* confirmed working on all kernels 13.0-13.6.1 */
 static bool kfree_addr_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
-    uint64_t addr_va = 0;
 
-    if(bits(opcode_stream[1], 31, 31) == 0)
-        addr_va = get_adr_va_target(opcode_stream + 1);
-    else
-        addr_va = get_adrp_add_va_target(opcode_stream + 1);
+    /* we should have landed inside kfree_addr, but just to make sure,
+     * look for "kfree on an address not in the kernel" from this point on
+     */
+    uint32_t instr_limit = 200;
+    bool inside_kfree_addr = 0;
 
-    char *string = xnu_va_to_ptr(addr_va);
+    while(instr_limit-- != 0){
+        /* ADRP/ADD or ADR/NOP */
+        if((*opcode_stream & 0x1f000000) == 0x10000000){
+            uint64_t addr_va = 0;
 
-    const char *match = "kfree on an address not in the kernel";
-    size_t matchlen = strlen(match);
+            if(bits(*opcode_stream, 31, 31) == 0)
+                addr_va = get_adr_va_target(opcode_stream);
+            else
+                addr_va = get_adrp_add_va_target(opcode_stream);
 
-    if(!memmem(string, matchlen + 1, match, matchlen))
+            char *string = xnu_va_to_ptr(addr_va);
+
+            const char *match = "kfree on an address not in the kernel";
+            size_t matchlen = strlen(match);
+
+            if(memmem(string, matchlen + 1, match, matchlen)){
+                inside_kfree_addr = true;
+                break;
+            }
+        }
+
+        opcode_stream++;
+    }
+
+    if(!inside_kfree_addr)
         return false;
 
-    /* at this point, we're guarenteed to be inside kfree_addr,
-     * so find the beginning of its prologue
+    xnu_pf_disable_patch(patch);
+
+    /* find kfree_addr's prologue
      *
      * looking for sub sp, sp, n
      */
-    uint32_t instr_limit = 200;
+    instr_limit = 200;
 
     while((*opcode_stream & 0xffc003ff) != 0xd10003ff){
-        if(instr_limit-- == 0){
-            puts("svc_stalker: kfree_addr_finder:");
-            puts("     couldn't find kfree_addr");
-            puts("     prologue");
-            stalker_fatal_error();
-        }
+        if(instr_limit-- == 0)
+            return false;
 
         opcode_stream--;
     }
-
-    xnu_pf_disable_patch(patch);
 
     g_kfree_addr_addr = xnu_ptr_to_va(opcode_stream);
 
@@ -1153,20 +1167,22 @@ static void stalker_prep(const char *cmd, char *args){
             num_kalloc_canblock_matches, false, kalloc_canblock_finder);
 
     uint64_t kfree_addr_match[] = {
-        0xf90003f3,     /* STR X19, [SP] */
-        0x10000000,     /* ADRP X0, n or ADR X0, n */
+        0x10000009,     /* ADRP X9, n or ADR X9, n */
         0x0,            /* ignore this instruction */
-        0x94000000,     /* BL n (_panic) */
+        0xfa538002,     /* CCMP Xn, X19, #2, HI */
+        0x10000000,     /* ADRP Xn, n or ADR Xn, n */
+        0x0,            /* ignore this instruction */
     };
 
     const size_t num_kfree_addr_matches = sizeof(kfree_addr_match) /
         sizeof(*kfree_addr_match);
 
     uint64_t kfree_addr_masks[] = {
-        0xffffffff,     /* match exactly */
         0x1f00001f,     /* ignore immediate */
         0x0,            /* ignore this instruction */
-        0xfc000000,     /* ignore BL immediate */
+        0xfffffc1f,     /* ignore Xn */
+        0x1f000000,     /* ignore everything */
+        0x0,            /* ignore this instruction */
     };
 
     xnu_pf_maskmatch(patchset, kfree_addr_match, kfree_addr_masks,
