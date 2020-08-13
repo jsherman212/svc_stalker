@@ -173,7 +173,6 @@ static bool sysent_finder(xnu_pf_patch_t *patch,
 static bool kalloc_canblock_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
-    /* puts("inside kalloc_canblock_finder"); */
 
     /* if we're in the right place, we should find kalloc_canblock's prologue
      * no more than 10 instructions before
@@ -258,13 +257,12 @@ static bool kfree_addr_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6 */
+/* confirmed working on all kernels 13.0-13.6.1 */
 static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
 
-    /* make sure we're inside of mach_syscall by looking for a call
-     * to panic with "Returned from exception_triage()?"
+    /* we've landed inside of mach_syscall
      *
      * since we're patching exception_triage_thread to return to caller
      * on EXC_SYSCALL & EXC_MACH_SYSCALL, we need to patch out the call
@@ -273,8 +271,8 @@ static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
      *
      * go forward and check ADRP,ADD/ADR,NOP pairs
      */
-    uint32_t instr_limit = 200;
-    int inside_mach_syscall = 0;
+    uint32_t instr_limit = 300;
+    bool inside_mach_syscall = false;
 
     while(instr_limit-- != 0){
         if((*opcode_stream & 0x1f000000) == 0x10000000){
@@ -291,7 +289,7 @@ static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
             size_t matchlen = strlen(match);
 
             if(memmem(string, matchlen + 1, match, matchlen)){
-                inside_mach_syscall = 1;
+                inside_mach_syscall = true;
                 break;
             }
         }
@@ -300,14 +298,17 @@ static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
     }
 
     if(!inside_mach_syscall)
-        return 0;
+        return false;
 
     xnu_pf_disable_patch(patch);
 
     /* sitting on the ADRP or ADR right after bl exception_triage, go back one */
     opcode_stream--;
 
-    /* bl exception_triage/adrp/add or bl exception_triage/adr/nop --> nop/nop/nop */
+    /* bl exception_triage/adrp/add or bl exception_triage/adr/nop --> nop/nop/nop
+     *
+     * don't need to set return value
+     */
     opcode_stream[0] = 0xd503201f;
     opcode_stream[1] = 0xd503201f;
     opcode_stream[2] = 0xd503201f;
@@ -818,12 +819,10 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         uint64_t last_sect_end = last_TEXT_EXEC_sect->addr + last_TEXT_EXEC_sect->size;
 
         g_exec_scratch_space_addr = last_sect_end;
-        print_register(g_exec_scratch_space_addr);
 
         uint64_t seg_end = __TEXT_EXEC->vmaddr + __TEXT_EXEC->vmsize;
 
         g_exec_scratch_space_size = seg_end - last_sect_end;
-        print_register(g_exec_scratch_space_size);
 
         /* still too little space? Incompatible kernel */
         if(needed_sz > g_exec_scratch_space_size){
@@ -841,7 +840,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     uint64_t num_free_instrs = g_exec_scratch_space_size / sizeof(uint32_t);
     uint32_t *scratch_space = xnu_va_to_ptr(g_exec_scratch_space_addr);
 
-    /* TODO merge, don't need to calc cache sizes here anymore */
+    /* don't merge the next two macros because this is better for readability */
 #define WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(qword) \
     do { \
         if(num_free_instrs < 2){ \
@@ -1189,18 +1188,20 @@ static void stalker_prep(const char *cmd, char *args){
             num_kfree_addr_matches, false, kfree_addr_finder);
 
     uint64_t mach_syscall_patcher_match[] = {
-        0xd538d080,     /* MRS Xn, TPIDR_EL1 */
-        0xf9400000,     /* LDR Xn, [Xn, n] */
-        0xb900001f,     /* STR WZR, [Xn, n] */
+        0xb9400000,     /* LDR Wn, [X0] */
+        0x7100501f,     /* CMP Wn, 0x14 */
+        0x54000001,     /* B.NE n */
+        0xb9403a60,     /* LDR Wn, [X19, 0x38] */
     };
 
     const size_t num_mach_syscall_matches = sizeof(mach_syscall_patcher_match) /
         sizeof(*mach_syscall_patcher_match);
 
     uint64_t mach_syscall_patcher_masks[] = {
-        0xffffffe0,     /* ignore Rn */
-        0xffc00000,     /* ignore everything */
-        0xffc0001f,     /* ignore everything but Rt */
+        0xffffffe0,     /* ignore Wn */
+        0xfffffc1f,     /* ignore Wn */
+        0xff00001f,     /* ignore immediate */
+        0xffffffe0,     /* ignore Wn */
     };
 
     xnu_pf_maskmatch(patchset, mach_syscall_patcher_match, mach_syscall_patcher_masks,
