@@ -18,7 +18,6 @@ _main:
 
     str x19, [sp, SAVED_STATE_PTR]
 
-    ; XXX when I move or add anything before this adr, update NUM_INSTRS_BEFORE_CACHE
     adr x19, CACHE_START
     str x19, [sp, OFFSET_CACHE_PTR]
     ldr x20, [x19, EXCEPTION_TRIAGE_CACHEOFF]
@@ -43,9 +42,29 @@ _main:
     str x20, [sp, SYSCTL_REGISTER_OID_FPTR]
     ldr x20, [x19, SYSCTL_HANDLE_LONG_CACHEOFF]
     str x20, [sp, SYSCTL_HANDLE_LONG_FPTR]
+    ldr x20, [x19, NAME2OID_FPTR_CACHEOFF]
+    str x20, [sp, NAME2OID_FPTR]
+    ldr x20, [x19, SYSCTL_GEOMETRY_LOCK_PTR_CACHEOFF]
+    str x20, [sp, SYSCTL_GEOMETRY_LOCK_PTR]
+    ldr x20, [x19, LCK_RW_LOCK_SHARED_FPTR_CACHEOFF]
+    str x20, [sp, LCK_RW_LOCK_SHARED_FPTR]
+    ldr x20, [x19, LCK_RW_DONE_FPTR_CACHEOFF]
+    str x20, [sp, LCK_RW_DONE_FPTR]
+    ldr x20, [x19, NEW_SYSCTL_MIB_PTR_CACHEOFF]
+    str x20, [sp, NEW_SYSCTL_MIB_PTR]
+    ldr x20, [x19, NEW_SYSCTL_MIB_COUNT_PTR_CACHEOFF]
+    str x20, [sp, NEW_SYSCTL_MIB_COUNT_PTR]
 
+    ldr x0, [sp, SYSCTL_GEOMETRY_LOCK_PTR]
+    ldr x0, [x0]
+    ldr x19, [sp, LCK_RW_LOCK_SHARED_FPTR]
+    blr x19
     ldr x19, [sp, STALKER_TABLE_PTR]
     ldr x20, [x19, STALKER_TABLE_REGISTERED_SYSCTL_OFF]
+    ldr x0, [sp, SYSCTL_GEOMETRY_LOCK_PTR]
+    ldr x0, [x0]
+    ldr x19, [sp, LCK_RW_DONE_FPTR]
+    blr x19
     ; if we've already registered the sysctl, don't do it again
     cbnz x20, maybeintercept
 
@@ -69,8 +88,10 @@ _main:
     str x19, [sp, SYSCTL_OID_STRUCT+0x18]
     ; oid_arg2, nothing
     str wzr, [sp, SYSCTL_OID_STRUCT+0x20]
-    ; oid_name, "svc_stalker_ctl_callnum"
+    ; oid_name, "kern.svc_stalker_ctl_callnum"
     ldr x19, [sp, SYSCTL_NAME]
+    ; skip "kern."
+    add x19, x19, 5
     str x19, [sp, SYSCTL_OID_STRUCT+0x28]
     ; oid_handler
     ldr x19, [sp, SYSCTL_HANDLE_LONG_FPTR]
@@ -92,9 +113,30 @@ _main:
     ldr x19, [sp, SYSCTL_REGISTER_OID_FPTR]
     blr x19
 
+    ; Figure out what MIB array looks like for this new sysctl.
+    ; We need this so the hook_system_check_sysctlbyname_hook can check
+    ; if the incoming sysctl is ours
+    ;
+    ; We're taking sysctl_geometry_lock because name2oid doesn't,
+    ; and not giving it up until we've written a one to
+    ; stalkertable+REGISTERED_SYSCTL_OFF because we're sharing this info
+    ; with hook_system_check_sysctlbyname_hook.
+    ldr x0, [sp, SYSCTL_GEOMETRY_LOCK_PTR]
+    ldr x0, [x0]
+    ldr x19, [sp, LCK_RW_LOCK_SHARED_FPTR]
+    blr x19
+    ldr x0, [sp, SYSCTL_NAME]
+    ldr x1, [sp, NEW_SYSCTL_MIB_PTR]
+    ldr x2, [sp, NEW_SYSCTL_MIB_COUNT_PTR]
+    ldr x19, [sp, NAME2OID_FPTR]
+    blr x19
     ldr x19, [sp, STALKER_TABLE_PTR]
     mov x20, 1
     str x20, [x19, STALKER_TABLE_REGISTERED_SYSCTL_OFF]
+    ldr x0, [sp, SYSCTL_GEOMETRY_LOCK_PTR]
+    ldr x0, [x0]
+    ldr x19, [sp, LCK_RW_DONE_FPTR]
+    blr x19
 
 maybeintercept:
     ; figure out if the system call made by this PID should be

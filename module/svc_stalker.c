@@ -1,3 +1,5 @@
+#include <sys/sysctl.h>
+
 #include "handle_svc_hook_patches.h"
 #include "hook_system_check_sysctlbyname_hook_patches.h"
 #include "pongo.h"
@@ -552,15 +554,9 @@ static bool name2oid_and_its_dependencies_finder(xnu_pf_patch_t *patch,
     g_lck_rw_done_addr = xnu_ptr_to_va(lck_rw_done);
 
     puts("svc_stalker: found sysctl_geometry_lock");
-    /* print_register(g_sysctl_geometry_lock_addr - kernel_slide); */
     puts("svc_stalker: found lck_rw_lock_shared");
-    /* print_register(g_lck_rw_lock_shared_addr - kernel_slide); */
     puts("svc_stalker: found name2oid");
-    /* print_register(g_name2oid_addr - kernel_slide); */
     puts("svc_stalker: found lck_rw_done");
-    /* print_register(g_lck_rw_done_addr - kernel_slide); */
-
-    /* for(;;); */
 
     return true;
 }
@@ -668,6 +664,45 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
     puts("svc_stalker: patched exception_triage_thread");
 
     return true;
+}
+
+#define WRITE_INSTR(opcode) \
+    do { \
+        if(num_free_instrs == 0){ \
+            puts("svc_stalker: ran out"); \
+            puts("     of space for hook"); \
+            stalker_fatal_error(); \
+        } \
+        *scratch_space = (opcode); \
+        scratch_space++; \
+        num_free_instrs--; \
+    } while (0) \
+
+/* these three functions are so sleh_synchronous_patcher doesn't
+ * explode in size upon macro expansion
+ */
+static uint32_t *write_handle_svc_hook_instrs(uint32_t *scratch_space,
+        uint64_t *num_free_instrsp){
+    uint64_t num_free_instrs = *num_free_instrsp;
+    DO_HANDLE_SVC_HOOK_PATCHES;
+    *num_free_instrsp = num_free_instrs;
+    return scratch_space;
+}
+
+static uint32_t *write_svc_stalker_ctl_instrs(uint32_t *scratch_space,
+        uint64_t *num_free_instrsp){
+    uint64_t num_free_instrs = *num_free_instrsp;
+    DO_SVC_STALKER_CTL_PATCHES;
+    *num_free_instrsp = num_free_instrs;
+    return scratch_space;
+}
+
+static uint32_t *write_h_s_c_sbn_h_instrs(uint32_t *scratch_space,
+        uint64_t *num_free_instrsp){
+    uint64_t num_free_instrs = *num_free_instrsp;
+    DO_HOOK_SYSTEM_CHECK_SYSCTLBYNAME_HOOK_PATCHES;
+    *num_free_instrsp = num_free_instrs;
+    return scratch_space;
 }
 
 /* confirmed working on all kernels 13.0-13.6 */
@@ -892,9 +927,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         stalker_fatal_error();
     }
 
-    uint64_t handle_svc_hook_cache_size = 11 * sizeof(uint64_t);
+    uint64_t handle_svc_hook_cache_size = 17 * sizeof(uint64_t);
     uint64_t svc_stalker_ctl_cache_size = 3 * sizeof(uint64_t);
-    uint64_t hook_system_check_sysctlbyname_hook_cache_size = 0 * sizeof(uint64_t);
+    uint64_t hook_system_check_sysctlbyname_hook_cache_size = 7 * sizeof(uint64_t);
     
     /* defined in handle_svc_hook_patches.h, svc_stalker_ctl_patches.h,
      * hook_system_check_sysctlbyname_hook_patches.h
@@ -974,16 +1009,16 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
         num_free_instrs -= 2; \
     } while (0) \
 
-#define WRITE_INSTR(opcode) \
+#define WRITE_QWORD_TO_H_S_C_SBN_H_CACHE(qword) \
     do { \
-        if(num_free_instrs == 0){ \
+        if(num_free_instrs < 2){ \
             puts("svc_stalker: ran out"); \
             puts("     of space for hook"); \
             stalker_fatal_error(); \
         } \
-        *scratch_space = (opcode); \
-        scratch_space++; \
-        num_free_instrs--; \
+        *(uint64_t *)scratch_space = (qword); \
+        scratch_space += 2; \
+        num_free_instrs -= 2; \
     } while (0) \
 
     /* struct stalker_ctl {
@@ -1053,43 +1088,52 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     uint64_t *patched_syscall_num_cache_ptr = (uint64_t *)scratch_space;
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(reserved);
 
-    char *string_space = alloc_static(PAGE_SIZE);
+    uint8_t *misc_space = alloc_static(PAGE_SIZE);
 
-    if(!string_space){
+    if(!misc_space){
         puts("svc_stalker: alloc_static");
         puts("     returned NULL when");
         puts("     allocating mem for");
-        puts("     sysctl strings");
+        puts("     misc things");
         stalker_fatal_error();
     }
 
     /* sysctl name for the system call number */
-    const char *sysctl_name = "svc_stalker_ctl_callnum";
-    strcpy(string_space, sysctl_name);
+    const char *sysctl_name = "kern.svc_stalker_ctl_callnum";
+    strcpy((char *)misc_space, sysctl_name);
 
     const char *sysctl_descr = "query for svc_stalker_ctl's system call number";
     size_t sysctl_name_len = strlen(sysctl_name);
-    char *sysctl_descr_loc = string_space + sysctl_name_len + 1;
+    char *sysctl_descr_loc = (char *)(misc_space + sysctl_name_len + 1);
     strcpy(sysctl_descr_loc, sysctl_descr);
 
     /* how sysctl should format the call number, long */
     size_t sysctl_descr_len = strlen(sysctl_descr);
     char *sysctl_fmt_loc = sysctl_descr_loc + strlen(sysctl_descr) + 1;
     strcpy(sysctl_fmt_loc, "L");
+
+    uint32_t *new_sysctl_mib = (uint32_t *)((uintptr_t)(sysctl_fmt_loc + 8) & ~7);
+    uint32_t *new_sysctl_mib_count = (uint32_t *)(new_sysctl_mib + CTL_MAXNAME);
     
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(xnu_ptr_to_va(string_space));
+    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(xnu_ptr_to_va(misc_space));
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(xnu_ptr_to_va(sysctl_descr_loc));
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(xnu_ptr_to_va(sysctl_fmt_loc));
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_sysctl__kern_children_addr);
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_sysctl_register_oid_addr);
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_sysctl_handle_long_addr);
-    // XXX XXX STILL NEED TO WRITE THE 4 NEW OFFSETS
+    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_name2oid_addr);
+    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_sysctl_geometry_lock_addr);
+    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_lck_rw_lock_shared_addr);
+    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_lck_rw_done_addr);
+    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(xnu_ptr_to_va(new_sysctl_mib));
+    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(xnu_ptr_to_va(new_sysctl_mib_count));
 
     /* autogenerated by hookgen.pl, see handle_svc_patches.h */
     /* Needs to be done before we patch the sysent entry so scratch_space lies
      * right after the end of the handle_svc hook.
      */
-    DO_HANDLE_SVC_HOOK_PATCHES;
+    /* DO_HANDLE_SVC_HOOK_PATCHES; */
+    scratch_space = write_handle_svc_hook_instrs(scratch_space, &num_free_instrs);
 
     /* write the stalker table pointer so the patched syscall can get it easily
      *
@@ -1176,10 +1220,11 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     }
 
     /* autogenerated by hookgen.pl, see svc_stalker_ctl_patches.h */
-    DO_SVC_STALKER_CTL_PATCHES;
+    /* DO_SVC_STALKER_CTL_PATCHES; */
+    scratch_space = write_svc_stalker_ctl_instrs(scratch_space, &num_free_instrs);
 
     // XXX
-    return true;
+    /* return true; */
 
     uint64_t branch_to = g_exec_scratch_space_addr + handle_svc_hook_cache_size;
 
@@ -1214,15 +1259,25 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     // this depends on scratch_space sitting after the end of svc_stalker_ctl
     // maybe rename this function to stalker_main_patcher...
 
+    WRITE_QWORD_TO_H_S_C_SBN_H_CACHE(g_sysctl_geometry_lock_addr);
+    WRITE_QWORD_TO_H_S_C_SBN_H_CACHE(g_lck_rw_lock_shared_addr);
+    WRITE_QWORD_TO_H_S_C_SBN_H_CACHE(g_lck_rw_done_addr);
+    WRITE_QWORD_TO_H_S_C_SBN_H_CACHE(xnu_ptr_to_va(new_sysctl_mib));
+    WRITE_QWORD_TO_H_S_C_SBN_H_CACHE(xnu_ptr_to_va(new_sysctl_mib_count));
+    WRITE_QWORD_TO_H_S_C_SBN_H_CACHE(xnu_ptr_to_va(stalker_table));
+    // XXX beginning of hook_system_check_sysctlbyname epilogue, iphone 8 13.6.1 */
+    WRITE_QWORD_TO_H_S_C_SBN_H_CACHE(0xFFFFFFF008C77F14 + kernel_slide);
+
     branch_to = xnu_ptr_to_va(scratch_space);
 
     /* autogenerated by hookgen.pl, see hook_system_check_sysctlbyname_hook_patches.h */
-    DO_HOOK_SYSTEM_CHECK_SYSCTLBYNAME_HOOK_PATCHES;
+    /* DO_HOOK_SYSTEM_CHECK_SYSCTLBYNAME_HOOK_PATCHES; */
+    scratch_space = write_h_s_c_sbn_h_instrs(scratch_space, &num_free_instrs);
 
     branch_from = (uint64_t)xnu_va_to_ptr(0xFFFFFFF008C77D40 + kernel_slide);
 
     /* restore the five instructions we overwrote at the end of
-     * system_check_sysctlbyname_hook to the end of `notours`
+     * system_check_sysctlbyname_hook to the end of `not_ours`
      * in hook_system_check_sysctlbyname_hook.s
      */
     WRITE_INSTR(*(uint32_t *)branch_from);
@@ -1256,8 +1311,6 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     IMPORTANT_MSG("for the patched system");
     IMPORTANT_MSG("call.");
     puts("*********************");
-
-
 
     return true;
 }

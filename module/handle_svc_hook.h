@@ -3,22 +3,29 @@
 
 #define STACK                       (0x200)
 
-#define NUM_CACHED_PTRS             (11)
+#define NUM_CACHED_PTRS             (17)
 #define NUM_INSTRS_BEFORE_CACHE     (9)
 /* offset of start of cached kernel pointers */
 #define CACHE_START                 (-((4*NUM_INSTRS_BEFORE_CACHE)+(8*NUM_CACHED_PTRS)))
+
 /* cache offsets */
-#define EXCEPTION_TRIAGE_CACHEOFF   (0x0)
-#define CURRENT_PROC_CACHEOFF       (0x8)
-#define PROC_PID_CACHEOFF           (0x10)
-#define STALKER_TABLE_CACHEOFF      (0x18)
-#define PATCHED_SYSCALL_NUM_CACHEOFF (0x20)
-#define SYSCTL_NAME_CACHEOFF        (0x28)
-#define SYSCTL_DESCR_CACHEOFF       (0x30)
-#define SYSCTL_FMT_CACHEOFF         (0x38)
-#define SYSCTL__KERN_CHILDREN_CACHEOFF (0x40)
-#define SYSCTL_REGISTER_OID_FPTR_CACHEOFF (0x48)
-#define SYSCTL_HANDLE_LONG_CACHEOFF (0x50)
+#define EXCEPTION_TRIAGE_CACHEOFF               (0x0)
+#define CURRENT_PROC_CACHEOFF                   (0x8)
+#define PROC_PID_CACHEOFF                       (0x10)
+#define STALKER_TABLE_CACHEOFF                  (0x18)
+#define PATCHED_SYSCALL_NUM_CACHEOFF            (0x20)
+#define SYSCTL_NAME_CACHEOFF                    (0x28)
+#define SYSCTL_DESCR_CACHEOFF                   (0x30)
+#define SYSCTL_FMT_CACHEOFF                     (0x38)
+#define SYSCTL__KERN_CHILDREN_CACHEOFF          (0x40)
+#define SYSCTL_REGISTER_OID_FPTR_CACHEOFF       (0x48)
+#define SYSCTL_HANDLE_LONG_CACHEOFF             (0x50)
+#define NAME2OID_FPTR_CACHEOFF                  (0x58)
+#define SYSCTL_GEOMETRY_LOCK_PTR_CACHEOFF       (0x60)
+#define LCK_RW_LOCK_SHARED_FPTR_CACHEOFF        (0x68)
+#define LCK_RW_DONE_FPTR_CACHEOFF               (0x70)
+#define NEW_SYSCTL_MIB_PTR_CACHEOFF             (0x78)
+#define NEW_SYSCTL_MIB_COUNT_PTR_CACHEOFF       (0x80)
 
 /* local variables */
 #define OFFSET_CACHE_PTR            (STACK-0x70)
@@ -37,6 +44,12 @@
 #define SYSCTL_REGISTER_OID_FPTR    (STACK-0xe0)
 #define SYSCTL_HANDLE_LONG_FPTR     (STACK-0xe8)
 #define SYSCTL_OID_STRUCT           (STACK-0x140)  /* XXX sizeof(sysctl_oid) == 0x50 */
+#define NAME2OID_FPTR               (STACK-0x148)
+#define SYSCTL_GEOMETRY_LOCK_PTR    (STACK-0x150)
+#define LCK_RW_LOCK_SHARED_FPTR     (STACK-0x158)
+#define LCK_RW_DONE_FPTR            (STACK-0x160)
+#define NEW_SYSCTL_MIB_PTR          (STACK-0x168)
+#define NEW_SYSCTL_MIB_COUNT_PTR    (STACK-0x170)
 
 /* sysctl stuff */
 #define OID_AUTO                    (-1)
