@@ -5,6 +5,7 @@ system("otool -jtVX $ARGV[0] | tail -n +2 > dis");
 
 open(DISFILE, "<dis") or die("Couldn't open dis file");
 
+# TODO don't call these "patches", they're standalone rountines
 open(HEADER, ">$ARGV[0]_patches.h") or die("Couldn't open $ARGV[0]_patches.h");
 
 printf(HEADER "#ifndef $ARGV[0]_patches\n");
