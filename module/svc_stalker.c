@@ -1,4 +1,5 @@
 #include "handle_svc_hook_patches.h"
+#include "hook_system_check_sysctlbyname_hook_patches.h"
 #include "pongo.h"
 #include "svc_stalker_ctl_patches.h"
 
@@ -1051,7 +1052,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
             /* this syscall has four arguments */
             *(int16_t *)(sysent_to_patch + 0x14) = 4;
 
-            /* four 32 bit arguments, so arguments total 32 bytes */
+            /* four 32 bit arguments, so arguments total 16 bytes */
             *(uint16_t *)(sysent_to_patch + 0x16) = 0x10;
 
             break;
@@ -1071,6 +1072,50 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     *(uint32_t *)(branch_from + (sizeof(uint32_t) * 5)) = 0xd503201f;
 
     puts("svc_stalker: patched sleh_synchronous");
+
+    /* allow querying of kern.svc_stalker_ctl_callnum in sandboxed processes
+     *
+     * I install a hook in hook_system_check_sysctlbyname which checks if the
+     * third parameter, the MIB array for the sysctl, and the fourth parameter,
+     * the length of that MIB array, matches the MIB array of the
+     * kern.svc_stalker_ctl_callnum and return back to its caller if it does.
+     *
+     * Originally I was going to strcmp the first parameter, the sysctl name
+     * string, against kern.svc_stalker_ctl_callnum, but this function is
+     * called constantly and I don't want to cause noticable slowdowns.
+     *
+     * Unfortunately, there's no sanity checks for me to overwrite, but there
+     * is a lot of "parameter moving" after the prologue, so I can use that
+     * space. I'll save the instructions we overwrote and restore them after
+     * I pop the callee-saved registers from the stack but before I return
+     * back to hook_system_check_sysctlbyname in the event the MIB array doesn't
+     * match that of kern.svc_stalker_ctl_callnum's.
+     */
+
+    /* XXX iphone 8 13.6.1 */
+    // XXX how do I separate this functionality without creating more globals
+    // this depends on scratch_space sitting after the end of svc_stalker_ctl
+    // maybe rename this function to stalker_main_patcher...
+    DO_HOOK_SYSTEM_CHECK_SYSCTLBYNAME_HOOK_PATCHES;
+
+    /* calling write_blr overwrites five instructions */
+    uint32_t saved_instrs[5];
+    branch_from = (uint64_t)xnu_va_to_ptr(0xFFFFFFF008C77D40 + kernel_slide);
+
+    saved_instrs[0] = *(uint32_t *)branch_from;
+    saved_instrs[1] = *(uint32_t *)(branch_from + 0x4);
+    saved_instrs[2] = *(uint32_t *)(branch_from + 0x8);
+    saved_instrs[3] = *(uint32_t *)(branch_from + 0xc);
+    saved_instrs[4] = *(uint32_t *)(branch_from + 0x10);
+
+    for(int i=0; i<5; i++){
+        print_register(saved_instrs[i]);
+    }
+    for(;;);
+
+    branch_to = xnu_ptr_to_va(scratch_space);
+
+    write_blr(8, branch_from, branch_to);
 
 #define IMPORTANT_MSG(x) \
     putchar('*'); \
@@ -1094,6 +1139,8 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     IMPORTANT_MSG("for the patched system");
     IMPORTANT_MSG("call.");
     puts("*********************");
+
+
 
     return true;
 }
@@ -1333,6 +1380,34 @@ static void stalker_prep(const char *cmd, char *args){
     xnu_pf_patchset_destroy(patchset);
 }
 
+/* static void patch_sleh_synchronous_without_booting(const char *cmd, char *args){ */
+/*     uint64_t sleh_synchronous_patcher_match[] = { */
+/*         0xb9408a60,     /1* LDR Wn, [X19, #0x88] (trap_no = state->__x[16]) *1/ */
+/*         0xd538d080,     /1* MRS Xn, TPIDR_EL1    (Xn = current_thread()) *1/ */
+/*         0x12800000,     /1* MOV Wn, 0xFFFFFFFF   (Wn = THROTTLE_LEVEL_NONE) *1/ */
+/*     }; */
+
+/*     const size_t num_ss_matches = sizeof(sleh_synchronous_patcher_match) / */ 
+/*         sizeof(*sleh_synchronous_patcher_match); */
+
+/*     uint64_t sleh_synchronous_patcher_masks[] = { */
+/*         0xffffffe0,     /1* ignore Wn in LDR *1/ */
+/*         0xffffffe0,     /1* ignore Xn in MRS *1/ */
+/*         0xffffffe0,     /1* ignore Wn in MOV *1/ */
+/*     }; */
+
+/*     xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC"); */
+
+/*     xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT); */
+/*     xnu_pf_maskmatch(patchset, sleh_synchronous_patcher_match, */
+/*             sleh_synchronous_patcher_masks, num_ss_matches, false, */
+/*             sleh_synchronous_patcher); */
+/*     xnu_pf_emit(patchset); */
+/*     xnu_pf_apply(__TEXT_EXEC, patchset); */
+
+/*     xnu_pf_patchset_destroy(patchset); */
+/* } */
+
 static void (*next_preboot_hook)(void);
 
 static void stalker_preboot_hook(void){
@@ -1376,6 +1451,9 @@ void module_entry(void){
     preboot_hook = stalker_preboot_hook;
 
     command_register("stalker-prep", "prep to patch sleh_synchronous", stalker_prep);
+    /* command_register("stalker-patch", */
+    /*         "patch sleh_synchronous without booting", */
+    /*         patch_sleh_synchronous_without_booting); */
 }
 
 const char *module_name = "svc_stalker";

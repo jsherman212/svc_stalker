@@ -7,8 +7,8 @@ open(DISFILE, "<dis") or die("Couldn't open dis file");
 
 open(HEADER, ">$ARGV[0]_patches.h") or die("Couldn't open $ARGV[0]_patches.h");
 
-printf(HEADER "#ifndef $ARGV[0]\n");
-printf(HEADER "#define $ARGV[0]\n");
+printf(HEADER "#ifndef $ARGV[0]_patches\n");
+printf(HEADER "#define $ARGV[0]_patches\n");
 
 my $macroname = uc("DO_".$ARGV[0]."_PATCHES");
 
