@@ -29,8 +29,8 @@ static uint64_t sign_extend(uint64_t number, uint32_t numbits /* signbit */){
     return number;
 }
 
-static struct mach_header_64 *mh_execute_header;
-static uint64_t kernel_slide;
+static struct mach_header_64 *mh_execute_header = NULL;
+static uint64_t kernel_slide = 0;
 
 /* XXX do not panic so user can see what screen says */
 __attribute__ ((noreturn)) static void stalker_fatal_error(void){
@@ -78,20 +78,65 @@ static uint64_t get_adr_va_target(uint32_t *adrp){
     return sign_extend((immhi << 2) | immlo, 21) + xnu_ptr_to_va(adrp);
 }
 
+static uint64_t get_adrp_ldr_va_target(uint32_t *adrpp){
+    uint32_t adrp = *adrpp;
+    uint32_t ldr = *(adrpp + 1);
+
+    uint32_t immlo = bits(adrp, 29, 30);
+    uint32_t immhi = bits(adrp, 5, 23);
+
+    /* takes care of ADRP */
+    uint64_t addr_va = sign_extend(((immhi << 2) | immlo) << 12, 32) +
+        (xnu_ptr_to_va(adrpp) & ~0xfffuLL);
+
+    /* for LDR, assuming unsigned immediate
+     *
+     * no shift on LDRB variants
+     */
+    uint32_t shift = 0;
+
+    uint32_t size = bits(ldr, 30, 31);
+    uint32_t V = bits(ldr, 26, 26);
+    uint32_t opc = bits(ldr, 22, 23);
+    uint32_t imm12 = bits(ldr, 10, 21);
+
+    uint32_t ldr_type = (size << 3) | (V << 2) | opc;
+
+    /* floating point variant */
+    if(V)
+        shift = ((opc >> 1) << 2) | size;
+    /* LDRH || LDRSH (64 bit) || (LDRSH (32 bit) */
+    else if(ldr_type == 9 || ldr_type == 10 || ldr_type == 11)
+        shift = 1;
+    /* LDRSW */
+    else if(ldr_type == 18)
+        shift = 2;
+    /* LDR (32 bit) || LDR (64 bit) */
+    else if(ldr_type == 17 || ldr_type == 25)
+        shift = size;
+
+    /* takes care of LDR */
+    uint64_t pimm = sign_extend(imm12, 12) << shift;
+
+    return addr_va + pimm;
+}
+
 #define IS_B_NE(opcode) ((opcode & 0xff000001) == 0x54000001)
 
 static uint64_t g_proc_pid_addr = 0;
 static uint64_t g_sysent_addr = 0;
 static uint64_t g_kalloc_canblock_addr = 0;
 static uint64_t g_kfree_addr_addr = 0;
-
 static uint64_t g_exec_scratch_space_addr = 0;
 /* don't count the first opcode */
 static uint64_t g_exec_scratch_space_size = -sizeof(uint32_t);
-
 static uint64_t g_sysctl__kern_children_addr = 0;
 static uint64_t g_sysctl_register_oid_addr = 0;
 static uint64_t g_sysctl_handle_long_addr = 0;
+static uint64_t g_name2oid_addr = 0;
+static uint64_t g_sysctl_geometry_lock_addr = 0;
+static uint64_t g_lck_rw_lock_shared_addr = 0;
+static uint64_t g_lck_rw_done_addr = 0;
 
 static bool g_patched_mach_syscall = false;
 
@@ -476,6 +521,51 @@ static bool sysctl_handle_long_finder(xnu_pf_patch_t *patch,
 }
 
 /* confirmed working on all kernels 13.0-13.6.1 */
+static bool name2oid_and_its_dependencies_finder(xnu_pf_patch_t *patch,
+        void *cacheable_stream){
+    uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
+
+    xnu_pf_disable_patch(patch);
+
+    /* This finds name2oid and three other things:
+     *      sysctl_geometry_lock (needs to be held when we call name2oid)
+     *      lck_rw_lock_shared
+     *      lck_rw_done
+     *
+     * We're guarenteed to have landed in sysctl_sysctl_name2oid.
+     */
+    g_sysctl_geometry_lock_addr = get_adrp_ldr_va_target(opcode_stream);
+
+    int32_t imm26 = sign_extend((opcode_stream[2] & 0x3ffffff) << 2, 26);
+    uint32_t *lck_rw_lock_shared = (uint32_t *)((intptr_t)(opcode_stream + 2) + imm26);
+
+    g_lck_rw_lock_shared_addr = xnu_ptr_to_va(lck_rw_lock_shared);
+
+    imm26 = sign_extend((opcode_stream[6] & 0x3ffffff) << 2, 26); 
+    uint32_t *name2oid = (uint32_t *)((intptr_t)(opcode_stream + 6) + imm26);
+
+    g_name2oid_addr = xnu_ptr_to_va(name2oid);
+
+    imm26 = sign_extend((opcode_stream[9] & 0x3ffffff) << 2, 26); 
+    uint32_t *lck_rw_done = (uint32_t *)((intptr_t)(opcode_stream + 9) + imm26);
+
+    g_lck_rw_done_addr = xnu_ptr_to_va(lck_rw_done);
+
+    puts("svc_stalker: found sysctl_geometry_lock");
+    /* print_register(g_sysctl_geometry_lock_addr - kernel_slide); */
+    puts("svc_stalker: found lck_rw_lock_shared");
+    /* print_register(g_lck_rw_lock_shared_addr - kernel_slide); */
+    puts("svc_stalker: found name2oid");
+    /* print_register(g_name2oid_addr - kernel_slide); */
+    puts("svc_stalker: found lck_rw_done");
+    /* print_register(g_lck_rw_done_addr - kernel_slide); */
+
+    /* for(;;); */
+
+    return true;
+}
+
+/* confirmed working on all kernels 13.0-13.6.1 */
 static bool patch_exception_triage_thread(uint32_t *opcode_stream){
     /* patch exception_triage_thread to return to its caller on EXC_SYSCALL and
      * EXC_MACH_SYSCALL
@@ -586,7 +676,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     if(g_proc_pid_addr == 0 || g_sysent_addr == 0 ||
             g_kalloc_canblock_addr == 0 || g_kfree_addr_addr == 0 ||
             !g_patched_mach_syscall || g_sysctl__kern_children_addr == 0 ||
-            g_sysctl_register_oid_addr == 0 || g_sysctl_handle_long_addr == 0){
+            g_sysctl_register_oid_addr == 0 || g_sysctl_handle_long_addr == 0 ||
+            g_name2oid_addr == 0 || g_sysctl_geometry_lock_addr == 0 ||
+            g_lck_rw_lock_shared_addr == 0 || g_lck_rw_done_addr == 0){
         puts("svc_stalker: error(s) before");
         puts("     we patch sleh_synchronous:");
         
@@ -625,6 +717,22 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
             puts("   sysctl_handle_long");
             puts("     not found");
         }
+
+        if(g_name2oid_addr == 0)
+            puts("   name2oid not found");
+
+        if(g_sysctl_geometry_lock_addr == 0){
+            puts("   sysctl_geometry_lock");
+            puts("     not found");
+        }
+
+        if(g_lck_rw_lock_shared_addr == 0){
+            puts("   lck_rw_lock_shared");
+            puts("     not found");
+        }
+
+        if(g_lck_rw_done_addr == 0)
+            puts("   lck_rw_done not found");
 
         stalker_fatal_error();
     }
@@ -786,13 +894,18 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
 
     uint64_t handle_svc_hook_cache_size = 11 * sizeof(uint64_t);
     uint64_t svc_stalker_ctl_cache_size = 3 * sizeof(uint64_t);
+    uint64_t hook_system_check_sysctlbyname_hook_cache_size = 0 * sizeof(uint64_t);
     
-    /* both defined in handle_svc_hook_patches.h & svc_stalker_ctl_patches.h */
+    /* defined in handle_svc_hook_patches.h, svc_stalker_ctl_patches.h,
+     * hook_system_check_sysctlbyname_hook_patches.h
+     */
     size_t needed_sz =
         /* instructions */
-        ((g_handle_svc_hook_num_instrs + g_svc_stalker_ctl_num_instrs) * 4) +
+        ((g_handle_svc_hook_num_instrs + g_svc_stalker_ctl_num_instrs +
+          g_hook_system_check_sysctlbyname_hook_num_instrs) * 4) +
         /* cache space */
-        handle_svc_hook_cache_size + svc_stalker_ctl_cache_size;
+        handle_svc_hook_cache_size + svc_stalker_ctl_cache_size +
+        hook_system_check_sysctlbyname_hook_cache_size;
 
     /* if there's not enough space between the end of exc_vectors_table
      * and _ExceptionVectorsBase, maybe there's enough space at the last
@@ -970,6 +1083,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_sysctl__kern_children_addr);
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_sysctl_register_oid_addr);
     WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_sysctl_handle_long_addr);
+    // XXX XXX STILL NEED TO WRITE THE 4 NEW OFFSETS
 
     /* autogenerated by hookgen.pl, see handle_svc_patches.h */
     /* Needs to be done before we patch the sysent entry so scratch_space lies
@@ -1064,6 +1178,9 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     /* autogenerated by hookgen.pl, see svc_stalker_ctl_patches.h */
     DO_SVC_STALKER_CTL_PATCHES;
 
+    // XXX
+    return true;
+
     uint64_t branch_to = g_exec_scratch_space_addr + handle_svc_hook_cache_size;
 
     write_blr(8, branch_from, branch_to);
@@ -1102,20 +1219,7 @@ static bool sleh_synchronous_patcher(xnu_pf_patch_t *patch,
     /* autogenerated by hookgen.pl, see hook_system_check_sysctlbyname_hook_patches.h */
     DO_HOOK_SYSTEM_CHECK_SYSCTLBYNAME_HOOK_PATCHES;
 
-    /* calling write_blr overwrites five instructions */
-    /* uint32_t saved_instrs[5]; */
     branch_from = (uint64_t)xnu_va_to_ptr(0xFFFFFFF008C77D40 + kernel_slide);
-
-    /* saved_instrs[0] = *(uint32_t *)branch_from; */
-    /* saved_instrs[1] = *(uint32_t *)(branch_from + 0x4); */
-    /* saved_instrs[2] = *(uint32_t *)(branch_from + 0x8); */
-    /* saved_instrs[3] = *(uint32_t *)(branch_from + 0xc); */
-    /* saved_instrs[4] = *(uint32_t *)(branch_from + 0x10); */
-
-    /* for(int i=0; i<5; i++){ */
-    /*     print_register(saved_instrs[i]); */
-    /* } */
-    /* for(;;); */
 
     /* restore the five instructions we overwrote at the end of
      * system_check_sysctlbyname_hook to the end of `notours`
@@ -1381,6 +1485,41 @@ static void stalker_prep(const char *cmd, char *args){
             num_sysctl_handle_long_finder_matches, false,
             sysctl_handle_long_finder);
 
+    uint64_t name2oid_and_its_dependencies_finder_matches[] = {
+        0x10000000,     /* ADRP Xn, n or ADR Xn, n (n = _sysctl_geometry_lock) */
+        0xf9400000,     /* LDR X0, [Xn, n] */
+        0x94000000,     /* BL n (_lck_rw_lock_shared) */
+        0x910003e1,     /* ADD X1, SP, n */
+        0x910003e2,     /* ADD X2, SP, n */
+        0x0,            /* ignore this instruction */
+        0x94000000,     /* BL n (_name2oid) */
+        0x0,            /* ignore this instruction */
+        0xf9400000,     /* LDR X0, [Xn, n] */
+        0x94000000,     /* BL n (_lck_rw_done) */
+    };
+
+    const size_t num_name2oid_and_its_dependencies_finder_matches =
+        sizeof(name2oid_and_its_dependencies_finder_matches) /
+        sizeof(*name2oid_and_its_dependencies_finder_matches);
+
+    uint64_t name2oid_and_its_dependencies_finder_masks[] = {
+        0x1f000000,     /* ignore everything */
+        0xffc0001f,     /* ignore all but Rt */
+        0xfc000000,     /* ignore immediate */
+        0xffc003ff,     /* ignore immediate */
+        0xffc003ff,     /* ignore immediate */
+        0x0,            /* ignore this instruction */
+        0xfc000000,     /* ignore immediate */
+        0x0,            /* ignore this instruction */
+        0xffc0001f,     /* ignore all but Rt */
+        0xfc000000,     /* ignore immediate */
+    };
+
+    xnu_pf_maskmatch(patchset, name2oid_and_its_dependencies_finder_matches,
+            name2oid_and_its_dependencies_finder_masks,
+            num_name2oid_and_its_dependencies_finder_matches, false,
+            name2oid_and_its_dependencies_finder);
+
     /* AMFI for proc_pid */
     struct mach_header_64 *AMFI = xnu_pf_get_kext_header(mh_execute_header,
             "com.apple.driver.AppleMobileFileIntegrity");
@@ -1393,33 +1532,33 @@ static void stalker_prep(const char *cmd, char *args){
     xnu_pf_patchset_destroy(patchset);
 }
 
-/* static void patch_sleh_synchronous_without_booting(const char *cmd, char *args){ */
-/*     uint64_t sleh_synchronous_patcher_match[] = { */
-/*         0xb9408a60,     /1* LDR Wn, [X19, #0x88] (trap_no = state->__x[16]) *1/ */
-/*         0xd538d080,     /1* MRS Xn, TPIDR_EL1    (Xn = current_thread()) *1/ */
-/*         0x12800000,     /1* MOV Wn, 0xFFFFFFFF   (Wn = THROTTLE_LEVEL_NONE) *1/ */
-/*     }; */
+static void patch_sleh_synchronous_without_booting(const char *cmd, char *args){
+    uint64_t sleh_synchronous_patcher_match[] = {
+        0xb9408a60,     /* LDR Wn, [X19, #0x88] (trap_no = state->__x[16]) */
+        0xd538d080,     /* MRS Xn, TPIDR_EL1    (Xn = current_thread()) */
+        0x12800000,     /* MOV Wn, 0xFFFFFFFF   (Wn = THROTTLE_LEVEL_NONE) */
+    };
 
-/*     const size_t num_ss_matches = sizeof(sleh_synchronous_patcher_match) / */ 
-/*         sizeof(*sleh_synchronous_patcher_match); */
+    const size_t num_ss_matches = sizeof(sleh_synchronous_patcher_match) / 
+        sizeof(*sleh_synchronous_patcher_match);
 
-/*     uint64_t sleh_synchronous_patcher_masks[] = { */
-/*         0xffffffe0,     /1* ignore Wn in LDR *1/ */
-/*         0xffffffe0,     /1* ignore Xn in MRS *1/ */
-/*         0xffffffe0,     /1* ignore Wn in MOV *1/ */
-/*     }; */
+    uint64_t sleh_synchronous_patcher_masks[] = {
+        0xffffffe0,     /* ignore Wn in LDR */
+        0xffffffe0,     /* ignore Xn in MRS */
+        0xffffffe0,     /* ignore Wn in MOV */
+    };
 
-/*     xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC"); */
+    xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
 
-/*     xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT); */
-/*     xnu_pf_maskmatch(patchset, sleh_synchronous_patcher_match, */
-/*             sleh_synchronous_patcher_masks, num_ss_matches, false, */
-/*             sleh_synchronous_patcher); */
-/*     xnu_pf_emit(patchset); */
-/*     xnu_pf_apply(__TEXT_EXEC, patchset); */
+    xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
+    xnu_pf_maskmatch(patchset, sleh_synchronous_patcher_match,
+            sleh_synchronous_patcher_masks, num_ss_matches, false,
+            sleh_synchronous_patcher);
+    xnu_pf_emit(patchset);
+    xnu_pf_apply(__TEXT_EXEC, patchset);
 
-/*     xnu_pf_patchset_destroy(patchset); */
-/* } */
+    xnu_pf_patchset_destroy(patchset);
+}
 
 static void (*next_preboot_hook)(void);
 
@@ -1464,9 +1603,9 @@ void module_entry(void){
     preboot_hook = stalker_preboot_hook;
 
     command_register("stalker-prep", "prep to patch sleh_synchronous", stalker_prep);
-    /* command_register("stalker-patch", */
-    /*         "patch sleh_synchronous without booting", */
-    /*         patch_sleh_synchronous_without_booting); */
+    command_register("stalker-patch",
+            "patch sleh_synchronous without booting",
+            patch_sleh_synchronous_without_booting);
 }
 
 const char *module_name = "svc_stalker";
