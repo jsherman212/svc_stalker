@@ -29,9 +29,6 @@ sysctlbyname("kern.svc_stalker_ctl_callnum", &SYS_svc_stalker_ctl, &oldlen, NULL
 
 After this, SYS_svc_stalker_ctl contains svc_stalker_ctl's system call number.
 
-**I am currently working on making this sysctl accessible to sandboxed processes
-in the `develop` branch.**
-
 Requires `libusb`: `brew install libusb`
 
 Requires `perl`: `brew install perl`
@@ -118,7 +115,9 @@ never had it on to begin with.
 
 **FOR ANY PID YOU REGISTER FOR SYSTEM CALL/MACH TRAP INTERCEPTION, YOU MUST
 ALSO UN-REGISTER WHEN YOU ARE DONE. Unregistering a previously-registered PID
-will free the table entry for that PID.**
+will free the table entry for that PID.** It's also a good idea to save previous
+exception ports before registering your own and restoring them when you're
+done intercepting calls for a given process.
 
 **A maximum of 1023 processes can have their system calls be intercepted
 simultaneously.**

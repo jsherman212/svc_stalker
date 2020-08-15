@@ -44,7 +44,7 @@
  *       what pid this entry belongs to
  *     int32_t pid;
  *
- *       list of system call numbers to intercept & send to userland
+ *       list of call numbers to intercept & send to userland
  *     int64_t *call_list;
  * };
  *

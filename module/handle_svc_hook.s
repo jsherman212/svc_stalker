@@ -3,7 +3,7 @@
 
 #include "handle_svc_hook.h"
 
-; this iterates through the PIDs/syscalls the user has registered through the
+; this iterates through the PIDs/call numbers the user has registered through the
 ; svc_stalker_ctl syscall and calls exception_triage if current_proc()->p_pid
 ; is found in that list
 _main:
@@ -167,7 +167,7 @@ maybeintercept:
     ldr x2, [sp, SAVED_STATE_PTR]
     ldr x2, [x2, 0x88]                      ; X16, system call number
     cmp x2, 0
-    csel x0, x1, x0, lt
+    csel x0, x1, x0, lt                     ; exception
     str x2, [sp, EXC_CODES]
     ldr w2, [sp, CUR_PID]
     str x2, [sp, EXC_CODES+8]
