@@ -40,8 +40,8 @@ _main:
     ; length of MIB array
     mov w20, w3
 
-    ; we're sharing this data with handle_svc_hook, and this function
-    ; doesn't take sysctl_geometry_lock
+    ; we're sharing this data with handle_svc_hook, and this function we're
+    ; hooking doesn't take sysctl_geometry_lock
     ldr x0, [sp, SYSCTL_GEOMETRY_LOCK_PTR]
     ldr x0, [x0]
     ldr x21, [sp, LCK_RW_LOCK_SHARED_FPTR]
