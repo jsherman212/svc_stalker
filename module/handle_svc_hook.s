@@ -2,6 +2,7 @@
     .align 4
 
 #include "handle_svc_hook.h"
+#include "stalker_cache.h"
 
 ; this iterates through the PIDs/call numbers the user has registered through the
 ; svc_stalker_ctl syscall and calls exception_triage if current_proc()->p_pid
@@ -18,59 +19,26 @@ _main:
 
     str x19, [sp, SAVED_STATE_PTR]
 
-    adr x19, CACHE_START
-    str x19, [sp, OFFSET_CACHE_PTR]
-    ldr x20, [x19, EXCEPTION_TRIAGE_CACHEOFF]
-    str x20, [sp, EXCEPTION_TRIAGE_FPTR]
-    ldr x20, [x19, CURRENT_PROC_CACHEOFF]
-    str x20, [sp, CURRENT_PROC_FPTR]
-    ldr x20, [x19, PROC_PID_CACHEOFF]
-    str x20, [sp, PROC_PID_FPTR]
-    ldr x20, [x19, STALKER_TABLE_CACHEOFF]
-    str x20, [sp, STALKER_TABLE_PTR]
-    ldr x20, [x19, PATCHED_SYSCALL_NUM_CACHEOFF]
-    str x20, [sp, PATCHED_SYSCALL_NUM]
-    ldr x20, [x19, SYSCTL_NAME_CACHEOFF]
-    str x20, [sp, SYSCTL_NAME]
-    ldr x20, [x19, SYSCTL_DESCR_CACHEOFF]
-    str x20, [sp, SYSCTL_DESCR]
-    ldr x20, [x19, SYSCTL_FMT_CACHEOFF]
-    str x20, [sp, SYSCTL_FMT]
-    ldr x20, [x19, SYSCTL__KERN_CHILDREN_CACHEOFF]
-    str x20, [sp, SYSCTL__KERN_CHILDREN_PTR]
-    ldr x20, [x19, SYSCTL_REGISTER_OID_FPTR_CACHEOFF]
-    str x20, [sp, SYSCTL_REGISTER_OID_FPTR]
-    ldr x20, [x19, SYSCTL_HANDLE_LONG_CACHEOFF]
-    str x20, [sp, SYSCTL_HANDLE_LONG_FPTR]
-    ldr x20, [x19, NAME2OID_FPTR_CACHEOFF]
-    str x20, [sp, NAME2OID_FPTR]
-    ldr x20, [x19, SYSCTL_GEOMETRY_LOCK_PTR_CACHEOFF]
-    str x20, [sp, SYSCTL_GEOMETRY_LOCK_PTR]
-    ldr x20, [x19, LCK_RW_LOCK_SHARED_FPTR_CACHEOFF]
-    str x20, [sp, LCK_RW_LOCK_SHARED_FPTR]
-    ldr x20, [x19, LCK_RW_DONE_FPTR_CACHEOFF]
-    str x20, [sp, LCK_RW_DONE_FPTR]
-    ldr x20, [x19, NEW_SYSCTL_MIB_PTR_CACHEOFF]
-    str x20, [sp, NEW_SYSCTL_MIB_PTR]
-    ldr x20, [x19, NEW_SYSCTL_MIB_COUNT_PTR_CACHEOFF]
-    str x20, [sp, NEW_SYSCTL_MIB_COUNT_PTR]
+    adr x19, STALKER_CACHE_PTR_PTR
+    ; XXX from now on, X28 == stalker cache pointer, do not modify X28
+    ldr x28, [x19]
 
-    ldr x0, [sp, SYSCTL_GEOMETRY_LOCK_PTR]
+    ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
     ldr x0, [x0]
-    ldr x19, [sp, LCK_RW_LOCK_SHARED_FPTR]
+    ldr x19, [x28, LCK_RW_LOCK_SHARED]
     blr x19
-    ldr x19, [sp, STALKER_TABLE_PTR]
+    ldr x19, [x28, STALKER_TABLE_PTR]
     ldr x20, [x19, STALKER_TABLE_REGISTERED_SYSCTL_OFF]
-    ldr x0, [sp, SYSCTL_GEOMETRY_LOCK_PTR]
+    ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
     ldr x0, [x0]
-    ldr x19, [sp, LCK_RW_DONE_FPTR]
+    ldr x19, [x28, LCK_RW_DONE]
     blr x19
     ; if we've already registered the sysctl, don't do it again
     cbnz x20, maybeintercept
 
     ; set up the kern.svc_stalker_ctl_callnum sysctl
     ; oid_parent, _kern
-    ldr x19, [sp, SYSCTL__KERN_CHILDREN_PTR]
+    ldr x19, [x28, SYSCTL__KERN_CHILDREN_PTR]
     str x19, [sp, SYSCTL_OID_STRUCT]
     ; oid_link.sle_next
     str xzr, [sp, SYSCTL_OID_STRUCT+0x8]
@@ -83,24 +51,23 @@ _main:
     orr w19, w19, CTLFLAG_ANYBODY
     str w19, [sp, SYSCTL_OID_STRUCT+0x14]
     ; oid_arg1, pointer to svc_stalker_ctl call number
-    ldr x19, [sp, OFFSET_CACHE_PTR]
-    add x19, x19, PATCHED_SYSCALL_NUM_CACHEOFF
+    add x19, x28, SVC_STALKER_CTL_CALLNUM
     str x19, [sp, SYSCTL_OID_STRUCT+0x18]
     ; oid_arg2, nothing
     str wzr, [sp, SYSCTL_OID_STRUCT+0x20]
     ; oid_name, "kern.svc_stalker_ctl_callnum"
-    ldr x19, [sp, SYSCTL_NAME]
+    ldr x19, [x28, SVC_STALKER_SYSCTL_NAME_PTR]
     ; skip "kern."
     add x19, x19, 5
     str x19, [sp, SYSCTL_OID_STRUCT+0x28]
     ; oid_handler
-    ldr x19, [sp, SYSCTL_HANDLE_LONG_FPTR]
+    ldr x19, [x28, SYSCTL_HANDLE_LONG]
     str x19, [sp, SYSCTL_OID_STRUCT+0x30]
     ; oid_fmt
-    ldr x19, [sp, SYSCTL_FMT]
+    ldr x19, [x28, SVC_STALKER_SYSCTL_FMT_PTR]
     str x19, [sp, SYSCTL_OID_STRUCT+0x38]
     ; oid_descr
-    ldr x19, [sp, SYSCTL_DESCR]
+    ldr x19, [x28, SVC_STALKER_SYSCTL_DESCR_PTR]
     str x19, [sp, SYSCTL_OID_STRUCT+0x40]
     ; oid_version
     mov w19, SYSCTL_OID_VERSION
@@ -110,45 +77,44 @@ _main:
 
     ; register this sysctl
     add x0, sp, SYSCTL_OID_STRUCT
-    ldr x19, [sp, SYSCTL_REGISTER_OID_FPTR]
+    ldr x19, [x28, SYSCTL_REGISTER_OID]
     blr x19
 
     ; Figure out what MIB array looks like for this new sysctl.
     ; We need this so the hook_system_check_sysctlbyname_hook can check
-    ; if the incoming sysctl is ours
+    ; if the incoming sysctl is ours.
     ;
     ; We're taking sysctl_geometry_lock because name2oid doesn't,
     ; and not giving it up until we've written a one to
     ; stalkertable+REGISTERED_SYSCTL_OFF because we're sharing this info
     ; with hook_system_check_sysctlbyname_hook.
-    ldr x0, [sp, SYSCTL_GEOMETRY_LOCK_PTR]
+    ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
     ldr x0, [x0]
-    ldr x19, [sp, LCK_RW_LOCK_SHARED_FPTR]
+    ldr x19, [x28, LCK_RW_LOCK_SHARED]
     blr x19
-    ldr x0, [sp, SYSCTL_NAME]
-    ldr x1, [sp, NEW_SYSCTL_MIB_PTR]
-    ldr x2, [sp, NEW_SYSCTL_MIB_COUNT_PTR]
-    ldr x19, [sp, NAME2OID_FPTR]
+    ldr x0, [x28, SVC_STALKER_SYSCTL_NAME_PTR]
+    ldr x1, [x28, SVC_STALKER_SYSCTL_MIB_PTR]
+    ldr x2, [x28, SVC_STALKER_SYSCTL_MIB_COUNT_PTR]
+    ldr x19, [x28, NAME2OID]
     blr x19
-    ldr x19, [sp, STALKER_TABLE_PTR]
+    ldr x19, [x28, STALKER_TABLE_PTR]
     mov x20, 1
     str x20, [x19, STALKER_TABLE_REGISTERED_SYSCTL_OFF]
-    ldr x0, [sp, SYSCTL_GEOMETRY_LOCK_PTR]
+    ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
     ldr x0, [x0]
-    ldr x19, [sp, LCK_RW_DONE_FPTR]
+    ldr x19, [x28, LCK_RW_DONE]
     blr x19
 
 maybeintercept:
     ; figure out if the system call made by this PID should be
     ; reported back to userland
-    ldr x19, [sp, CURRENT_PROC_FPTR]
+    ldr x19, [x28, CURRENT_PROC]
     blr x19
-    ldr x19, [sp, PROC_PID_FPTR]
+    ldr x19, [x28, PROC_PID]
     blr x19
-    ; W0 = proc_pid(current_proc())
     str w0, [sp, CUR_PID]
     mov w1, w0
-    ldr x0, [sp, STALKER_TABLE_PTR]
+    ldr x0, [x28, STALKER_TABLE_PTR]
     bl _stalker_ctl_from_table
     ; user doesn't want to intercept any system calls from this pid, bail
     cbz x0, done
@@ -156,7 +122,7 @@ maybeintercept:
     ldr x19, [sp, SAVED_STATE_PTR]
     ldr x1, [x19, 0x88]
     ; X0 = pointer to stalker_ctl struct for proc_pid(current_proc())
-    bl _should_intercept_syscall
+    bl _should_intercept_call
     ; if user does not want this system call intercepted, we're done
     cbz x0, done
 
@@ -168,12 +134,14 @@ maybeintercept:
     ldr x2, [x2, 0x88]                      ; X16, system call number
     cmp x2, 0
     csel x0, x1, x0, lt                     ; exception
-    str x2, [sp, EXC_CODES]
     ldr w2, [sp, CUR_PID]
-    str x2, [sp, EXC_CODES+8]
+    str x2, [sp, EXC_CODES]                 ; pid which made the call
+    mov w2, BEFORE_CALL                     ; if we're here, this call has
+                                            ; not happened yet
+    str x2, [sp, EXC_CODES+0x8]
     add x1, sp, EXC_CODES                   ; code
     mov w2, 2                               ; codeCnt
-    ldr x19, [sp, EXCEPTION_TRIAGE_FPTR]
+    ldr x19, [x28, EXCEPTION_TRIAGE]
     blr x19
 
 done:
@@ -230,7 +198,7 @@ found0:
 ;
 ; returns: 1 if system call number is present inside the stalker_ctl's call list,
 ;   0 otherwise
-_should_intercept_syscall:
+_should_intercept_call:
     ; empty system call list for this stalker_ctl struct pointer?
     ldr x0, [x0, STALKER_CTL_CALL_LIST_OFF]
     cmp x0, 0

@@ -58,7 +58,7 @@ printf(HEADER "const static int g_$ARGV[0]_num_instrs = $num_instrs;\n");
 printf(HEADER "#endif\n");
 
 # clean up
-system("rm ./$ARGV[0]");
+# system("rm ./$ARGV[0]");
 
 # iphone 7
 #printf("$instr_count/1206 instructions\n");

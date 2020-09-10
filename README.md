@@ -5,18 +5,22 @@
 <sup>*Output from intercepting some system calls/Mach traps for the App Store from
 example/mini_strace.c*</sup>
 
-svc_stalker is a pongoOS module which modifies XNU's `sleh_synchronous` to
-call `exception_triage` on a supervisor call exception, sending a mach exception message to
-userland exception ports. This message is sent before the system call/mach trap
-happens, so you're free to view/modify registers inside your exception handler
-before returning from it & giving control back to the kernel to carry out the
-system call/mach trap.
+**Currently working on call interception upon return in this branch**
 
-When `catch_mach_exception_raise` is called, the call number is placed in
-`code[0]`. The PID of the process who performed the system call/Mach trap is
-placed in `code[1]`. `exception` will hold either `EXC_SYSCALL` or `EXC_MACH_SYSCALL`,
-depending on what was intercepted. You can also find the system call/Mach trap
-number in `x16` in the saved state of the `thread` parameter.
+svc_stalker is a pongoOS module which modifies XNU to call `exception_triage`
+on a supervisor call exception, sending a Mach exception message to userland
+exception ports.
+
+When `catch_mach_exception_raise` is called, the PID of the process which made
+the call is placed in `code[0]`. `code[1]` will either be `BEFORE_CALL (0)`
+or `CALL_COMPLETED (1)`. `BEFORE_CALL` means the call has not happened yet.
+`CALL_COMPLETED` means the call has completed, but control hasn't been returned
+back to the process which made the call. You can find the call number in `x16`
+of the saved state of the `thread` parameter. `exception` will hold either
+`EXC_SYSCALL` or `EXC_MACH_SYSCALL`, depending on what was intercepted.
+
+For both `BEFORE_CALL` and `CALL_COMPLETED`, you're free to view/modify
+registers before giving control back to the kernel.
 
 svc_stalker adds a new sysctl, `kern.svc_stalker_ctl_callnum`. This allows you
 to figure out which system call was patched to svc_stalker_ctl:
@@ -24,10 +28,8 @@ to figure out which system call was patched to svc_stalker_ctl:
 ```
 size_t oldlen = sizeof(long);
 long SYS_svc_stalker_ctl = 0;
-sysctlbyname("kern.svc_stalker_ctl_callnum", &SYS_svc_stalker_ctl, &oldlen, NULL, NULL);
+sysctlbyname("kern.svc_stalker_ctl_callnum", &SYS_svc_stalker_ctl, &oldlen, NULL, 0);
 ```
-
-After this, SYS_svc_stalker_ctl contains svc_stalker_ctl's system call number.
 
 Requires `libusb`: `brew install libusb`
 
@@ -63,8 +65,9 @@ for different processes. It takes four arguments, `pid`, `flavor`, `arg2`,
 and `arg3`, respectively. `pid` is obviously the process you wish to interact
 with. `flavor` is either `PID_MANAGE` (`0`) or `CALL_LIST_MANAGE` (`1`).
 
-For `PID_MANAGE`, `arg2` controls whether or not system calls/Mach traps are intercepted
-for the `pid` argument. `arg3` is ignored. If `arg2` is non-zero, interception is enabled for `pid`. Otherwise, it's disabled.
+For `PID_MANAGE`, `arg2` controls whether or not system calls/Mach traps are
+intercepted for the `pid` argument. `arg3` is ignored. If `arg2` is non-zero,
+interception is enabled for `pid`. Otherwise, it's disabled.
 
 **You can check if whatever system call svc_stalker's patchfinder
 decided to patch to `svc_stalker_ctl` was successfully patched by doing

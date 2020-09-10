@@ -47,6 +47,15 @@ __attribute__ ((noreturn)) static void stalker_fatal_error(void){
     for(;;);
 }
 
+/* TODO both of these. B/BL = 1 instruction while BLR = 5 instrs */
+static void assemble_and_write_b(uint64_t from, uint64_t to){
+
+}
+
+static void assemble_and_write_bl(uint64_t from, uint64_t to){
+
+}
+
 static void write_blr(uint32_t reg, uint64_t from, uint64_t to){
     uint32_t *cur = (uint32_t *)from;
 
@@ -402,7 +411,7 @@ static bool ExceptionVectorsBase_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     /* According to XNU source, _ExceptionVectorsBase is page aligned. We're
      * going to abuse that fact and use the executable free space before
-     * it to write the handle_svc hook and svc_stalker_ctl.
+     * it to write our code.
      *
      * For all the devices I've tested this with, the free space before
      * _ExceptionVectorsBase is filled with NOPs, but I don't want to assume
@@ -837,9 +846,54 @@ static void anything_missing(void){
     }
 }
 
+#define STALKER_CACHE_WRITE(cursor, thing) \
+    do { \
+        *cursor++ = (thing); \
+    } while (0) \
+
+/* create and initialize the stalker cache with what we've got now. The
+ * stalker cache contains offsets found by svc_stalker's patchfinder, as well
+ * as a few other misc. things.
+ *
+ * Returns a pointer to the next unused uint64_t in the stalker cache 
+ */
+static uint64_t *create_stalker_cache(uint64_t **stalker_cache_base_out){
+    uint64_t *stalker_cache = alloc_static(PAGE_SIZE);
+
+    if(!stalker_cache){
+        puts("svc_stalker: alloc_static");
+        puts("   returned NULL while");
+        puts("   allocating for stalker");
+        puts("   cache");
+
+        stalker_fatal_error();
+    }
+
+    *stalker_cache_base_out = stalker_cache;
+
+    uint64_t *cursor = stalker_cache;
+
+    STALKER_CACHE_WRITE(cursor, g_proc_pid_addr);
+    STALKER_CACHE_WRITE(cursor, g_kalloc_canblock_addr);
+    STALKER_CACHE_WRITE(cursor, g_kfree_addr_addr);
+    STALKER_CACHE_WRITE(cursor, g_sysctl__kern_children_addr);
+    STALKER_CACHE_WRITE(cursor, g_sysctl_register_oid_addr);
+    STALKER_CACHE_WRITE(cursor, g_sysctl_handle_long_addr);
+    STALKER_CACHE_WRITE(cursor, g_name2oid_addr);
+    STALKER_CACHE_WRITE(cursor, g_sysctl_geometry_lock_addr);
+    STALKER_CACHE_WRITE(cursor, g_lck_rw_lock_shared_addr);
+    STALKER_CACHE_WRITE(cursor, g_lck_rw_done_addr);
+    STALKER_CACHE_WRITE(cursor, g_h_s_c_sbn_epilogue_addr);
+
+    return cursor;
+}
+
 /* confirmed working on all kernels 13.0-13.6.1 */
 static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     anything_missing();
+
+    uint64_t *stalker_cache_base = NULL;
+    uint64_t *stalker_cache_cursor = create_stalker_cache(&stalker_cache_base);
 
     /* This function performs all the patches to enable call interception
      * functionality. In this order:
@@ -986,6 +1040,8 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
 
     puts("svc_stalker: found current_proc");
 
+    STALKER_CACHE_WRITE(stalker_cache_cursor, current_proc_addr);
+
     /* now we need to find exception_triage. We can do this by going forward
      * until we hit a BRK, as it's right after the call to exception_triage
      * and it's the only BRK in sleh_synchronous.
@@ -1010,6 +1066,8 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
 
     puts("svc_stalker: found exception_triage");
 
+    STALKER_CACHE_WRITE(stalker_cache_cursor, exception_triage_addr);
+
     if(!patch_exception_triage_thread(xnu_va_to_ptr(exception_triage_addr))){
         puts("svc_stalker: failed");
         puts("     patching");
@@ -1017,23 +1075,19 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
         stalker_fatal_error();
     }
 
-    /* Each part of this project has a kernel pointer cache, so we can easily
-     * persist information after XNU boot.
-     */
-    uint64_t handle_svc_hook_cache_size = 17 * sizeof(uint64_t);
-    uint64_t svc_stalker_ctl_cache_size = 3 * sizeof(uint64_t);
-    uint64_t hook_system_check_sysctlbyname_hook_cache_size = 7 * sizeof(uint64_t);
-    
     /* defined in handle_svc_hook_instrs.h, svc_stalker_ctl_instrs.h,
      * hook_system_check_sysctlbyname_hook_instrs.h
+     *
+     * Additionally, we'll be writing the pointer to the stalker cache
+     * before handle_svc_hook, svc_stalker_ctl, and
+     * hook_system_check_sysctlbyname_hook
      */
     size_t needed_sz =
         /* instructions */
         ((g_handle_svc_hook_num_instrs + g_svc_stalker_ctl_num_instrs +
           g_hook_system_check_sysctlbyname_hook_num_instrs) * sizeof(uint32_t)) +
         /* cache space */
-        handle_svc_hook_cache_size + svc_stalker_ctl_cache_size +
-        hook_system_check_sysctlbyname_hook_cache_size;
+        3 * sizeof(uint64_t);
 
     /* if there's not enough space between the end of exc_vectors_table
      * and _ExceptionVectorsBase, maybe there's enough space at the last
@@ -1069,16 +1123,14 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
             puts("     to put our code!");
             puts("Spinning forever.");
 
-            for(;;);
-            __builtin_unreachable();
+            stalker_fatal_error();
         }
     }
 
     uint64_t num_free_instrs = g_exec_scratch_space_size / sizeof(uint32_t);
     uint32_t *scratch_space = xnu_va_to_ptr(g_exec_scratch_space_addr);
 
-    /* don't merge the next three macros because this is better for readability */
-#define WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(qword) \
+#define WRITE_QWORD_TO_SCRATCH_SPACE(qword) \
     do { \
         if(num_free_instrs < 2){ \
             puts("svc_stalker: ran out"); \
@@ -1088,31 +1140,7 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
         *(uint64_t *)scratch_space = (qword); \
         scratch_space += 2; \
         num_free_instrs -= 2; \
-    } while (0) \
-
-#define WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(qword) \
-    do { \
-        if(num_free_instrs < 2){ \
-            puts("svc_stalker: ran out"); \
-            puts("     of scratch space"); \
-            stalker_fatal_error(); \
-        } \
-        *(uint64_t *)scratch_space = (qword); \
-        scratch_space += 2; \
-        num_free_instrs -= 2; \
-    } while (0) \
-
-#define WRITE_QWORD_TO_H_S_C_SBN_H_CACHE(qword) \
-    do { \
-        if(num_free_instrs < 2){ \
-            puts("svc_stalker: ran out"); \
-            puts("     of scratch space"); \
-            stalker_fatal_error(); \
-        } \
-        *(uint64_t *)scratch_space = (qword); \
-        scratch_space += 2; \
-        num_free_instrs -= 2; \
-    } while (0) \
+    } while (0); \
 
     /* struct stalker_ctl {
      *       is this entry not being used?
@@ -1143,6 +1171,8 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
         stalker_fatal_error();
     }
 
+    STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(stalker_table));
+
     const uint8_t *stalker_table_end = stalker_table + stalker_table_sz;
 
     /* the first uint64_t will hold the number of stalker structs that
@@ -1165,70 +1195,63 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
         /* free stalker_ctl structs belong to no one */
         *(int32_t *)(cursor + 0x4) = 0;
         /* free stalker_ctl structs have no call list */
-        *(uintptr_t *)(cursor + 0x8) = 0;
+        *(uint64_t *)(cursor + 0x8) = 0;
 
         cursor += sizeof_struct_stalker_ctl;
     }
 
-    /* stash these pointers so we have them after xnu boot */
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(exception_triage_addr);
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(current_proc_addr);
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_proc_pid_addr);
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(xnu_ptr_to_va(stalker_table));
-
-    /* we also need to stash the patched system call number, but we don't
-     * know it yet, so just reserve space for it and set it later
+    /* I need to manually list stalker cache offsets inside of stalker_cache.h
+     * and it's very easy when I'm only dealing with numbers and nothing else.
+     * If I decide to add or remove numbers from the stalker cache, that's
+     * fine, I just adjust everything in stalker_cache.h by plus-or-minus-
+     * sizeof(number). I can't imagine how *annoying* and easy to screw up
+     * that would get if I decided to store C strings/arrays before/after
+     * numbers.
+     *
+     * I'll stash these C strings and the to-be-initialized MIB array/MIB count
+     * far, far away from the numbers in the stalker cache and write
+     * pointers to them. alloc_static gave me a page of memory so I'll have
+     * more than enough space to do this.
      */
-    uint64_t reserved = 0;
-    uint64_t *patched_syscall_num_cache_ptr = (uint64_t *)scratch_space;
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(reserved);
-
-    uint8_t *misc_space = alloc_static(PAGE_SIZE);
-
-    if(!misc_space){
-        puts("svc_stalker: alloc_static");
-        puts("     returned NULL when");
-        puts("     allocating mem for");
-        puts("     misc things");
-        stalker_fatal_error();
-    }
+    uint8_t *sysctl_stuff = (uint8_t *)stalker_cache_base + (PAGE_SIZE / 2);
 
     /* sysctl name for the system call number */
     const char *sysctl_name = "kern.svc_stalker_ctl_callnum";
-    strcpy((char *)misc_space, sysctl_name);
+    strcpy((char *)sysctl_stuff, sysctl_name);
+
+    char *sysctl_namep = (char *)sysctl_stuff;
 
     const char *sysctl_descr = "query for svc_stalker_ctl's system call number";
     size_t sysctl_name_len = strlen(sysctl_name);
-    char *sysctl_descr_loc = (char *)(misc_space + sysctl_name_len + 1);
-    strcpy(sysctl_descr_loc, sysctl_descr);
+    char *sysctl_descrp = (char *)(sysctl_stuff + sysctl_name_len + 1);
+    strcpy(sysctl_descrp, sysctl_descr);
 
     /* how sysctl should format the call number, long */
     size_t sysctl_descr_len = strlen(sysctl_descr);
-    char *sysctl_fmt_loc = sysctl_descr_loc + strlen(sysctl_descr) + 1;
-    strcpy(sysctl_fmt_loc, "L");
+    char *sysctl_fmtp = sysctl_descrp + strlen(sysctl_descr) + 1;
+    strcpy(sysctl_fmtp, "L");
 
-    uint32_t *new_sysctl_mib = (uint32_t *)((uintptr_t)(sysctl_fmt_loc + 8) & ~7);
-    uint32_t *new_sysctl_mib_count = (uint32_t *)(new_sysctl_mib + CTL_MAXNAME);
-    
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(xnu_ptr_to_va(misc_space));
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(xnu_ptr_to_va(sysctl_descr_loc));
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(xnu_ptr_to_va(sysctl_fmt_loc));
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_sysctl__kern_children_addr);
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_sysctl_register_oid_addr);
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_sysctl_handle_long_addr);
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_name2oid_addr);
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_sysctl_geometry_lock_addr);
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_lck_rw_lock_shared_addr);
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(g_lck_rw_done_addr);
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(xnu_ptr_to_va(new_sysctl_mib));
-    WRITE_QWORD_TO_HANDLE_SVC_HOOK_CACHE(xnu_ptr_to_va(new_sysctl_mib_count));
+    uint32_t *sysctl_mibp = (uint32_t *)((uint64_t)(sysctl_fmtp + 8) & ~7);
+    uint32_t *sysctl_mib_countp = (uint32_t *)(sysctl_mibp + CTL_MAXNAME);
+
+    STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(sysctl_namep));
+    STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(sysctl_descrp));
+    STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(sysctl_fmtp));
+
+    /* these two will be initialized by name2oid in handle_svc_hook.s */
+    STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(sysctl_mibp));
+    STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(sysctl_mib_countp));
+
+    /* allow handle_svc_hook access to stalker cache */
+    WRITE_QWORD_TO_SCRATCH_SPACE(xnu_ptr_to_va(stalker_cache_base));
 
     /* Needs to be done before we patch the sysent entry so scratch_space lies
-     * right after the end of the handle_svc hook.
+     * right after the end of handle_svc_hook.
      */
     scratch_space = write_handle_svc_hook_instrs(scratch_space, &num_free_instrs);
 
-    uint64_t branch_to = g_exec_scratch_space_addr + handle_svc_hook_cache_size;
+    /* + sizeof(uint64_t) for stalker cache pointer */
+    uint64_t branch_to = g_exec_scratch_space_addr + sizeof(uint64_t);
 
     write_blr(8, branch_from, branch_to);
 
@@ -1237,14 +1260,14 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
 
     puts("svc_stalker: patched sleh_synchronous");
 
-    /* write the stalker table pointer so the patched syscall can get it easily
+    /* now, scratch_space points right after the end of handle_svc_hook,
+     * so we're ready to write the instructions for svc_stalker_ctl.
      *
-     * needs to be here so scratch_space points after this when we go
-     * to patch the sysent entry
+     * First, allow svc_stalker_ctl access to the stalker cache. This needs
+     * to be done before we patch sy_call so scratch space points to the
+     * beginning of svc_stalker_ctl.
      */
-    WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(xnu_ptr_to_va(stalker_table));
-    WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(g_kalloc_canblock_addr);
-    WRITE_QWORD_TO_SVC_STALKER_CTL_CACHE(g_kfree_addr_addr);
+    WRITE_QWORD_TO_SCRATCH_SPACE(xnu_ptr_to_va(stalker_cache_base));
 
     /* now we need to find the first enosys entry in sysent to patch
      * our syscall in.
@@ -1288,8 +1311,6 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
             sysent_to_patch = sysent_stream;
             patched_syscall_num = i;
 
-            *(uint64_t *)patched_syscall_num_cache_ptr = (uint64_t)i;
-
             /* sy_call */
             if(!tagged_ptr)
                 *(uint64_t *)sysent_to_patch = xnu_ptr_to_va(scratch_space);
@@ -1321,6 +1342,8 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
         sysent_stream += sizeof_struct_sysent;
     }
 
+    STALKER_CACHE_WRITE(stalker_cache_cursor, (uint64_t)patched_syscall_num);
+
     scratch_space = write_svc_stalker_ctl_instrs(scratch_space, &num_free_instrs);
 
     /* allow querying of kern.svc_stalker_ctl_callnum in sandboxed processes
@@ -1342,13 +1365,8 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
      * match that of kern.svc_stalker_ctl_callnum's.
      */
 
-    WRITE_QWORD_TO_H_S_C_SBN_H_CACHE(g_sysctl_geometry_lock_addr);
-    WRITE_QWORD_TO_H_S_C_SBN_H_CACHE(g_lck_rw_lock_shared_addr);
-    WRITE_QWORD_TO_H_S_C_SBN_H_CACHE(g_lck_rw_done_addr);
-    WRITE_QWORD_TO_H_S_C_SBN_H_CACHE(xnu_ptr_to_va(new_sysctl_mib));
-    WRITE_QWORD_TO_H_S_C_SBN_H_CACHE(xnu_ptr_to_va(new_sysctl_mib_count));
-    WRITE_QWORD_TO_H_S_C_SBN_H_CACHE(xnu_ptr_to_va(stalker_table));
-    WRITE_QWORD_TO_H_S_C_SBN_H_CACHE(g_h_s_c_sbn_epilogue_addr);
+    /* allow hook_system_check_sysctlbyname_hook access to stalker cache */
+    WRITE_QWORD_TO_SCRATCH_SPACE(xnu_ptr_to_va(stalker_cache_base));
 
     branch_to = xnu_ptr_to_va(scratch_space);
 

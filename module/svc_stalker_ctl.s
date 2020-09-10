@@ -1,6 +1,7 @@
     .globl _main
     .align 4
 
+#include "stalker_cache.h"
 #include "svc_stalker_ctl.h"
 
 ; This is the system call we replaced the first enosys sysent entry
@@ -22,13 +23,9 @@ _main:
     mov x20, x1
     mov x21, x2
 
-    adr x22, CACHE_START
-    ldr x23, [x22, STALKER_TABLE_CACHEOFF]
-    str x23, [sp, STALKER_TABLE_PTR]
-    ldr x23, [x22, KALLOC_CANBLOCK_FPTR_CACHEOFF]
-    str x23, [sp, KALLOC_CANBLOCK_FPTR]
-    ldr x23, [x22, KFREE_ADDR_FPTR_CACHEOFF]
-    str x23, [sp, KFREE_ADDR_FPTR]
+    adr x22, STALKER_CACHE_PTR_PTR
+    ; XXX from now on, X28 == stalker cache pointer, do not modify X28
+    ldr x28, [x22]
 
     ldr w22, [x20, FLAVOR_ARG]
     cmp w22, PID_MANAGE
@@ -36,7 +33,7 @@ _main:
     ; patched correctly
     b.eq check_if_patched
     cmp w22, CALL_LIST_MANAGE
-    b.eq syscall_manage
+    b.eq call_manage
     ; if you're interested in checking out the stalker table in userland,
     ; uncomment this stuff and out_givetablekaddr
     ;cmp w22, 2
@@ -47,10 +44,7 @@ check_if_patched:
     ldr w22, [x20, PID_ARG]
     cmp w22, -1
     b.eq out_patched
-
-    ; user doesn't want to see if this syscall was patched correctly. fall thru
-
-pid_manage:
+    ; user doesn't want to see if this syscall was patched correctly
     ; if less than -1, pid doesn't make sense
     b.lt out_einval
     ; for this flavor, arg2 controls whether we're intercepting or not
@@ -61,18 +55,16 @@ pid_manage:
 
 add_pid:
     ; figure out if the user is already intercepting system calls for this pid
-    ldr x0, [sp, STALKER_TABLE_PTR]
+    ldr x0, [x28, STALKER_TABLE_PTR]
     mov w1, w22
     bl _stalker_ctl_from_table
     ; if already added, do nothing
-    cmp x0, 0
-    b.ne success
+    cbnz x0, success
     ; otherwise, create a new stalker_ctl entry in the stalker table
-    ldr x0, [sp, STALKER_TABLE_PTR]
+    ldr x0, [x28, STALKER_TABLE_PTR]
     bl _get_nearest_free_stalker_ctl
     ; table at capacity?
-    cmp x0, 0
-    b.eq out_einval
+    cbz x0, out_einval
     ; at this point, we have a free stalker_ctl entry
     ; it's no longer free
     str wzr, [x0, STALKER_CTL_FREE_OFF]
@@ -84,7 +76,7 @@ add_pid:
     ; with it until the user adds a system call to intercept
 
     ; increment stalker table size
-    ldr x22, [sp, STALKER_TABLE_PTR]
+    ldr x22, [x28, STALKER_TABLE_PTR]
     ldr w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
     add w23, w23, 1
     str w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
@@ -93,12 +85,11 @@ add_pid:
 
 delete_pid:
     ; get stalker_ctl pointer for this pid
-    ldr x0, [sp, STALKER_TABLE_PTR]
+    ldr x0, [x28, STALKER_TABLE_PTR]
     mov w1, w22
     bl _stalker_ctl_from_table
     ; can't delete something that doesn't exist
-    cmp x0, 0
-    b.eq out_einval
+    cbz x0, out_einval
     ; at this point we have the stalker_ctl entry that belongs to pid
     ; it's now free
     mov w22, 1
@@ -107,40 +98,38 @@ delete_pid:
     str wzr, [x0, STALKER_CTL_PID_OFF]
 
     ; decrement stalker table size
-    ldr x22, [sp, STALKER_TABLE_PTR]
+    ldr x22, [x28, STALKER_TABLE_PTR]
     ldr w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
     sub w23, w23, 1
     str w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
 
     ; free call_list if it isn't NULL
     ldr x22, [x0, STALKER_CTL_CALL_LIST_OFF]
-    cmp x22, 0
-    b.eq success
+    cbz x22, success
 
     mov x23, x0
     mov x0, x22
-    ldr x22, [sp, KFREE_ADDR_FPTR]
+    ldr x22, [x28, KFREE_ADDR]
     blr x22
     str xzr, [x23, STALKER_CTL_CALL_LIST_OFF]
 
     b success
 
-syscall_manage:
+call_manage:
     ; get stalker_ctl pointer for this pid
-    ldr x0, [sp, STALKER_TABLE_PTR]
+    ldr x0, [x28, STALKER_TABLE_PTR]
     ldr w1, [x20, PID_ARG]
     bl _stalker_ctl_from_table
     ; pid hasn't been added to stalker list?
-    cmp x0, 0
-    b.eq out_einval
+    cbz x0, out_einval
     ; at this point we have the stalker_ctl entry that belongs to pid
     str x0, [sp, CUR_STALKER_CTL]
     ldr w22, [x20, ARG3]
-    cbz w22, delete_syscall
+    cbz w22, delete_call
 
     ; if non-NULL, the call list for this pid already exists
     ldr x22, [x0, STALKER_CTL_CALL_LIST_OFF]
-    cbnz x22, add_syscall
+    cbnz x22, add_call
 
     ; this stalker_ctl's call list is NULL, kalloc a new one
     mov x0, CALL_LIST_MAX
@@ -153,35 +142,31 @@ syscall_manage:
     mov w1, wzr
     ; no allocation site
     mov x2, xzr
-    ldr x22, [sp, KALLOC_CANBLOCK_FPTR]
+    ldr x22, [x28, KALLOC_CANBLOCK]
     blr x22
-    cmp x0, 0
-    b.eq out_enomem
+    cbz x0, out_enomem
 
     ldr x22, [sp, CUR_STALKER_CTL]
     str x0, [x22, STALKER_CTL_CALL_LIST_OFF]
 
-    mov w23, 0
+    mov x23, CALL_LIST_FREE_SLOT
     mov x24, x0
-    mov x25, CALL_LIST_FREE_SLOT
+    mov w25, CALL_LIST_MAX
+    add x25, x24, w25, lsl 3
 
-    ; this new call list has all its elems free
+    ; this new call list has all its elems free, zero it out
 call_list_init_loop:
-    str x25, [x24]
-    add w23, w23, 1
-    cmp w23, CALL_LIST_MAX 
-    b.ge add_syscall
-    add x24, x0, w23, lsl 3
-    b call_list_init_loop
+    str x23, [x24], 0x8
+    subs x26, x25, x24
+    cbnz x26, call_list_init_loop
 
-add_syscall:
+add_call:
     ; TODO check if this system call is already present and do nothing if it is
     ldr x22, [sp, CUR_STALKER_CTL]
     ldr x0, [x22, STALKER_CTL_CALL_LIST_OFF]
     bl _get_call_list_free_slot
     ; no free slots in call list?
-    cmp x0, 0
-    b.eq out_einval
+    cbz x0, out_einval
     ; X0 = pointer to free slot in call list
 
     ; user may pass an uncasted literal system call number as ARG2, which
@@ -193,14 +178,13 @@ add_syscall:
 
     b success
 
-delete_syscall:
+delete_call:
     ldr x22, [sp, CUR_STALKER_CTL]
     ldr x0, [x22, STALKER_CTL_CALL_LIST_OFF]
     ldrsw x1, [x20, ARG2]
     bl _find_call_list_slot
     ; this system call was never added?
-    cmp x0, 0
-    b.eq out_einval
+    cbz x0, out_einval
     ; X0 = pointer to slot in call list which this system call occupies
     ; this slot is now free
     mov x22, CALL_LIST_FREE_SLOT
@@ -227,7 +211,7 @@ out_patched:
     b done
 
 ; out_givetablekaddr:
-;     ldr x0, [sp, STALKER_TABLE_PTR]
+;     ldr x0, [x28, STALKER_TABLE]
 ;     str x0, [x21]
 ;     mov w0, 0
 ;     b done

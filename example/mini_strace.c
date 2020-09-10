@@ -53,8 +53,8 @@ kern_return_t catch_mach_exception_raise(mach_port_t exception_port,
      */
 
     /* you can also get the call number from X16 */
-    long call_num = code[0];
-    pid_t pid = code[1];
+    pid_t pid = code[0];
+    int placeholder = code[1];
 
     mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT;
     arm_thread_state64_t state = {0};
@@ -65,6 +65,8 @@ kern_return_t catch_mach_exception_raise(mach_port_t exception_port,
         printf("thread_get_state failed: %s\n", mach_error_string(kret));
         return KERN_SUCCESS;
     }
+
+    long call_num = state.__x[16];
 
     printf("%d: ", pid);
 
@@ -153,7 +155,7 @@ int main(int argc, char **argv){
     /* before we begin, figure out what system call was patched */
     size_t oldlen = sizeof(long);
     int ret = sysctlbyname("kern.svc_stalker_ctl_callnum", &SYS_svc_stalker_ctl,
-            &oldlen, NULL, NULL);
+            &oldlen, NULL, 0);
 
     if(ret == -1){
         printf("sysctlbyname with kern.svc_stalker_ctl_callnum failed: %s\n",
