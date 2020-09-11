@@ -3,6 +3,7 @@
 
 #include "handle_svc_hook.h"
 #include "stalker_cache.h"
+#include "stalker_table.h"
 
 ; this iterates through the PIDs/call numbers the user has registered through the
 ; svc_stalker_ctl syscall and calls exception_triage if current_proc()->p_pid
@@ -115,14 +116,16 @@ maybeintercept:
     str w0, [sp, CUR_PID]
     mov w1, w0
     ldr x0, [x28, STALKER_TABLE_PTR]
-    bl _stalker_ctl_from_table
+    ldr x19, [x28, STALKER_CTL_FROM_TABLE]
+    blr x19
     ; user doesn't want to intercept any system calls from this pid, bail
     cbz x0, done
     ; does the user want this system call to be intercepted?
     ldr x19, [sp, SAVED_STATE_PTR]
     ldr x1, [x19, 0x88]
     ; X0 = pointer to stalker_ctl struct for proc_pid(current_proc())
-    bl _should_intercept_call
+    ldr x19, [x28, SHOULD_INTERCEPT_CALL]
+    blr x19
     ; if user does not want this system call intercepted, we're done
     cbz x0, done
 
@@ -152,75 +155,4 @@ done:
     ldp x26, x25, [sp, STACK-0x50]
     ldp x28, x27, [sp, STACK-0x60]
     add sp, sp, STACK
-    ret
-
-; this function figures out if a pid is in the stalker table, and returns
-; a pointer to its corresponding stalker_ctl struct if it is there
-;
-; arguments:
-;   X0 = stalker table pointer
-;   W1 = pid
-;
-; returns: pointer if pid is in stalker table, NULL otherwise
-_stalker_ctl_from_table:
-    ; empty stalker table?
-    ldr w9, [x0, STALKER_TABLE_NUM_PIDS_OFF]
-    cmp w9, 0
-    b.eq not_found0
-
-    mov w10, 1
-    add x11, x0, w10, lsl 4
-
-search0:
-    ldr w12, [x11, STALKER_CTL_PID_OFF]
-    cmp w12, w1
-    b.eq found0
-    add w10, w10, 1
-    cmp w10, STALKER_TABLE_MAX
-    b.ge not_found0
-    add x11, x0, w10, lsl 4
-    b search0
-
-not_found0:
-    mov x0, 0
-    ret
-
-found0:
-    mov x0, x11
-    ret
-
-; this function figures out if exception_triage should be called given
-; a system call number
-;
-; parameters:
-;   X0 = stalker_ctl struct pointer
-;   X1 = system call number
-;
-; returns: 1 if system call number is present inside the stalker_ctl's call list,
-;   0 otherwise
-_should_intercept_call:
-    ; empty system call list for this stalker_ctl struct pointer?
-    ldr x0, [x0, STALKER_CTL_CALL_LIST_OFF]
-    cmp x0, 0
-    b.eq do_not_intercept
-
-    mov w9, 0
-    mov x10, x0
-
-search1:
-    ldr x11, [x10]
-    cmp x11, x1
-    b.eq intercept
-    add w9, w9, 1
-    cmp w9, CALL_LIST_MAX 
-    b.ge do_not_intercept
-    add x10, x0, w9, lsl 3
-    b search1
-
-do_not_intercept:
-    mov x0, 0
-    ret
-
-intercept:
-    mov x0, 1
     ret

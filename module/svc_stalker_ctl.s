@@ -3,6 +3,7 @@
 
 #include "stalker_cache.h"
 #include "svc_stalker_ctl.h"
+#include "stalker_table.h"
 
 ; This is the system call we replaced the first enosys sysent entry
 ; with. It manages the list of PIDs we're intercepting syscalls/Mach traps for.
@@ -57,12 +58,14 @@ add_pid:
     ; figure out if the user is already intercepting system calls for this pid
     ldr x0, [x28, STALKER_TABLE_PTR]
     mov w1, w22
-    bl _stalker_ctl_from_table
+    ldr x22, [x28, STALKER_CTL_FROM_TABLE]
+    blr x22
     ; if already added, do nothing
     cbnz x0, success
     ; otherwise, create a new stalker_ctl entry in the stalker table
     ldr x0, [x28, STALKER_TABLE_PTR]
-    bl _get_nearest_free_stalker_ctl
+    ldr x22, [x28, GET_NEXT_FREE_STALKER_CTL]
+    blr x22
     ; table at capacity?
     cbz x0, out_einval
     ; at this point, we have a free stalker_ctl entry
@@ -87,7 +90,8 @@ delete_pid:
     ; get stalker_ctl pointer for this pid
     ldr x0, [x28, STALKER_TABLE_PTR]
     mov w1, w22
-    bl _stalker_ctl_from_table
+    ldr x22, [x28, STALKER_CTL_FROM_TABLE]
+    blr x22
     ; can't delete something that doesn't exist
     cbz x0, out_einval
     ; at this point we have the stalker_ctl entry that belongs to pid
@@ -119,7 +123,8 @@ call_manage:
     ; get stalker_ctl pointer for this pid
     ldr x0, [x28, STALKER_TABLE_PTR]
     ldr w1, [x20, PID_ARG]
-    bl _stalker_ctl_from_table
+    ldr x22, [x28, STALKER_CTL_FROM_TABLE]
+    blr x22
     ; pid hasn't been added to stalker list?
     cbz x0, out_einval
     ; at this point we have the stalker_ctl entry that belongs to pid
@@ -154,7 +159,7 @@ call_manage:
     mov w25, CALL_LIST_MAX
     add x25, x24, w25, lsl 3
 
-    ; this new call list has all its elems free, zero it out
+    ; this new call list has all its elems free
 call_list_init_loop:
     str x23, [x24], 0x8
     subs x26, x25, x24
@@ -164,7 +169,8 @@ add_call:
     ; TODO check if this system call is already present and do nothing if it is
     ldr x22, [sp, CUR_STALKER_CTL]
     ldr x0, [x22, STALKER_CTL_CALL_LIST_OFF]
-    bl _get_call_list_free_slot
+    ldr x22, [x28, GET_CALL_LIST_FREE_SLOT]
+    blr x22
     ; no free slots in call list?
     cbz x0, out_einval
     ; X0 = pointer to free slot in call list
@@ -182,7 +188,8 @@ delete_call:
     ldr x22, [sp, CUR_STALKER_CTL]
     ldr x0, [x22, STALKER_CTL_CALL_LIST_OFF]
     ldrsw x1, [x20, ARG2]
-    bl _find_call_list_slot
+    ldr x22, [x28, GET_CALL_LIST_SLOT]
+    blr x22
     ; this system call was never added?
     cbz x0, out_einval
     ; X0 = pointer to slot in call list which this system call occupies
@@ -228,132 +235,4 @@ done:
     ldp x26, x25, [sp, STACK-0x50]
     ldp x28, x27, [sp, STACK-0x60]
     add sp, sp, STACK
-    ret
-
-; this function figures out if a pid is in the stalker table, and returns
-; a pointer to its corresponding stalker_ctl struct if it is there
-;
-; arguments:
-;   X0 = stalker table pointer
-;   W1 = pid
-;
-; returns: pointer if pid is in stalker table, NULL otherwise
-_stalker_ctl_from_table:
-    ; empty stalker table?
-    ldr w9, [x0, STALKER_TABLE_NUM_PIDS_OFF]
-    cmp w9, 0
-    b.eq not_found0
-
-    mov w10, 1
-    add x11, x0, w10, lsl 4
-
-search0:
-    ldr w12, [x11, STALKER_CTL_PID_OFF]
-    cmp w12, w1
-    b.eq found0
-    add w10, w10, 1
-    cmp w10, STALKER_TABLE_MAX
-    b.gt not_found0
-    add x11, x0, w10, lsl 4
-    b search0
-
-not_found0:
-    mov x0, 0
-    ret
-
-found0:
-    mov x0, x11
-    ret
-
-; this function returns a pointer to the free slot nearest to the address of
-; the stalker table
-;
-; arguments
-;  X0, stalker table pointer
-;
-; returns: pointer to nearest free slot, or NULL if there's no free slots
-_get_nearest_free_stalker_ctl:
-    ; full stalker table?
-    ldr w9, [x0, STALKER_TABLE_NUM_PIDS_OFF]
-    cmp w9, STALKER_TABLE_MAX
-    b.ge nofree0
-
-    mov w9, 1
-    add x10, x0, w9, lsl 4
-
-freeloop0:
-    ldr w11, [x10, STALKER_CTL_FREE_OFF]
-    cmp w11, 1
-    b.eq foundfree0
-    add w9, w9, 1
-    cmp w9, STALKER_TABLE_MAX
-    b.ge nofree0
-    add x10, x0, w9, lsl 4
-    b freeloop0
-
-foundfree0:
-    mov x0, x10
-    ret
-
-nofree0:
-    mov x0, 0
-    ret
-
-; this function returns a pointer to the free slot nearest to the address
-; of a stalker_ctl's call table
-;
-; arguments
-;   X0 = call list pointer
-;
-; returns: a pointer if a free slot is found, NULL otherwise
-_get_call_list_free_slot:
-    mov w9, 0
-    mov x10, x0
-
-freeloop1:
-    ldr x11, [x10]
-    cmp x11, CALL_LIST_FREE_SLOT
-    b.eq foundfree1
-    add w9, w9, 1
-    cmp w9, CALL_LIST_MAX
-    b.ge nofree1
-    add x10, x0, w9, lsl 3
-    b freeloop1
-
-foundfree1:
-    mov x0, x10
-    ret
-
-nofree1:
-    mov x0, 0
-    ret
-
-; this functions returns a pointer to the slot occupied by a system call
-; number in a stalker_ctl's call table
-;
-; arguments
-;   X0 = call list pointer
-;   X1 = system call number
-;
-; returns: pointer if system call number is found, NULL otherwise
-_find_call_list_slot:
-    mov w9, 0
-    mov x10, x0
-
-slotloop:
-    ldr x11, [x10]
-    cmp x11, x1
-    b.eq found
-    add w9, w9, 1
-    cmp w9, CALL_LIST_MAX
-    b.ge notfound
-    add x10, x0, w9, lsl 3
-    b slotloop
-
-found:
-    mov x0, x10
-    ret
-
-notfound:
-    mov x0, 0
     ret

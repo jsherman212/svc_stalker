@@ -5,7 +5,7 @@
 <sup>*Output from intercepting some system calls/Mach traps for the App Store from
 example/mini_strace.c*</sup>
 
-**Currently working on call interception upon return in this branch**
+**Currently working on call interception upon return and proper locking in this branch**
 
 svc_stalker is a pongoOS module which modifies XNU to call `exception_triage`
 on a supervisor call exception, sending a Mach exception message to userland
@@ -20,7 +20,7 @@ of the saved state of the `thread` parameter. `exception` will hold either
 `EXC_SYSCALL` or `EXC_MACH_SYSCALL`, depending on what was intercepted.
 
 For both `BEFORE_CALL` and `CALL_COMPLETED`, you're free to view/modify
-registers before giving control back to the kernel.
+registers in your exception handler before giving control back to the kernel.
 
 svc_stalker adds a new sysctl, `kern.svc_stalker_ctl_callnum`. This allows you
 to figure out which system call was patched to svc_stalker_ctl:

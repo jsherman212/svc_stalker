@@ -19,9 +19,6 @@ _main:
     stp x29, x30, [sp, STACK-0x10]
     add x29, sp, STACK-0x10
 
-    ; XXX XXX
-    ;b not_ours_unlocked
-
     adr x19, STALKER_CACHE_PTR_PTR
     ; XXX from now on, X28 == stalker cache pointer, do not modify X28
     ldr x28, [x19]
@@ -84,7 +81,6 @@ not_ours:
     ldr x0, [x0]
     ldr x19, [x28, LCK_RW_DONE]
     blr x19
-not_ours_unlocked:
     ldp x29, x30, [sp, STACK-0x10]
     ldp x20, x19, [sp, STACK-0x20]
     ldp x22, x21, [sp, STACK-0x30]
@@ -98,4 +94,6 @@ not_ours_unlocked:
     add sp, sp, STACK
     ; this is missing a RET so svc_stalker can write back the instructions
     ; we overwrote to branch to this code
-    ; XXX because of this, NOTHING CAN BE AFTER THIS POINT
+    ; XXX because of this, NOTHING CAN BE AFTER THIS POINT (or if something
+    ; needs to be after this point, make sure to dedicate 24 bytes worth of
+    ; space for instruction restoration)

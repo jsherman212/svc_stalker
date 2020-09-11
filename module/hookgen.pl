@@ -15,29 +15,31 @@ my $macroname = uc("WRITE_".$ARGV[0]."_INSTRS");
 printf(HEADER "#define $macroname \\\n");
 
 my $curlabel;
-# space used for caching offsets will also be counted as instructions
-# my $cache_space = 0x70;
-# my $instr_count = $cache_space / 4;
-
-# testing, iphone 8 13.6
-# incorrect for svc_stalker_ctl
-# my $curkaddr = 0xFFFFFFF0090A3230 + $cache_space;
 my $num_instrs = 0;
+my @function_starts;
+# my $cur_kaddr = 0xFFFFFFF0235E0060;
 
 while(my $line = <DISFILE>){
     chomp($line);
 
     if($line =~ /([a-f0-9]+)\s([a-f0-9]+)\s([a-f0-9]+)\s([a-f0-9]+)\s(.*)/g){
-        # $instr_count += 1;
-
         if($curlabel){
-            # printf(HEADER "/*                                           %-35s*/ \\\n", "$curlabel:");
             printf(HEADER "/*                          %-35s*/ \\\n", "$curlabel:");
         }
 
-        # printf(HEADER "WRITE_INSTR(0x$4$3$2$1); /* %#x    %-30s*/", $curkaddr, "$5");
-        printf(HEADER "WRITE_INSTR(0x$4$3$2$1); /*     %-30s*/", "$5");
-        # $curkaddr += 4;
+        my $cur_instr = "0x$4$3$2$1";
+        my $cur_opcode = hex($cur_instr);
+
+        # udf 0xffff
+        if($cur_opcode == 0xffff){
+            # +1 to get off of the udf 0xffff
+            push(@function_starts, ($num_instrs+1)*4);
+        }
+
+        # printf(HEADER "WRITE_INSTR($cur_instr); /* %#x    %-30s*/", $cur_kaddr, "$5");
+        printf(HEADER "WRITE_INSTR($cur_instr); /*        %-30s*/", "$5");
+
+        $cur_kaddr += 4;
         $num_instrs += 1;
 
         if(eof){
@@ -55,10 +57,23 @@ while(my $line = <DISFILE>){
 }
 
 printf(HEADER "const static int g_$ARGV[0]_num_instrs = $num_instrs;\n");
+
+my $function_starts_length = @function_starts;
+
+if($function_starts_length > 0){
+    # printf("@function_starts, $function_starts_length\n");
+    printf(HEADER "const static unsigned int g_$ARGV[0]_function_starts[] = {\n");
+
+    foreach my $function_start (@function_starts) {
+        printf(HEADER "%#x,\n", $function_start);
+    }
+
+    printf(HEADER "};\n");
+    printf(HEADER "const static int g_num_$ARGV[0]_function_starts = $function_starts_length;\n");
+}
+
 printf(HEADER "#endif\n");
 
 # clean up
+# system("rm ./dis");
 # system("rm ./$ARGV[0]");
-
-# iphone 7
-#printf("$instr_count/1206 instructions\n");

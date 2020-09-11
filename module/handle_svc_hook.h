@@ -28,17 +28,4 @@
 #define BEFORE_CALL                 (0)
 #define CALL_COMPLETED              (1)
 
-/* stalker table stuff */
-#define STALKER_TABLE_MAX           (1023)
-#define STALKER_TABLE_FREE_SLOT     (0x0)
-#define STALKER_TABLE_NUM_PIDS_OFF  (0x0)
-#define STALKER_TABLE_REGISTERED_SYSCTL_OFF (0x8)
-
-#define STALKER_CTL_FREE_OFF        (0x0)
-#define STALKER_CTL_PID_OFF         (0x4)
-#define STALKER_CTL_CALL_LIST_OFF   (0x8)
-
-#define CALL_LIST_MAX               (1000)
-#define CALL_LIST_FREE_SLOT         (0x4000)
-
 #endif
