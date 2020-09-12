@@ -958,7 +958,7 @@ static bool patch_arm_prepare_syscall_return(uint32_t **scratch_space_out,
      * and we need the return address of arm_prepare_syscall_return. Additionally,
      * if we use BL, we can't walk the linked list of stack frames to get
      * arm_prepare_syscall_return's return address because we overwrote
-     * the instruction which saves return value and frame pointer to the stack
+     * the instruction which saves return address and frame pointer to the stack
      */
     STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(branch_from + 1));
 

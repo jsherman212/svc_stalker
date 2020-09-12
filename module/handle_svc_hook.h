@@ -26,6 +26,5 @@
 #define EXC_MACH_SYSCALL            (8)
 
 #define BEFORE_CALL                 (0)
-#define CALL_COMPLETED              (1)
 
 #endif

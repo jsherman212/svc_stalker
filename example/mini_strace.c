@@ -16,6 +16,9 @@ static long SYS_svc_stalker_ctl = 0;
 #define PID_MANAGE                  0
 #define CALL_LIST_MANAGE            1
 
+#define BEFORE_CALL                 0
+#define CALL_COMPLETED              1
+
 static void interrupt(int sig){
     /* unregister this PID upon exit */
     syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
@@ -43,28 +46,9 @@ kern_return_t catch_mach_exception_raise_state_identity(mach_port_t exception_po
     return KERN_FAILURE;
 }
 
-kern_return_t catch_mach_exception_raise(mach_port_t exception_port,
-        mach_port_t thread, mach_port_t task, exception_type_t exception,
-        mach_exception_data_t code, mach_msg_type_number_t code_count){
-    /* If we're here, the system call/Mach trap has not yet happened.
-     * Once we return from this function, the kernel carries it out as normal.
-     * You're free to modify registers before giving control back to
-     * the kernel.
-     */
-
-    /* you can also get the call number from X16 */
-    pid_t pid = code[0];
-    int placeholder = code[1];
-
-    mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT;
-    arm_thread_state64_t state = {0};
-    kern_return_t kret = thread_get_state(thread, ARM_THREAD_STATE64,
-                (thread_state_t)&state, &count);
-
-    if(kret){
-        printf("thread_get_state failed: %s\n", mach_error_string(kret));
-        return KERN_SUCCESS;
-    }
+static void handle_before_call(mach_port_t task, arm_thread_state64_t state,
+        pid_t pid){
+    kern_return_t kret = KERN_SUCCESS;
 
     long call_num = state.__x[16];
 
@@ -86,10 +70,10 @@ kern_return_t catch_mach_exception_raise(mach_port_t exception_port,
 
         if(kret){
             printf("vm_read_overwrite failed: %s\n", mach_error_string(kret));
-            return KERN_SUCCESS;
+            return;
         }
 
-        printf("write(%lld, \"%s\", %lld)\n", state.__x[0], buf, state.__x[2]);
+        printf("write(%lld, \"%s\", %lld)", state.__x[0], buf, state.__x[2]);
     }
     /* open or access */
     else if(call_num == 5 || call_num == 33){
@@ -108,7 +92,7 @@ kern_return_t catch_mach_exception_raise(mach_port_t exception_port,
 
         if(kret){
             printf("vm_read_overwrite failed: %s\n", mach_error_string(kret));
-            return KERN_SUCCESS;
+            return;
         }
 
         if(call_num == 5)
@@ -130,6 +114,46 @@ kern_return_t catch_mach_exception_raise(mach_port_t exception_port,
         printf("_kernelrpc_mach_port_allocate_trap(%#x, %#x, %#llx)\n",
                 (uint32_t)state.__x[0], (uint32_t)state.__x[1], state.__x[2]);
     }
+}
+
+static void handle_after_call(mach_port_t task, arm_thread_state64_t state,
+        pid_t pid){
+    long call_num = state.__x[16];
+
+    if(call_num == 4){
+        size_t bytes_written = state.__x[0];
+
+        printf(" = %ld\n", bytes_written);
+    }
+}
+
+kern_return_t catch_mach_exception_raise(mach_port_t exception_port,
+        mach_port_t thread, mach_port_t task, exception_type_t exception,
+        mach_exception_data_t code, mach_msg_type_number_t code_count){
+    /* If we're here, the system call/Mach trap has not yet happened.
+     * Once we return from this function, the kernel carries it out as normal.
+     * You're free to modify registers before giving control back to
+     * the kernel.
+     */
+
+    /* you can also get the call number from X16 */
+    pid_t pid = code[0];
+    long call_status = code[1];
+
+    mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT;
+    arm_thread_state64_t state = {0};
+    kern_return_t kret = thread_get_state(thread, ARM_THREAD_STATE64,
+                (thread_state_t)&state, &count);
+
+    if(kret){
+        printf("thread_get_state failed: %s\n", mach_error_string(kret));
+        return KERN_SUCCESS;
+    }
+
+    if(call_status == BEFORE_CALL)
+        handle_before_call(task, state, pid);
+    else
+        handle_after_call(task, state, pid);
 
     /* always return KERN_SUCCESS to let the kernel know you've handled
      * this exception

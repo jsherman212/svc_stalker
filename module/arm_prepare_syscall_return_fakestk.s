@@ -22,13 +22,11 @@ _main:
     ; arm_prepare_syscall_return's original stack frame and caller,
     ; need to save it so arm_prepare_syscall_return_hook can return
     ; back to the original caller
-    sub sp, sp, 0x10
-    stp x29, x30, [sp]
+    stp x29, x30, [sp, -0x10]!
     mov x29, sp
 
     ; fake stack frame to return to arm_prepare_syscall_return_hook
-    sub sp, sp, 0x10
-    stp x29, x9, [sp]
+    stp x29, x9, [sp, -0x10]!
     mov x29, sp
 
     ; return back to where we branched from in arm_prepare_syscall_return
