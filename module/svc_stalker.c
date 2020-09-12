@@ -940,13 +940,9 @@ static bool patch_arm_prepare_syscall_return(uint32_t **scratch_space_out,
      * frame for arm_prepare_syscall_return
      * (see arm_prepare_syscall_return_fakestk.s)
      */
-    /* print_register(xnu_ptr_to_va(scratch_space)); */
 
     /* allow apsr_fakestk access to stalker cache */
     WRITE_QWORD_TO_SCRATCH_SPACE(xnu_ptr_to_va(stalker_cache_base));
-
-    /* print_register(xnu_ptr_to_va(stalker_cache_base)); */
-    /* print_register(xnu_ptr_to_va(scratch_space)); */
 
     /* XXX iphone 8 13.6.1 */
     uint32_t *branch_from = xnu_va_to_ptr(0xFFFFFFF0080E84D8 + kernel_slide);
@@ -1168,8 +1164,7 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
         stalker_fatal_error();
     }
 
-    /* defined in handle_svc_hook_instrs.h, svc_stalker_ctl_instrs.h,
-     * hook_system_check_sysctlbyname_hook_instrs.h
+    /* defined in *_instrs.h
      *
      * Additionally, we'll be writing the pointer to the stalker cache
      * before handle_svc_hook, svc_stalker_ctl, and
@@ -1181,7 +1176,7 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
           g_hook_system_check_sysctlbyname_hook_num_instrs +
           g_common_functions_num_instrs) * sizeof(uint32_t)) +
         /* number of times we write stalker cache pointer to scratch space */
-        5 * sizeof(uint64_t);
+        6 * sizeof(uint64_t);
 
     /* if there's not enough space between the end of exc_vectors_table
      * and _ExceptionVectorsBase, maybe there's enough space at the last
@@ -1224,9 +1219,9 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     uint64_t num_free_instrs = g_exec_scratch_space_size / sizeof(uint32_t);
     uint32_t *scratch_space = xnu_va_to_ptr(g_exec_scratch_space_addr);
 
-    /* first, write the common functions. They don't need access to the
-     * stalker cache.
-     */
+    WRITE_QWORD_TO_SCRATCH_SPACE(xnu_ptr_to_va(stalker_cache_base));
+
+    /* first, write the common functions */
     uint8_t *common_functions_base = (uint8_t *)scratch_space;
 
     scratch_space = write_common_functions_instrs(scratch_space, &num_free_instrs);

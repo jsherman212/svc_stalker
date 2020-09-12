@@ -1,6 +1,8 @@
     .globl _main
     .align 4
 
+#include "common_functions.h"
+#include "stalker_cache.h"
 #include "stalker_table.h"
 
 ; TODO after final version of these fxns, only save used callee-saved regs
@@ -23,6 +25,13 @@
 .macro INDICATE_FUNCTION_START
     udf 0xffff
 .endmacro
+
+; XXX this needs to be the first function in this file!!!
+INDICATE_FUNCTION_START
+_common_fxns_get_stalker_cache:
+    adr x0, STALKER_CACHE_PTR_PTR
+    ldr x0, [x0]
+    ret
 
 ; this function figures out if a pid is in the stalker table, and returns
 ; a pointer to its corresponding stalker_ctl struct if it is there
@@ -95,7 +104,6 @@ stalker_ctl_from_table_done:
 ;
 ; returns: 1 if call number is present inside the stalker_ctl's call list,
 ;   0 otherwise
-; XXX XXX can't I just call get_call_list_slot and see if that's NULL?
 INDICATE_FUNCTION_START
 _should_intercept_call:
     sub sp, sp, 0x70
@@ -111,24 +119,17 @@ _should_intercept_call:
     ldr x19, [x0, STALKER_CTL_CALL_LIST_OFF]
     cbz x19, do_not_intercept
 
-    ; x19 == pointer to call list (int64_t array)
-    mov w20, CALL_LIST_MAX
-    add x20, x19, w20, lsl 3
+    mov x0, x19
+    bl _get_call_list_slot
 
-do_we_intercept:
-    ldr x21, [x19], 0x8
-    cmp x21, x1
-    b.eq intercept 
-    subs x22, x20, x19
-    cbnz x22, do_we_intercept
+    cmp x0, xzr
+    mov w0, 1
+    csel w0, w0, wzr, ne
+
+    b should_intercept_call_done
 
 do_not_intercept:
     mov w0, wzr
-    b should_intercept_call_done
-
-intercept:
-    mov w0, 1
-    ; fall thru
 
 should_intercept_call_done:
     ldp x29, x30, [sp, 0x60]
@@ -289,6 +290,43 @@ get_call_list_slot_done:
     ldp x26, x25, [sp, 0x20]
     ldp x28, x27, [sp, 0x10]
     add sp, sp, 0x70
+    ret
+
+; this function figures out if the svc_stalker_ctl_callnum sysctl
+; has been registered
+;
+; takes sysctl_geometry_lock and releases it upon return
+;
+; Arguments: none
+; Returns: boolean
+INDICATE_FUNCTION_START
+_is_sysctl_registered:
+    sub sp, sp, 0x30
+    stp x22, x21, [sp]
+    stp x20, x19, [sp, 0x10]
+    stp x29, x30, [sp, 0x20]
+    add x29, sp, 0x30
+
+    bl _common_fxns_get_stalker_cache
+    mov x19, x0
+
+    ldr x0, [x19, SYSCTL_GEOMETRY_LOCK_PTR]
+    ldr x0, [x0]
+    mov x22, x0
+    ldr x20, [x19, LCK_RW_LOCK_SHARED]
+    blr x20
+    ldr x20, [x19, STALKER_TABLE_PTR]
+    ldr x21, [x20, STALKER_TABLE_REGISTERED_SYSCTL_OFF]
+    mov x0, x22
+    ldr x20, [x19, LCK_RW_DONE]
+    blr x20
+
+    mov x0, x21
+
+    ldp x29, x30, [sp, 0x20]
+    ldp x20, x19, [sp, 0x10]
+    ldp x22, x21, [sp]
+    add sp, sp, 0x30
     ret
 
     ; so clang doesn't complain when linking

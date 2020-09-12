@@ -24,18 +24,23 @@ _main:
     ; XXX from now on, X28 == stalker cache pointer, do not modify X28
     ldr x28, [x19]
 
-    ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
-    ldr x0, [x0]
-    ldr x19, [x28, LCK_RW_LOCK_SHARED]
-    blr x19
-    ldr x19, [x28, STALKER_TABLE_PTR]
-    ldr x20, [x19, STALKER_TABLE_REGISTERED_SYSCTL_OFF]
-    ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
-    ldr x0, [x0]
-    ldr x19, [x28, LCK_RW_DONE]
+    ; ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
+    ; ldr x0, [x0]
+    ; ldr x19, [x28, LCK_RW_LOCK_SHARED]
+    ; blr x19
+    ; ldr x19, [x28, STALKER_TABLE_PTR]
+    ; ldr x20, [x19, STALKER_TABLE_REGISTERED_SYSCTL_OFF]
+    ; ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
+    ; ldr x0, [x0]
+    ; ldr x19, [x28, LCK_RW_DONE]
+    ; blr x19
+    ; ; if we've already registered the sysctl, don't do it again
+    ; cbnz x20, maybeintercept
+
+    ldr x19, [x28, IS_SYSCTL_REGISTERED]
     blr x19
     ; if we've already registered the sysctl, don't do it again
-    cbnz x20, maybeintercept
+    cbnz x0, maybeintercept
 
     ; set up the kern.svc_stalker_ctl_callnum sysctl
     ; oid_parent, _kern
@@ -91,6 +96,7 @@ _main:
     ; with hook_system_check_sysctlbyname_hook.
     ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
     ldr x0, [x0]
+    mov x21, x0
     ldr x19, [x28, LCK_RW_LOCK_SHARED]
     blr x19
     ldr x0, [x28, SVC_STALKER_SYSCTL_NAME_PTR]
@@ -101,8 +107,7 @@ _main:
     ldr x19, [x28, STALKER_TABLE_PTR]
     mov x20, 1
     str x20, [x19, STALKER_TABLE_REGISTERED_SYSCTL_OFF]
-    ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
-    ldr x0, [x0]
+    mov x0, x21
     ldr x19, [x28, LCK_RW_DONE]
     blr x19
 

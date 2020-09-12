@@ -100,7 +100,7 @@ static void handle_before_call(mach_port_t task, arm_thread_state64_t state,
         else
             printf("access");
 
-        printf("(\"%s\", %#x)\n", buf, (uint32_t)state.__x[1]);
+        printf("(\"%s\", %#x)", buf, (uint32_t)state.__x[1]);
     }
     /* mach_msg_trap */
     else if(call_num == -31){
@@ -116,15 +116,37 @@ static void handle_before_call(mach_port_t task, arm_thread_state64_t state,
     }
 }
 
-static void handle_after_call(mach_port_t task, arm_thread_state64_t state,
+static void handle_call_completion(mach_port_t task, arm_thread_state64_t state,
         pid_t pid){
     long call_num = state.__x[16];
 
+    /* write */
     if(call_num == 4){
         size_t bytes_written = state.__x[0];
-
         printf(" = %ld\n", bytes_written);
     }
+    /* open */
+    else if(call_num == 5){
+        int fd = (int)state.__x[0];
+        printf(" = %d\n", fd);
+    }
+    /* access */
+    else if(call_num == 33){
+        int retval = (int)state.__x[0];
+        printf(" = %d\n", retval);
+    }
+    /* /1* mach_msg_trap *1/ */
+    /* else if(call_num == -31){ */
+    /*     printf("mach_msg(%#llx, %#x, %#x, %#x, %#x, %#x, %#x)\n", state.__x[0], */
+    /*             (uint32_t)state.__x[1], (uint32_t)state.__x[2], */
+    /*             (uint32_t)state.__x[3], (uint32_t)state.__x[4], */
+    /*             (uint32_t)state.__x[5], (uint32_t)state.__x[6]); */
+    /* } */
+    /* /1* _kernelrpc_mach_port_allocate_trap *1/ */
+    /* else if(call_num == -16){ */
+    /*     printf("_kernelrpc_mach_port_allocate_trap(%#x, %#x, %#llx)\n", */
+    /*             (uint32_t)state.__x[0], (uint32_t)state.__x[1], state.__x[2]); */
+    /* } */
 }
 
 kern_return_t catch_mach_exception_raise(mach_port_t exception_port,
@@ -153,7 +175,7 @@ kern_return_t catch_mach_exception_raise(mach_port_t exception_port,
     if(call_status == BEFORE_CALL)
         handle_before_call(task, state, pid);
     else
-        handle_after_call(task, state, pid);
+        handle_call_completion(task, state, pid);
 
     /* always return KERN_SUCCESS to let the kernel know you've handled
      * this exception

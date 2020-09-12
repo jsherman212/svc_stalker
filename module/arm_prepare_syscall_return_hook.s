@@ -27,18 +27,23 @@ _main:
     ; don't do anything until the svc_stalker_ctl_callnum sysctl is registered.
     ; My gut is telling me that if we've reached here, we've executed the code
     ; in handle_svc_hook and registered the sysctl, but just in case
-    ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
-    ldr x0, [x0]
-    ldr x19, [x28, LCK_RW_LOCK_SHARED]
-    blr x19
-    ldr x19, [x28, STALKER_TABLE_PTR]
-    ldr x20, [x19, STALKER_TABLE_REGISTERED_SYSCTL_OFF]
-    ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
-    ldr x0, [x0]
-    ldr x19, [x28, LCK_RW_DONE]
+    ; ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
+    ; ldr x0, [x0]
+    ; ldr x19, [x28, LCK_RW_LOCK_SHARED]
+    ; blr x19
+    ; ldr x19, [x28, STALKER_TABLE_PTR]
+    ; ldr x20, [x19, STALKER_TABLE_REGISTERED_SYSCTL_OFF]
+    ; ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
+    ; ldr x0, [x0]
+    ; ldr x19, [x28, LCK_RW_DONE]
+    ; blr x19
+    ; ; no sysctl?
+    ; cbz x20, done
+
+    ldr x19, [x28, IS_SYSCTL_REGISTERED]
     blr x19
     ; no sysctl?
-    cbz x20, done
+    cbz x0, done
 
     ; XXX code duplication! Move this into common_functions
 
