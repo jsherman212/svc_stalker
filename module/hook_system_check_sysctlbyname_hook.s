@@ -3,6 +3,7 @@
 
 #include "hook_system_check_sysctlbyname_hook.h"
 #include "stalker_cache.h"
+#include "stalker_table.h"
 
 _main:
     sub sp, sp, STACK
@@ -59,8 +60,7 @@ mib_check_loop:
     b.ne not_ours
     ; if we hit the end of our MIB array, it's ours
     subs x26, x23, x21
-    cbz x26, ours
-    b mib_check_loop
+    cbnz x26, mib_check_loop
 
 ours:
     ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]

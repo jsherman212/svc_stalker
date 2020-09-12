@@ -2,8 +2,8 @@
     .align 4
 
 #include "stalker_cache.h"
-#include "svc_stalker_ctl.h"
 #include "stalker_table.h"
+#include "svc_stalker_ctl.h"
 
 ; This is the system call we replaced the first enosys sysent entry
 ; with. It manages the list of PIDs we're intercepting syscalls/Mach traps for.

@@ -1,5 +1,7 @@
 #include <sys/sysctl.h>
 
+#include "arm_prepare_syscall_return_hook_instrs.h"
+#include "arm_prepare_syscall_return_fakestk_instrs.h"
 #include "common_functions_instrs.h"
 #include "handle_svc_hook_instrs.h"
 #include "hook_system_check_sysctlbyname_hook_instrs.h"
@@ -48,14 +50,14 @@ __attribute__ ((noreturn)) static void stalker_fatal_error(void){
     for(;;);
 }
 
-/* TODO both of these. B/BL = 1 instruction while BLR = 5 instrs */
 static uint32_t assemble_b(uint64_t from, uint64_t to){
-    /* for arm_prepare_u64_syscall_return/arm_set_syscall_mach_ret tail call */
-    return 0;
+    uint32_t imm26 = ((to - from) >> 2) & 0x3ffffff;
+    return (5 << 26) | imm26;
 }
 
 static uint32_t assemble_bl(uint64_t from, uint64_t to){
-    return 0;
+    uint32_t imm26 = ((to - from) >> 2) & 0x3ffffff;
+    return (37 << 26) | imm26;
 }
 
 static void write_blr(uint32_t reg, uint64_t from, uint64_t to){
@@ -401,6 +403,7 @@ static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
 
     /* bl _panic --> branch to mach_syscall epilogue */
     *branch_from = epilogue_branch;
+
     g_patched_mach_syscall = true;
 
     puts("svc_stalker: patched mach_syscall");
@@ -779,6 +782,22 @@ static uint32_t *write_h_s_c_sbn_h_instrs(uint32_t *scratch_space,
     return scratch_space;
 }
 
+static uint32_t *write_apsr_fakestk_instrs(uint32_t *scratch_space,
+        uint64_t *num_free_instrsp){
+    uint64_t num_free_instrs = *num_free_instrsp;
+    WRITE_ARM_PREPARE_SYSCALL_RETURN_FAKESTK_INSTRS;
+    *num_free_instrsp = num_free_instrs;
+    return scratch_space;
+}
+
+static uint32_t *write_apsr_hook_instrs(uint32_t *scratch_space,
+        uint64_t *num_free_instrsp){
+    uint64_t num_free_instrs = *num_free_instrsp;
+    WRITE_ARM_PREPARE_SYSCALL_RETURN_HOOK_INSTRS;
+    *num_free_instrsp = num_free_instrs;
+    return scratch_space;
+}
+
 static void anything_missing(void){
     if(g_proc_pid_addr == 0 || g_sysent_addr == 0 ||
             g_kalloc_canblock_addr == 0 || g_kfree_addr_addr == 0 ||
@@ -856,6 +875,18 @@ static void anything_missing(void){
     }
 }
 
+#define WRITE_QWORD_TO_SCRATCH_SPACE(qword) \
+    do { \
+        if(num_free_instrs < 2){ \
+            puts("svc_stalker: ran out"); \
+            puts("     of scratch space"); \
+            stalker_fatal_error(); \
+        } \
+        *(uint64_t *)scratch_space = (qword); \
+        scratch_space += 2; \
+        num_free_instrs -= 2; \
+    } while (0); \
+
 #define STALKER_CACHE_WRITE(cursor, thing) \
     do { \
         *cursor++ = (thing); \
@@ -898,7 +929,60 @@ static uint64_t *create_stalker_cache(uint64_t **stalker_cache_base_out){
     return cursor;
 }
 
-/* confirmed working on all kernels 13.0-13.6.1 */
+static bool patch_arm_prepare_syscall_return(uint32_t **scratch_space_out,
+        uint64_t *num_free_instrs_out, uint64_t *stalker_cache_base,
+        uint64_t **stalker_cache_cursor_out){
+    uint32_t *scratch_space = *scratch_space_out;
+    uint64_t num_free_instrs = *num_free_instrs_out;
+    uint64_t *stalker_cache_cursor = *stalker_cache_cursor_out;
+
+    /* first, write the branch to the code which sets up the fake stack
+     * frame for arm_prepare_syscall_return
+     * (see arm_prepare_syscall_return_fakestk.s)
+     */
+    /* print_register(xnu_ptr_to_va(scratch_space)); */
+
+    /* allow apsr_fakestk access to stalker cache */
+    WRITE_QWORD_TO_SCRATCH_SPACE(xnu_ptr_to_va(stalker_cache_base));
+
+    /* print_register(xnu_ptr_to_va(stalker_cache_base)); */
+    /* print_register(xnu_ptr_to_va(scratch_space)); */
+
+    /* XXX iphone 8 13.6.1 */
+    uint32_t *branch_from = xnu_va_to_ptr(0xFFFFFFF0080E84D8 + kernel_slide);
+    uint64_t branch_to = (uint64_t)scratch_space;
+
+    *branch_from = assemble_b((uint64_t)branch_from, branch_to);
+
+    /* we can't BL to apsr_fakestk code because that will overwrite LR,
+     * and we need the return address of arm_prepare_syscall_return. Additionally,
+     * if we use BL, we can't walk the linked list of stack frames to get
+     * arm_prepare_syscall_return's return address because we overwrote
+     * the instruction which saves return value and frame pointer to the stack
+     */
+    STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(branch_from + 1));
+
+    scratch_space = write_apsr_fakestk_instrs(scratch_space, &num_free_instrs);
+
+    /* allow apsr_hook stalker cache access */
+    WRITE_QWORD_TO_SCRATCH_SPACE(xnu_ptr_to_va(stalker_cache_base));
+
+    /* virtual address of apsr_hook */
+    STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(scratch_space));
+
+    scratch_space = write_apsr_hook_instrs(scratch_space, &num_free_instrs);
+
+    *scratch_space_out = scratch_space;
+    *num_free_instrs_out = num_free_instrs;
+    *stalker_cache_cursor_out = stalker_cache_cursor;
+
+    return true;
+}
+
+/* confirmed working on all kernels 13.0-13.6.1
+ *
+ * TODO divide functionality into more functions this function is gigantic
+ */
 static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     anything_missing();
 
@@ -1097,7 +1181,7 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
           g_hook_system_check_sysctlbyname_hook_num_instrs +
           g_common_functions_num_instrs) * sizeof(uint32_t)) +
         /* number of times we write stalker cache pointer to scratch space */
-        3 * sizeof(uint64_t);
+        5 * sizeof(uint64_t);
 
     /* if there's not enough space between the end of exc_vectors_table
      * and _ExceptionVectorsBase, maybe there's enough space at the last
@@ -1139,18 +1223,6 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
 
     uint64_t num_free_instrs = g_exec_scratch_space_size / sizeof(uint32_t);
     uint32_t *scratch_space = xnu_va_to_ptr(g_exec_scratch_space_addr);
-
-#define WRITE_QWORD_TO_SCRATCH_SPACE(qword) \
-    do { \
-        if(num_free_instrs < 2){ \
-            puts("svc_stalker: ran out"); \
-            puts("     of scratch space"); \
-            stalker_fatal_error(); \
-        } \
-        *(uint64_t *)scratch_space = (qword); \
-        scratch_space += 2; \
-        num_free_instrs -= 2; \
-    } while (0); \
 
     /* first, write the common functions. They don't need access to the
      * stalker cache.
@@ -1408,6 +1480,16 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     WRITE_INSTR(0xd65f03c0);    /* ret */
 
     write_blr(8, branch_from, branch_to);
+
+    if(!patch_arm_prepare_syscall_return(&scratch_space, &num_free_instrs,
+                stalker_cache_base, &stalker_cache_cursor)){
+        puts("svc_stalker: failed to");
+        puts("   patch arm_prepare_syscall_return");
+
+        stalker_fatal_error();
+    }
+
+    puts("svc_stalker: patched arm_prepare_syscall_return");
 
 #define IMPORTANT_MSG(x) \
     putchar('*'); \

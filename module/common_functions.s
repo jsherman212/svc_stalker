@@ -95,6 +95,7 @@ stalker_ctl_from_table_done:
 ;
 ; returns: 1 if call number is present inside the stalker_ctl's call list,
 ;   0 otherwise
+; XXX XXX can't I just call get_call_list_slot and see if that's NULL?
 INDICATE_FUNCTION_START
 _should_intercept_call:
     sub sp, sp, 0x70

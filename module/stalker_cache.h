@@ -28,5 +28,7 @@
 #define SVC_STALKER_SYSCTL_MIB_PTR                      (0xb0)
 #define SVC_STALKER_SYSCTL_MIB_COUNT_PTR                (0xb8)
 #define SVC_STALKER_CTL_CALLNUM                         (0xc0)
+#define ARM_PREPARE_SYSCALL_RETURN_FAKESTK_LR           (0xc8)
+#define ARM_PREPARE_SYSCALL_RETURN_HOOK                 (0xd0)
 
 #endif
