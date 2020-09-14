@@ -34,7 +34,7 @@ _main:
     cbz x0, done
 
     ldr x19, [sp, SAVED_STATE_PTR]
-    ldr x0, [x19, 0x88]
+    ldr w0, [x19, 0x88]
     ldr x19, [x28, SHOULD_INTERCEPT_CALL]
     blr x19
     cbz x0, done

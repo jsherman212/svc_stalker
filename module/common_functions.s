@@ -99,7 +99,7 @@ stalker_ctl_from_table_done:
 ; a call number
 ;
 ; parameters:
-;   X0 = SIGNED call number
+;   W0 = SIGNED call number
 ;
 ; returns: boolean
 INDICATE_FUNCTION_START
@@ -113,7 +113,7 @@ _should_intercept_call:
     stp x29, x30, [sp, 0x60]
     add x29, sp, 0x60
 
-    mov x19, x0
+    mov w19, w0
 
     bl _common_fxns_get_stalker_cache
     mov x20, x0
@@ -129,10 +129,10 @@ _should_intercept_call:
     cbz x0, do_not_intercept
 
     ldr x0, [x0, STALKER_CTL_CALL_LIST_OFF]
-    ; empty call list for this stalker_ctl struct?
+    ; no call list for this stalker_ctl struct?
     cbz x0, do_not_intercept
 
-    mov x1, x19
+    mov w1, w19
     bl _get_call_list_slot
     cmp x0, xzr
     mov w0, 1
@@ -227,11 +227,11 @@ _get_call_list_free_slot:
 
     mov x19, x0
     mov w20, CALL_LIST_MAX
-    add x20, x19, w20, lsl 3
+    add x20, x19, w20, lsl 2
 
 find_free_call_list_slot:
-    ldr x21, [x19], 0x8
-    cmp x21, CALL_LIST_FREE_SLOT
+    ldr w21, [x19], 0x4
+    cmp w21, CALL_LIST_FREE_SLOT
     b.eq found_free_call_list_slot
     subs x21, x20, x19
     cbnz x21, find_free_call_list_slot
@@ -241,8 +241,8 @@ full_call_list:
     b get_call_list_free_slot_done
 
 found_free_call_list_slot:
-    ; postindex ldr variant incremented X19 by sizeof(int64_t)
-    sub x0, x19, 0x8 
+    ; postindex ldr variant incremented X19 by sizeof(int32_t)
+    sub x0, x19, 0x4
     ; fall thru
 
 get_call_list_free_slot_done:
@@ -260,7 +260,7 @@ get_call_list_free_slot_done:
 ;
 ; arguments
 ;   X0 = call list pointer
-;   X1 = call number
+;   W1 = call number
 ;
 ; returns: pointer if system call number is found, NULL otherwise
 INDICATE_FUNCTION_START
@@ -276,11 +276,11 @@ _get_call_list_slot:
 
     mov x19, x0
     mov w20, CALL_LIST_MAX
-    add x20, x19, w20, lsl 3
+    add x20, x19, w20, lsl 2
 
 find_call_list_slot:
-    ldr x21, [x19], 0x8
-    cmp x21, x1
+    ldr w21, [x19], 0x4
+    cmp w21, w1
     b.eq found_call_list_slot
     subs x21, x20, x19
     cbnz x21, find_call_list_slot
@@ -290,8 +290,8 @@ not_present_in_call_list:
     b get_call_list_slot_done
 
 found_call_list_slot:
-    ; postindex ldr variant incremented X19 by sizeof(int64_t)
-    sub x0, x19, 0x8 
+    ; postindex ldr variant incremented X19 by sizeof(int32_t)
+    sub x0, x19, 0x4
     ; fall thru
 
 get_call_list_slot_done:

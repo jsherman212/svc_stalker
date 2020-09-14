@@ -138,8 +138,7 @@ call_manage:
 
     ; this stalker_ctl's call list is NULL, kalloc a new one
     mov x0, CALL_LIST_MAX
-    mov w1, 8
-    mul x0, x0, x1                          ; CALL_LIST_MAX*sizeof(int64_t)
+    add x0, xzr, x0, lsl 2                     ; CALL_LIST_MAX*sizeof(int32_t)
     str x0, [sp, CALL_LIST_KALLOC_SZ]
     ; kalloc_canblock expects a pointer for size
     add x0, sp, CALL_LIST_KALLOC_SZ
@@ -157,11 +156,11 @@ call_manage:
     mov x23, CALL_LIST_FREE_SLOT
     mov x24, x0
     mov w25, CALL_LIST_MAX
-    add x25, x24, w25, lsl 3
+    add x25, x24, w25, lsl 2
 
     ; this new call list has all its elems free
 call_list_init_loop:
-    str x23, [x24], 0x8
+    str w23, [x24], 0x4
     subs x26, x25, x24
     cbnz x26, call_list_init_loop
 
@@ -174,20 +173,16 @@ add_call:
     ; no free slots in call list?
     cbz x0, out_einval
     ; X0 = pointer to free slot in call list
-
-    ; user may pass an uncasted literal system call number as ARG2, which
-    ; clang will interpret as a 32 bit int, so sign extend it to 64 bits here
-    ; needed for negative Mach trap numbers
-    ldrsw x22, [x20, ARG2]
+    ldr w22, [x20, ARG2]
     ; X22 = system call user wants to intercept
-    str x22, [x0]
+    str w22, [x0]
 
     b success
 
 delete_call:
     ldr x22, [sp, CUR_STALKER_CTL]
     ldr x0, [x22, STALKER_CTL_CALL_LIST_OFF]
-    ldrsw x1, [x20, ARG2]
+    ldr w1, [x20, ARG2]
     ldr x22, [x28, GET_CALL_LIST_SLOT]
     blr x22
     ; this system call was never added?

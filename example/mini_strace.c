@@ -51,11 +51,16 @@ static void handle_before_call(mach_port_t task, arm_thread_state64_t state,
     kern_return_t kret = KERN_SUCCESS;
 
     long call_num = state.__x[16];
+    /* printf("call_num %ld\n", call_num); */
 
     printf("%d: ", pid);
 
+    /* fork */
+    if(call_num == 2){
+        printf("fork()");
+    }
     /* write */
-    if(call_num == 4){
+    else if(call_num == 4){
         /* write(fd, buf, count)
          *
          * W0 == fd
@@ -104,7 +109,15 @@ static void handle_before_call(mach_port_t task, arm_thread_state64_t state,
     }
     /* getpid */
     else if(call_num == 20){
-        printf("Spoofing getpid() return value\n");
+        printf("getpid()");
+        /* printf("Spoofing getpid() return value\n"); */
+    }
+    /* a platform syscall, specific number is in X3 */
+    else if(call_num == 0x80000000){
+        uint64_t ps_call_num = state.__x[3];
+
+        if(ps_call_num == 3)
+            printf("thread_get_cthread_self() = ");
     }
     /* mach_msg_trap */
     else if(call_num == -31){
@@ -122,8 +135,16 @@ static void handle_before_call(mach_port_t task, arm_thread_state64_t state,
 
 static void handle_call_completion(mach_port_t task, mach_port_t thread,
         arm_thread_state64_t state, pid_t pid){
-    long call_num = state.__x[16];
+    int call_num = (int)state.__x[16];
 
+    /* fork */
+    if(call_num == 2){
+        /* since we're catching syscalls for the parent process, fork should
+         * be returning child pid here
+         */
+        pid_t child_pid = (pid_t)state.__x[0];
+        printf(" = %d\n", child_pid);
+    }
     /* write */
     if(call_num == 4){
         size_t bytes_written = state.__x[0];
@@ -141,16 +162,20 @@ static void handle_call_completion(mach_port_t task, mach_port_t thread,
     }
     /* getpid */
     else if(call_num == 20){
-        pid_t pid = (pid_t)state.__x[0];
-        state.__x[0] = 0x41414141;
-        mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT;
-        kern_return_t kret = thread_set_state(thread, ARM_THREAD_STATE64,
-                (thread_state_t)&state, count);
-        if(kret){
-            printf("%s: thread_set_state failed: %s\n", __func__,
-                    mach_error_string(kret));
-        }
-        /* printf(" = %d\n", pid); */
+        /* pid_t pid = (pid_t)state.__x[0]; */
+        /* state.__x[0] = 0x41414141; */
+        /* mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT; */
+        /* kern_return_t kret = thread_set_state(thread, ARM_THREAD_STATE64, */
+        /*         (thread_state_t)&state, count); */
+        /* if(kret){ */
+        /*     printf("%s: thread_set_state failed: %s\n", __func__, */
+        /*             mach_error_string(kret)); */
+        /* } */
+        printf(" = %d\n", pid);
+    }
+    else if(call_num == 0x80000000){
+        uint64_t ret = state.__x[0];
+        printf(" = %#llx\n", ret);
     }
     /* /1* mach_msg_trap *1/ */
     /* else if(call_num == -31){ */
@@ -297,6 +322,8 @@ int main(int argc, char **argv){
         return 1;
     }
 
+    /* ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 0x80000000, 1); */
+
     /* register some call numbers to intercept */
     /* write */
     ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 4, 1);
@@ -332,7 +359,28 @@ int main(int argc, char **argv){
     ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 20, 1);
 
     if(ret){
-        printf("Couldn't register getpid: %s\n", strerror(errno));
+        printf("couldn't register getpid: %s\n", strerror(errno));
+        /* always unregister */
+        syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
+        return 1;
+    }
+
+    /* fork */
+    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 2, 1);
+
+    if(ret){
+        printf("couldn't register getpid: %s\n", strerror(errno));
+        /* always unregister */
+        syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
+        return 1;
+    }
+
+    /* platform syscalls */
+    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 0x80000000, 1);
+    /* ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, -3, 1); */
+
+    if(ret){
+        printf("Couldn't register for platform syscalls: %s\n", strerror(errno));
         /* always unregister */
         syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
         return 1;

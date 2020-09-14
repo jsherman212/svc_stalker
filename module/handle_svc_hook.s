@@ -102,21 +102,21 @@ maybeintercept:
     ; TODO re-implement the sanity checks we overwrote
 
     ldr x19, [sp, SAVED_STATE_PTR]
-    ldr x0, [x19, 0x88]
+    ldr w0, [x19, 0x88]
     ldr x19, [x28, SHOULD_INTERCEPT_CALL]
     blr x19
     cbz x0, done
 
-    ldr x21, [x28, CURRENT_PROC]
-    blr x21
-    ldr x21, [x28, PROC_PID]
-    blr x21
+    ldr x19, [x28, CURRENT_PROC]
+    blr x19
+    ldr x19, [x28, PROC_PID]
+    blr x19
     mov w1, w0
     mov x0, EXC_SYSCALL
     mov x3, EXC_MACH_SYSCALL
     ldr x2, [sp, SAVED_STATE_PTR]
-    ldr x2, [x2, 0x88]                      ; X16, system call number
-    cmp x2, 0
+    ldr w2, [x2, 0x88]                      ; X16, call number
+    cmp w2, wzr
     csel x0, x3, x0, lt                     ; exception
     mov w2, BEFORE_CALL                     ; if we're here, this call has
                                             ; not happened yet

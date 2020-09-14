@@ -107,7 +107,7 @@ system calls/Mach traps for.
 interception enabled yet.
 - There are no more free slots in the internally-managed list of system
 calls/Mach traps to intercept for a given PID. This should never happen, as the limit
-is much, much higher than the number of available system calls/Mach traps.
+is much, much higher (0x400) than the number of available system calls/Mach traps.
 - You tried to turn off interception for a system call/Mach trap which
 never had it on to begin with.
 
