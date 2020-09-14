@@ -79,7 +79,7 @@ no_stalker_ctl:
     b stalker_ctl_from_table_done 
 
 found_stalker_ctl:
-    ; postindex ldr varient incremented X19 by SIZEOF_STRUCT_STALKER_CTL
+    ; postindex ldr variant incremented X19 by SIZEOF_STRUCT_STALKER_CTL
     sub x19, x19, SIZEOF_STRUCT_STALKER_CTL
     ; get off of PID field
     sub x0, x19, STALKER_CTL_PID_OFF
@@ -99,11 +99,9 @@ stalker_ctl_from_table_done:
 ; a call number
 ;
 ; parameters:
-;   X0 = stalker_ctl struct pointer
-;   X1 = call number
+;   X0 = SIGNED call number
 ;
-; returns: 1 if call number is present inside the stalker_ctl's call list,
-;   0 otherwise
+; returns: boolean
 INDICATE_FUNCTION_START
 _should_intercept_call:
     sub sp, sp, 0x70
@@ -115,13 +113,27 @@ _should_intercept_call:
     stp x29, x30, [sp, 0x60]
     add x29, sp, 0x60
 
-    ; empty system call list for this stalker_ctl struct pointer?
-    ldr x19, [x0, STALKER_CTL_CALL_LIST_OFF]
-    cbz x19, do_not_intercept
+    mov x19, x0
 
-    mov x0, x19
+    bl _common_fxns_get_stalker_cache
+    mov x20, x0
+
+    ldr x21, [x20, CURRENT_PROC]
+    blr x21
+    ldr x21, [x20, PROC_PID]
+    blr x21
+    mov w1, w0
+    ldr x0, [x20, STALKER_TABLE_PTR]
+    bl _stalker_ctl_from_table
+    ; no stalker_ctl struct for this process?
+    cbz x0, do_not_intercept
+
+    ldr x0, [x0, STALKER_CTL_CALL_LIST_OFF]
+    ; empty call list for this stalker_ctl struct?
+    cbz x0, do_not_intercept
+
+    mov x1, x19
     bl _get_call_list_slot
-
     cmp x0, xzr
     mov w0, 1
     csel w0, w0, wzr, ne
@@ -181,7 +193,7 @@ full_table:
     b get_nearest_free_stalker_ctl_done
 
 found_free_stalker_ctl:
-    ; postindex ldr varient incremented X19 by SIZEOF_STRUCT_STALKER_CTL
+    ; postindex ldr variant incremented X19 by SIZEOF_STRUCT_STALKER_CTL
     sub x0, x19, SIZEOF_STRUCT_STALKER_CTL
     ; fall thru
 
@@ -229,7 +241,7 @@ full_call_list:
     b get_call_list_free_slot_done
 
 found_free_call_list_slot:
-    ; postindex ldr varient incremented X19 by sizeof(int64_t)
+    ; postindex ldr variant incremented X19 by sizeof(int64_t)
     sub x0, x19, 0x8 
     ; fall thru
 
@@ -278,7 +290,7 @@ not_present_in_call_list:
     b get_call_list_slot_done
 
 found_call_list_slot:
-    ; postindex ldr varient incremented X19 by sizeof(int64_t)
+    ; postindex ldr variant incremented X19 by sizeof(int64_t)
     sub x0, x19, 0x8 
     ; fall thru
 
@@ -326,6 +338,37 @@ _is_sysctl_registered:
     ldp x29, x30, [sp, 0x20]
     ldp x20, x19, [sp, 0x10]
     ldp x22, x21, [sp]
+    add sp, sp, 0x30
+    ret
+
+; this function calls exception_triage
+;
+; Arguments
+;   X0, exception type
+;   W1, pid
+;   W2, BEFORE_CALL or CALL_COMPLETED
+;
+; Returns: nothing (exception_triage return value is ignored)
+INDICATE_FUNCTION_START
+_send_exception_msg:
+    sub sp, sp, 0x30
+    stp x20, x19, [sp, 0x10]
+    stp x29, x30, [sp, 0x20]
+    add x29, sp, 0x20
+
+    mov x19, x0
+
+    bl _common_fxns_get_stalker_cache
+
+    stp x1, x2, [sp]                    ; code
+    mov x1, sp
+    mov w2, 0x2                         ; codeCnt
+    ldr x20, [x0, EXCEPTION_TRIAGE]
+    mov x0, x19                         ; exception
+    blr x20
+
+    ldp x29, x30, [sp, 0x20]
+    ldp x20, x19, [sp, 0x10]
     add sp, sp, 0x30
     ret
 

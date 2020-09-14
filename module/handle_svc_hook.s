@@ -24,19 +24,6 @@ _main:
     ; XXX from now on, X28 == stalker cache pointer, do not modify X28
     ldr x28, [x19]
 
-    ; ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
-    ; ldr x0, [x0]
-    ; ldr x19, [x28, LCK_RW_LOCK_SHARED]
-    ; blr x19
-    ; ldr x19, [x28, STALKER_TABLE_PTR]
-    ; ldr x20, [x19, STALKER_TABLE_REGISTERED_SYSCTL_OFF]
-    ; ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
-    ; ldr x0, [x0]
-    ; ldr x19, [x28, LCK_RW_DONE]
-    ; blr x19
-    ; ; if we've already registered the sysctl, don't do it again
-    ; cbnz x20, maybeintercept
-
     ldr x19, [x28, IS_SYSCTL_REGISTERED]
     blr x19
     ; if we've already registered the sysctl, don't do it again
@@ -112,44 +99,28 @@ _main:
     blr x19
 
 maybeintercept:
-    ; figure out if the system call made by this PID should be
-    ; reported back to userland
-    ldr x19, [x28, CURRENT_PROC]
-    blr x19
-    ldr x19, [x28, PROC_PID]
-    blr x19
-    str w0, [sp, CUR_PID]
-    mov w1, w0
-    ldr x0, [x28, STALKER_TABLE_PTR]
-    ldr x19, [x28, STALKER_CTL_FROM_TABLE]
-    blr x19
-    ; user doesn't want to intercept any system calls from this pid, bail
-    cbz x0, done
-    ; does the user want this system call to be intercepted?
-    ldr x19, [sp, SAVED_STATE_PTR]
-    ldr x1, [x19, 0x88]
-    ; X0 = pointer to stalker_ctl struct for proc_pid(current_proc())
-    ldr x19, [x28, SHOULD_INTERCEPT_CALL]
-    blr x19
-    ; if user does not want this system call intercepted, we're done
-    cbz x0, done
-
     ; TODO re-implement the sanity checks we overwrote
 
+    ldr x19, [sp, SAVED_STATE_PTR]
+    ldr x0, [x19, 0x88]
+    ldr x19, [x28, SHOULD_INTERCEPT_CALL]
+    blr x19
+    cbz x0, done
+
+    ldr x21, [x28, CURRENT_PROC]
+    blr x21
+    ldr x21, [x28, PROC_PID]
+    blr x21
+    mov w1, w0
     mov x0, EXC_SYSCALL
-    mov x1, EXC_MACH_SYSCALL
+    mov x3, EXC_MACH_SYSCALL
     ldr x2, [sp, SAVED_STATE_PTR]
     ldr x2, [x2, 0x88]                      ; X16, system call number
     cmp x2, 0
-    csel x0, x1, x0, lt                     ; exception
-    ldr w2, [sp, CUR_PID]
-    str x2, [sp, EXC_CODES]                 ; pid which made the call
+    csel x0, x3, x0, lt                     ; exception
     mov w2, BEFORE_CALL                     ; if we're here, this call has
                                             ; not happened yet
-    str x2, [sp, EXC_CODES+0x8]
-    add x1, sp, EXC_CODES                   ; code
-    mov w2, 2                               ; codeCnt
-    ldr x19, [x28, EXCEPTION_TRIAGE]
+    ldr x19, [x28, SEND_EXCEPTION_MSG]
     blr x19
 
 done:

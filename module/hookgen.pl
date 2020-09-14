@@ -17,7 +17,7 @@ printf(HEADER "#define $macroname \\\n");
 my $curlabel;
 my $num_instrs = 0;
 my @function_starts;
-# my $cur_kaddr = 0xFFFFFFF0235E0060;
+my $cur_kaddr = 0xFFFFFFF016DF0068;
 
 while(my $line = <DISFILE>){
     chomp($line);
@@ -36,8 +36,8 @@ while(my $line = <DISFILE>){
             push(@function_starts, ($num_instrs+1)*4);
         }
 
-        # printf(HEADER "WRITE_INSTR($cur_instr); /* %#x    %-30s*/", $cur_kaddr, "$5");
-        printf(HEADER "WRITE_INSTR($cur_instr); /*        %-30s*/", "$5");
+        printf(HEADER "WRITE_INSTR($cur_instr); /* %#x    %-30s*/", $cur_kaddr, "$5");
+        # printf(HEADER "WRITE_INSTR($cur_instr); /*        %-30s*/", "$5");
 
         $cur_kaddr += 4;
         $num_instrs += 1;
