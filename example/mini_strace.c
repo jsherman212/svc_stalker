@@ -102,6 +102,10 @@ static void handle_before_call(mach_port_t task, arm_thread_state64_t state,
 
         printf("(\"%s\", %#x)", buf, (uint32_t)state.__x[1]);
     }
+    /* getpid */
+    else if(call_num == 20){
+        printf("Spoofing getpid() return value\n");
+    }
     /* mach_msg_trap */
     else if(call_num == -31){
         printf("mach_msg(%#llx, %#x, %#x, %#x, %#x, %#x, %#x)\n", state.__x[0],
@@ -116,8 +120,8 @@ static void handle_before_call(mach_port_t task, arm_thread_state64_t state,
     }
 }
 
-static void handle_call_completion(mach_port_t task, arm_thread_state64_t state,
-        pid_t pid){
+static void handle_call_completion(mach_port_t task, mach_port_t thread,
+        arm_thread_state64_t state, pid_t pid){
     long call_num = state.__x[16];
 
     /* write */
@@ -134,6 +138,19 @@ static void handle_call_completion(mach_port_t task, arm_thread_state64_t state,
     else if(call_num == 33){
         int retval = (int)state.__x[0];
         printf(" = %d\n", retval);
+    }
+    /* getpid */
+    else if(call_num == 20){
+        pid_t pid = (pid_t)state.__x[0];
+        state.__x[0] = 0x41414141;
+        mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT;
+        kern_return_t kret = thread_set_state(thread, ARM_THREAD_STATE64,
+                (thread_state_t)&state, count);
+        if(kret){
+            printf("%s: thread_set_state failed: %s\n", __func__,
+                    mach_error_string(kret));
+        }
+        /* printf(" = %d\n", pid); */
     }
     /* /1* mach_msg_trap *1/ */
     /* else if(call_num == -31){ */
@@ -175,7 +192,7 @@ kern_return_t catch_mach_exception_raise(mach_port_t exception_port,
     if(call_status == BEFORE_CALL)
         handle_before_call(task, state, pid);
     else
-        handle_call_completion(task, state, pid);
+        handle_call_completion(task, thread, state, pid);
 
     /* always return KERN_SUCCESS to let the kernel know you've handled
      * this exception
@@ -306,6 +323,16 @@ int main(int argc, char **argv){
 
     if(ret){
         printf("Couldn't register access: %s\n", strerror(errno));
+        /* always unregister */
+        syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
+        return 1;
+    }
+
+    /* getpid */
+    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 20, 1);
+
+    if(ret){
+        printf("Couldn't register getpid: %s\n", strerror(errno));
         /* always unregister */
         syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
         return 1;

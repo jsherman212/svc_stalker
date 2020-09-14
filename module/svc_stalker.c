@@ -154,10 +154,11 @@ static uint64_t g_lck_rw_lock_shared_addr = 0;
 static uint64_t g_lck_rw_done_addr = 0;
 static uint64_t g_h_s_c_sbn_branch_addr = 0;
 static uint64_t g_h_s_c_sbn_epilogue_addr = 0;
+static uint64_t g_arm_prepare_syscall_return_addr = 0;
 
 static bool g_patched_mach_syscall = false;
 
-/* confirmed working on all kernels 13.0-13.6.1 */
+/* confirmed working on all kernels 13.0-13.7 */
 static bool proc_pid_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -186,7 +187,7 @@ static bool proc_pid_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6.1 */
+/* confirmed working on all kernels 13.0-13.7 */
 static bool sysent_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -232,7 +233,7 @@ static bool sysent_finder(xnu_pf_patch_t *patch,
     return false;
 }
 
-/* confirmed working on all kernels 13.0-13.6.1 */
+/* confirmed working on all kernels 13.0-13.7 */
 static bool kalloc_canblock_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -260,7 +261,7 @@ static bool kalloc_canblock_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6.1 */
+/* confirmed working on all kernels 13.0-13.7 */
 static bool kfree_addr_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -320,7 +321,7 @@ static bool kfree_addr_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6.1 */
+/* confirmed working on all kernels 13.0-13.7 */
 static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -411,7 +412,7 @@ static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6.1 */
+/* confirmed working on all kernels 13.0-13.7 */
 static bool ExceptionVectorsBase_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     /* According to XNU source, _ExceptionVectorsBase is page aligned. We're
@@ -467,7 +468,7 @@ static bool ExceptionVectorsBase_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6.1 */
+/* confirmed working on all kernels 13.0-13.7 */
 static bool sysctl__kern_children_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -502,7 +503,7 @@ static bool sysctl__kern_children_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6.1 */
+/* confirmed working on all kernels 13.0-13.7 */
 static bool sysctl_register_oid_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     xnu_pf_disable_patch(patch);
@@ -520,7 +521,7 @@ static bool sysctl_register_oid_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6.1 */
+/* confirmed working on all kernels 13.0-13.7 */
 static bool sysctl_handle_long_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -539,7 +540,7 @@ static bool sysctl_handle_long_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6.1 */
+/* confirmed working on all kernels 13.0-13.7 */
 static bool name2oid_and_its_dependencies_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -578,7 +579,7 @@ static bool name2oid_and_its_dependencies_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6.1 */
+/* confirmed working on all kernels 13.0-13.7 */
 static bool hook_system_check_sysctlbyname_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -628,7 +629,22 @@ static bool hook_system_check_sysctlbyname_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6.1 */
+/* confirmed working on all kernels 13.0-13.7 */
+static bool arm_prepare_syscall_return_finder(xnu_pf_patch_t *patch,
+        void *cacheable_stream){
+    /* we're guarenteed to be at the beginning of arm_prepare_syscall_return's
+     * function prologue, which is where we're writing the branch
+     */
+    xnu_pf_disable_patch(patch);
+
+    g_arm_prepare_syscall_return_addr = xnu_ptr_to_va(cacheable_stream);
+
+    puts("svc_stalker: found arm_prepare_syscall_return");
+
+    return true;
+}
+
+/* confirmed working on all kernels 13.0-13.7 */
 static bool patch_exception_triage_thread(uint32_t *opcode_stream){
     /* patch exception_triage_thread to return to its caller on EXC_SYSCALL and
      * EXC_MACH_SYSCALL
@@ -805,7 +821,8 @@ static void anything_missing(void){
             g_sysctl_register_oid_addr == 0 || g_sysctl_handle_long_addr == 0 ||
             g_name2oid_addr == 0 || g_sysctl_geometry_lock_addr == 0 ||
             g_lck_rw_lock_shared_addr == 0 || g_lck_rw_done_addr == 0 ||
-            g_h_s_c_sbn_branch_addr == 0 || g_h_s_c_sbn_epilogue_addr == 0){
+            g_h_s_c_sbn_branch_addr == 0 || g_h_s_c_sbn_epilogue_addr == 0 ||
+            g_arm_prepare_syscall_return_addr == 0){
         puts("svc_stalker: error(s) before");
         puts("     we continue:");
         
@@ -871,6 +888,11 @@ static void anything_missing(void){
             puts("     not found");
         }
 
+        if(g_arm_prepare_syscall_return_addr == 0){
+            puts("   arm_prepare_syscall_return");
+            puts("     not found");
+        }
+
         stalker_fatal_error();
     }
 }
@@ -929,6 +951,7 @@ static uint64_t *create_stalker_cache(uint64_t **stalker_cache_base_out){
     return cursor;
 }
 
+/* confirmed working on all kernels 13.0-13.7 */
 static bool patch_arm_prepare_syscall_return(uint32_t **scratch_space_out,
         uint64_t *num_free_instrs_out, uint64_t *stalker_cache_base,
         uint64_t **stalker_cache_cursor_out){
@@ -944,8 +967,7 @@ static bool patch_arm_prepare_syscall_return(uint32_t **scratch_space_out,
     /* allow apsr_fakestk access to stalker cache */
     WRITE_QWORD_TO_SCRATCH_SPACE(xnu_ptr_to_va(stalker_cache_base));
 
-    /* XXX iphone 8 13.6.1 */
-    uint32_t *branch_from = xnu_va_to_ptr(0xFFFFFFF0080E84D8 + kernel_slide);
+    uint32_t *branch_from = xnu_va_to_ptr(g_arm_prepare_syscall_return_addr);
     uint64_t branch_to = (uint64_t)scratch_space;
 
     *branch_from = assemble_b((uint64_t)branch_from, branch_to);
@@ -975,7 +997,7 @@ static bool patch_arm_prepare_syscall_return(uint32_t **scratch_space_out,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.6.1
+/* confirmed working on all kernels 13.0-13.7
  *
  * TODO divide functionality into more functions this function is gigantic
  */
@@ -1800,6 +1822,29 @@ static void stalker_prep(const char *cmd, char *args){
             hook_system_check_sysctlbyname_finder_masks,
             num_hook_system_check_sysctlbyname_finder_matches, false,
             hook_system_check_sysctlbyname_finder);
+
+    uint64_t arm_prepare_syscall_return_finder_matches[] = {
+        0xa9bf7bfd,     /* stp x29, x30, [sp, -0x10]! */
+        0x910003fd,     /* mov x29, sp */
+        0xb9400028,     /* ldr w8, [x1] */
+        0x7100511f,     /* cmp w8, 0x14 */
+    };
+
+    const size_t num_arm_prepare_syscall_return_finder_matches =
+        sizeof(arm_prepare_syscall_return_finder_matches) /
+        sizeof(*arm_prepare_syscall_return_finder_matches);
+
+    uint64_t arm_prepare_syscall_return_finder_masks[] = {
+        0xffffffff,     /* match exactly */
+        0xffffffff,     /* match exactly */
+        0xffffffff,     /* match exactly */
+        0xffffffff,     /* match exactly */
+    };
+
+    xnu_pf_maskmatch(patchset, arm_prepare_syscall_return_finder_matches,
+            arm_prepare_syscall_return_finder_masks,
+            num_arm_prepare_syscall_return_finder_matches, false,
+            arm_prepare_syscall_return_finder);
 
     /* AMFI for proc_pid */
     struct mach_header_64 *AMFI = xnu_pf_get_kext_header(mh_execute_header,

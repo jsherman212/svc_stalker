@@ -28,8 +28,7 @@ _main:
     ; fake stack frame to return to arm_prepare_syscall_return_hook
     stp x29, x9, [sp, -0x10]!
 
-    ; XXX XXX when doing patchfinder unit tests make sure that
-    ; the instruction we return to is MOV X29, SP for every kernel!!!
+    ; verified: we are returning to mov x29, sp for all kernels 13.0-13.7
 
     ; return back to where we branched from in arm_prepare_syscall_return
     ldr x8, [x8, ARM_PREPARE_SYSCALL_RETURN_FAKESTK_LR]
