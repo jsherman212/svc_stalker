@@ -176,6 +176,14 @@ static void handle_call_completion(mach_port_t task, mach_port_t thread,
     else if(call_num == 0x80000000){
         uint64_t ret = state.__x[0];
         printf(" = %#llx\n", ret);
+        state.__x[0] = 0x41414141;
+        mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT;
+        kern_return_t kret = thread_set_state(thread, ARM_THREAD_STATE64,
+                (thread_state_t)&state, count);
+        if(kret){
+            printf("%s: thread_set_state failed: %s\n", __func__,
+                    mach_error_string(kret));
+        }
     }
     /* /1* mach_msg_trap *1/ */
     /* else if(call_num == -31){ */

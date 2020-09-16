@@ -1,9 +1,9 @@
-#ifndef ARM_PREPARE_SYSCALL_RETURN_HOOK_H
-#define ARM_PREPARE_SYSCALL_RETURN_HOOK_H
+#ifndef THREAD_EXCEPTION_RETURN_HOOK
+#define THREAD_EXCEPTION_RETURN_HOOK
 
 #define STACK                       (0x200)
 
-#define NUM_INSTRS_BEFORE_CACHE     (9)
+#define NUM_INSTRS_BEFORE_CACHE     (4)
 #define STALKER_CACHE_PTR_PTR       (-((4*NUM_INSTRS_BEFORE_CACHE)+8))
 
 /* local variables */
@@ -15,5 +15,7 @@
 #define EXC_SYSCALL                 (7)
 
 #define CALL_COMPLETED              (1)
+
+#define PLATFORM_SYSCALL_HOOK_X28   (0xface)
 
 #endif
