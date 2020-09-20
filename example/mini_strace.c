@@ -121,14 +121,14 @@ static void handle_before_call(mach_port_t task, arm_thread_state64_t state,
     }
     /* mach_msg_trap */
     else if(call_num == -31){
-        printf("mach_msg(%#llx, %#x, %#x, %#x, %#x, %#x, %#x)\n", state.__x[0],
+        printf("mach_msg(%#llx, %#x, %#x, %#x, %#x, %#x, %#x)", state.__x[0],
                 (uint32_t)state.__x[1], (uint32_t)state.__x[2],
                 (uint32_t)state.__x[3], (uint32_t)state.__x[4],
                 (uint32_t)state.__x[5], (uint32_t)state.__x[6]);
     }
     /* _kernelrpc_mach_port_allocate_trap */
     else if(call_num == -16){
-        printf("_kernelrpc_mach_port_allocate_trap(%#x, %#x, %#llx)\n",
+        printf("_kernelrpc_mach_port_allocate_trap(%#x, %#x, %#llx)",
                 (uint32_t)state.__x[0], (uint32_t)state.__x[1], state.__x[2]);
     }
 }
@@ -136,6 +136,10 @@ static void handle_before_call(mach_port_t task, arm_thread_state64_t state,
 static void handle_call_completion(mach_port_t task, mach_port_t thread,
         arm_thread_state64_t state, pid_t pid){
     int call_num = (int)state.__x[16];
+
+    /* printf("call num %d\n", call_num); */
+
+    /* printf(" = %d", pid); */
 
     /* fork */
     if(call_num == 2){
@@ -185,18 +189,16 @@ static void handle_call_completion(mach_port_t task, mach_port_t thread,
                     mach_error_string(kret));
         }
     }
-    /* /1* mach_msg_trap *1/ */
-    /* else if(call_num == -31){ */
-    /*     printf("mach_msg(%#llx, %#x, %#x, %#x, %#x, %#x, %#x)\n", state.__x[0], */
-    /*             (uint32_t)state.__x[1], (uint32_t)state.__x[2], */
-    /*             (uint32_t)state.__x[3], (uint32_t)state.__x[4], */
-    /*             (uint32_t)state.__x[5], (uint32_t)state.__x[6]); */
-    /* } */
-    /* /1* _kernelrpc_mach_port_allocate_trap *1/ */
-    /* else if(call_num == -16){ */
-    /*     printf("_kernelrpc_mach_port_allocate_trap(%#x, %#x, %#llx)\n", */
-    /*             (uint32_t)state.__x[0], (uint32_t)state.__x[1], state.__x[2]); */
-    /* } */
+    /* mach_msg_trap */
+    else if(call_num == -31){
+        kern_return_t retval = (kern_return_t)state.__x[0];
+        printf(" = %s\n", mach_error_string(retval));
+    }
+    /* _kernelrpc_mach_port_allocate_trap */
+    else if(call_num == -16){
+        kern_return_t retval = (kern_return_t)state.__x[0];
+        printf(" = %s\n", mach_error_string(retval));
+    }
 }
 
 kern_return_t catch_mach_exception_raise(mach_port_t exception_port,

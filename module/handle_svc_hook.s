@@ -24,6 +24,10 @@ _main:
     ; XXX from now on, X28 == stalker cache pointer, do not modify X28
     ldr x28, [x19]
 
+    ldr x19, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
+    ldr x19, [x19]
+    cbz x19, done
+
     ldr x19, [x28, IS_SYSCTL_REGISTERED]
     blr x19
     ; if we've already registered the sysctl, don't do it again
@@ -92,20 +96,25 @@ _main:
     ldr x19, [x28, NAME2OID]
     blr x19
     ldr x19, [x28, STALKER_TABLE_PTR]
-    mov x20, 1
+    mov x20, 0x1
     str x20, [x19, STALKER_TABLE_REGISTERED_SYSCTL_OFF]
     mov x0, x21
     ldr x19, [x28, LCK_RW_DONE]
     blr x19
 
 maybeintercept:
+    ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
+    ldr x0, [x0]
+    ldr x19, [x28, LCK_RW_LOCK_SHARED]
+    blr x19
     ; TODO re-implement the sanity checks we overwrote
 
     ldr x19, [sp, SAVED_STATE_PTR]
     ldr w0, [x19, 0x88]
     ldr x19, [x28, SHOULD_INTERCEPT_CALL]
     blr x19
-    cbz x0, done
+    ; cbz x0, done
+    cbz x0, unlock
 
     ldr x19, [x28, CURRENT_PROC]
     blr x19
@@ -121,6 +130,12 @@ maybeintercept:
     mov w2, BEFORE_CALL                     ; if we're here, this call has
                                             ; not happened yet
     ldr x19, [x28, SEND_EXCEPTION_MSG]
+    blr x19
+
+unlock:
+    ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
+    ldr x0, [x0]
+    ldr x19, [x28, LCK_RW_DONE]
     blr x19
 
 done:

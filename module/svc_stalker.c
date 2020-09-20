@@ -1,15 +1,16 @@
 #include <sys/sysctl.h>
 
-#include "arm_prepare_syscall_return_hook_instrs.h"
-#include "arm_prepare_syscall_return_fakestk_instrs.h"
+/* #include "arm_prepare_syscall_return_hook_instrs.h" */
+/* #include "arm_prepare_syscall_return_fakestk_instrs.h" */
 #include "common_functions_instrs.h"
+/* #include "exception_return_unint_tpidr_x3_hook_instrs.h" */
 #include "handle_svc_hook_instrs.h"
 #include "hook_system_check_sysctlbyname_hook_instrs.h"
-#include "platform_syscall_hook_instrs.h"
+/* #include "platform_syscall_hook_instrs.h" */
 #include "pongo.h"
 #include "stalker_table.h"
 #include "svc_stalker_ctl_instrs.h"
-#include "thread_exception_return_hook_instrs.h"
+/* #include "thread_exception_return_hook_instrs.h" */
 
 #define PAGE_SIZE (0x4000)
 
@@ -815,37 +816,45 @@ static uint32_t *write_h_s_c_sbn_h_instrs(uint32_t *scratch_space,
     return scratch_space;
 }
 
-static uint32_t *write_apsr_fakestk_instrs(uint32_t *scratch_space,
-        uint64_t *num_free_instrsp){
-    uint64_t num_free_instrs = *num_free_instrsp;
-    WRITE_ARM_PREPARE_SYSCALL_RETURN_FAKESTK_INSTRS;
-    *num_free_instrsp = num_free_instrs;
-    return scratch_space;
-}
+/* static uint32_t *write_apsr_fakestk_instrs(uint32_t *scratch_space, */
+/*         uint64_t *num_free_instrsp){ */
+/*     uint64_t num_free_instrs = *num_free_instrsp; */
+/*     WRITE_ARM_PREPARE_SYSCALL_RETURN_FAKESTK_INSTRS; */
+/*     *num_free_instrsp = num_free_instrs; */
+/*     return scratch_space; */
+/* } */
 
-static uint32_t *write_apsr_hook_instrs(uint32_t *scratch_space,
-        uint64_t *num_free_instrsp){
-    uint64_t num_free_instrs = *num_free_instrsp;
-    WRITE_ARM_PREPARE_SYSCALL_RETURN_HOOK_INSTRS;
-    *num_free_instrsp = num_free_instrs;
-    return scratch_space;
-}
+/* static uint32_t *write_apsr_hook_instrs(uint32_t *scratch_space, */
+/*         uint64_t *num_free_instrsp){ */
+/*     uint64_t num_free_instrs = *num_free_instrsp; */
+/*     WRITE_ARM_PREPARE_SYSCALL_RETURN_HOOK_INSTRS; */
+/*     *num_free_instrsp = num_free_instrs; */
+/*     return scratch_space; */
+/* } */
 
-static uint32_t *write_platform_syscall_hook_instrs(uint32_t *scratch_space,
-        uint64_t *num_free_instrsp){
-    uint64_t num_free_instrs = *num_free_instrsp;
-    WRITE_PLATFORM_SYSCALL_HOOK_INSTRS;
-    *num_free_instrsp = num_free_instrs;
-    return scratch_space;
-}
+/* static uint32_t *write_platform_syscall_hook_instrs(uint32_t *scratch_space, */
+/*         uint64_t *num_free_instrsp){ */
+/*     uint64_t num_free_instrs = *num_free_instrsp; */
+/*     WRITE_PLATFORM_SYSCALL_HOOK_INSTRS; */
+/*     *num_free_instrsp = num_free_instrs; */
+/*     return scratch_space; */
+/* } */
 
-static uint32_t *write_thread_exception_return_hook_instrs(uint32_t *scratch_space,
-        uint64_t *num_free_instrsp){
-    uint64_t num_free_instrs = *num_free_instrsp;
-    WRITE_THREAD_EXCEPTION_RETURN_HOOK_INSTRS;
-    *num_free_instrsp = num_free_instrs;
-    return scratch_space;
-}
+/* static uint32_t *write_thread_exception_return_hook_instrs(uint32_t *scratch_space, */
+/*         uint64_t *num_free_instrsp){ */
+/*     uint64_t num_free_instrs = *num_free_instrsp; */
+/*     WRITE_THREAD_EXCEPTION_RETURN_HOOK_INSTRS; */
+/*     *num_free_instrsp = num_free_instrs; */
+/*     return scratch_space; */
+/* } */
+
+/* static uint32_t *write_eru_tpidr_x3_instrs(uint32_t *scratch_space, */
+/*         uint64_t *num_free_instrsp){ */
+/*     uint64_t num_free_instrs = *num_free_instrsp; */
+/*     WRITE_EXCEPTION_RETURN_UNINT_TPIDR_X3_HOOK_INSTRS; */
+/*     *num_free_instrsp = num_free_instrs; */
+/*     return scratch_space; */
+/* } */
 
 static void anything_missing(void){
     if(g_proc_pid_addr == 0 || g_sysent_addr == 0 ||
@@ -986,9 +995,12 @@ static uint64_t *create_stalker_cache(uint64_t **stalker_cache_base_out){
     STALKER_CACHE_WRITE(cursor, g_lck_rw_lock_shared_addr);
     STALKER_CACHE_WRITE(cursor, g_lck_rw_done_addr);
     STALKER_CACHE_WRITE(cursor, g_h_s_c_sbn_epilogue_addr);
+    STALKER_CACHE_WRITE(cursor, g_arm_prepare_syscall_return_addr);
 
     return cursor;
 }
+
+#if 0
 
 /* confirmed working on all kernels 13.0-13.7 */
 static bool patch_arm_prepare_syscall_return(uint32_t **scratch_space_out,
@@ -1075,6 +1087,8 @@ static bool patch_thread_exception_return(uint32_t **scratch_space_out,
     uint64_t *stalker_cache_cursor = *stalker_cache_cursor_out;
 
     uint32_t *branch_from = xnu_va_to_ptr(g_thread_exception_return_addr);
+    /* exception_return_unint_tpidr_x3 */
+    /* uint32_t *branch_from = xnu_va_to_ptr(0xFFFFFFF0081FD860+kernel_slide); */
     /* save the instr we're about to overwrite */
     uint32_t replaced_instr = *branch_from;
 
@@ -1098,6 +1112,48 @@ static bool patch_thread_exception_return(uint32_t **scratch_space_out,
 
     return true;
 }
+
+static bool patch_eru_tpidr_x3(uint32_t **scratch_space_out,
+        uint64_t *num_free_instrs_out, uint64_t *stalker_cache_base,
+        uint64_t **stalker_cache_cursor_out){
+    uint32_t *scratch_space = *scratch_space_out;
+    uint64_t num_free_instrs = *num_free_instrs_out;
+    uint64_t *stalker_cache_cursor = *stalker_cache_cursor_out;
+
+    /* exception_return_unint_tpidr_x3 */
+    /* iphone 8 13.6.1 */
+    /* uint32_t *branch_from = xnu_va_to_ptr(0xFFFFFFF0081FD860+kernel_slide); */
+    /* exception_return_dispatch */
+    /* uint32_t *branch_from = xnu_va_to_ptr(0xFFFFFFF0081FD7C4+kernel_slide); */
+    /* check_user_asts, didn't panic at boot */
+    uint32_t *branch_from = xnu_va_to_ptr(0xFFFFFFF0081FD824+kernel_slide);
+    /* save the instr we're about to overwrite */
+    uint32_t replaced_instr = *branch_from;
+
+    /* allow exception_return_unint_tpidr_x3_hook access to stalker cache */
+    WRITE_QWORD_TO_SCRATCH_SPACE(xnu_ptr_to_va(stalker_cache_base));
+
+    uint64_t branch_to = (uint64_t)scratch_space;
+
+    *branch_from = assemble_bl((uint64_t)branch_from, branch_to);
+    /* *branch_from = assemble_b((uint64_t)branch_from, branch_to); */
+
+    /* where to return to */
+    STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(branch_from + 1));
+
+    scratch_space = write_eru_tpidr_x3_instrs(scratch_space, &num_free_instrs);
+
+    /* restore the instr we overwrote to the scratch space */
+    WRITE_INSTR_TO_SCRATCH_SPACE(replaced_instr);
+    WRITE_INSTR_TO_SCRATCH_SPACE(0xd65f03c0);    /* ret */
+
+    *scratch_space_out = scratch_space;
+    *num_free_instrs_out = num_free_instrs;
+    *stalker_cache_cursor_out = stalker_cache_cursor;
+
+    return true;
+}
+#endif
 
 /* confirmed working on all kernels 13.0-13.7
  *
@@ -1315,6 +1371,7 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
      * before handle_svc_hook, svc_stalker_ctl, and
      * hook_system_check_sysctlbyname_hook
      */
+    // XXX XXX XXX XXX FIX THIS AFTER REDOING MOST OF THE HOOKS
     size_t needed_sz =
         /* instructions */
         ((g_handle_svc_hook_num_instrs + g_svc_stalker_ctl_num_instrs +
@@ -1607,36 +1664,52 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
 
     write_blr(8, branch_from, branch_to);
 
-    if(!patch_arm_prepare_syscall_return(&scratch_space, &num_free_instrs,
-                stalker_cache_base, &stalker_cache_cursor)){
-        puts("svc_stalker: failed to");
-        puts("   patch arm_prepare_syscall_return");
+    /* if(!patch_arm_prepare_syscall_return(&scratch_space, &num_free_instrs, */
+    /*             stalker_cache_base, &stalker_cache_cursor)){ */
+    /*     puts("svc_stalker: failed to"); */
+    /*     puts("   patch arm_prepare_syscall_return"); */
 
-        stalker_fatal_error();
-    }
+    /*     stalker_fatal_error(); */
+    /* } */
 
-    puts("svc_stalker: patched arm_prepare_syscall_return");
+    /* puts("svc_stalker: patched arm_prepare_syscall_return"); */
 
-    if(!patch_platform_syscall(&scratch_space, &num_free_instrs,
-                stalker_cache_base, &stalker_cache_cursor,
-                platform_syscall_addr)){
-        puts("svc_stalker: failed to");
-        puts("   patch platform_syscall");
+    /* if(!patch_platform_syscall(&scratch_space, &num_free_instrs, */
+    /*             stalker_cache_base, &stalker_cache_cursor, */
+    /*             platform_syscall_addr)){ */
+    /*     puts("svc_stalker: failed to"); */
+    /*     puts("   patch platform_syscall"); */
 
-        stalker_fatal_error();
-    }
+    /*     stalker_fatal_error(); */
+    /* } */
 
-    puts("svc_stalker: patched platform_syscall");
+    /* puts("svc_stalker: patched platform_syscall"); */
 
-    if(!patch_thread_exception_return(&scratch_space, &num_free_instrs,
-                stalker_cache_base, &stalker_cache_cursor)){
-        puts("svc_stalker: failed to");
-        puts("   patch thread_exception_return");
+    /* if(!patch_thread_exception_return(&scratch_space, &num_free_instrs, */
+    /*             stalker_cache_base, &stalker_cache_cursor)){ */
+    /*     puts("svc_stalker: failed to"); */
+    /*     puts("   patch thread_exception_return"); */
 
-        stalker_fatal_error();
-    }
+    /*     stalker_fatal_error(); */
+    /* } */
 
-    puts("svc_stalker: patched thread_exception_return");
+    /* puts("svc_stalker: patched thread_exception_return"); */
+
+    /* if(!patch_eru_tpidr_x3(&scratch_space, &num_free_instrs, */
+    /*             stalker_cache_base, &stalker_cache_cursor)){ */
+    /*     puts("svc_stalker: failed to"); */
+    /*     puts("   patch exception_return_unint_tpidr_x3"); */
+
+    /*     stalker_fatal_error(); */
+    /* } */
+
+    /* puts("svc_stalker: patched exception_return_unint_tpidr_x3"); */
+
+
+    /* iphone 8 13.6.1, zeros out uthread->syscall_code */
+    /* uint32_t *addr = xnu_va_to_ptr(0xFFFFFFF0080E8400 + kernel_slide); */
+    /* nop */
+    /* *addr = 0xd503201f; */
 
 #define IMPORTANT_MSG(x) \
     putchar('*'); \
@@ -2067,6 +2140,34 @@ static void stalker_preboot_hook(void){
         next_preboot_hook();
 }
 
+static void stalker_main_patcher_noboot(const char *cmd, char *args){
+    uint64_t stalker_main_patcher_match[] = {
+        0xb9408a60,     /* LDR Wn, [X19, #0x88] (trap_no = state->__x[16]) */
+        0xd538d080,     /* MRS Xn, TPIDR_EL1    (Xn = current_thread()) */
+        0x12800000,     /* MOV Wn, 0xFFFFFFFF   (Wn = THROTTLE_LEVEL_NONE) */
+    };
+
+    const size_t num_matches = sizeof(stalker_main_patcher_match) / 
+        sizeof(*stalker_main_patcher_match);
+
+    uint64_t stalker_main_patcher_masks[] = {
+        0xffffffe0,     /* ignore Wn in LDR */
+        0xffffffe0,     /* ignore Xn in MRS */
+        0xffffffe0,     /* ignore Wn in MOV */
+    };
+
+    xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
+
+    xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
+    xnu_pf_maskmatch(patchset, stalker_main_patcher_match,
+            stalker_main_patcher_masks, num_matches, false,
+            stalker_main_patcher);
+    xnu_pf_emit(patchset);
+    xnu_pf_apply(__TEXT_EXEC, patchset);
+
+    xnu_pf_patchset_destroy(patchset);
+}
+
 void module_entry(void){
     puts("svc_stalker: loaded!");
 
@@ -2077,6 +2178,8 @@ void module_entry(void){
     preboot_hook = stalker_preboot_hook;
 
     command_register("stalker-prep", "prep to patch sleh_synchronous", stalker_prep);
+    command_register("stalker-mp-noboot", "patch sleh_synchronous without booting",
+            stalker_main_patcher_noboot);
 }
 
 const char *module_name = "svc_stalker";
