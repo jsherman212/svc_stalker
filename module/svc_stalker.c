@@ -144,6 +144,22 @@ static uint64_t get_adrp_ldr_va_target(uint32_t *adrpp){
     return addr_va + pimm;
 }
 
+/* resolves shift also */
+static uint64_t get_add_imm(uint32_t add){
+    uint64_t imm = 0;
+
+    uint8_t sf = add & 0x80000000;
+    uint8_t sh = (add & 0x200000) >> 22;
+    uint32_t imm12 = (add & 0x3ffc00) >> 10;
+
+    if(sh)
+        imm = imm12 << 12;
+    else
+        imm = imm12;
+
+    return imm;
+}
+
 #define IS_B_NE(opcode) ((opcode & 0xff000001) == 0x54000001)
 
 static uint64_t g_proc_pid_addr = 0;
@@ -164,7 +180,7 @@ static uint64_t g_h_s_c_sbn_branch_addr = 0;
 static uint64_t g_h_s_c_sbn_epilogue_addr = 0;
 static uint64_t g_arm_prepare_syscall_return_addr = 0;
 static uint64_t g_mach_syscall_addr = 0;
-static uint64_t g_thread_exception_return_addr = 0;
+static uint32_t g_offsetof_act_context = 0;
 
 static bool g_patched_mach_syscall = false;
 
@@ -673,9 +689,11 @@ static bool thread_exception_return_finder(xnu_pf_patch_t *patch,
     /* we're guarenteed to have landed in thread_exception_return */
     xnu_pf_disable_patch(patch);
 
-    g_thread_exception_return_addr = xnu_ptr_to_va(cacheable_stream);
+    uint32_t add_x21_x0_n = ((uint32_t *)cacheable_stream)[1];
 
-    puts("svc_stalker: found thread_exception_return");
+    g_offsetof_act_context = get_add_imm(add_x21_x0_n);
+
+    puts("svc_stalker: found offsetof ACT_CONTEXT");
 
     return true;
 }
@@ -859,7 +877,7 @@ static void anything_missing(void){
             g_lck_rw_lock_shared_addr == 0 || g_lck_rw_done_addr == 0 ||
             g_h_s_c_sbn_branch_addr == 0 || g_h_s_c_sbn_epilogue_addr == 0 ||
             g_arm_prepare_syscall_return_addr == 0 || g_mach_syscall_addr == 0 ||
-            g_thread_exception_return_addr == 0){
+            g_offsetof_act_context == 0){
         puts("svc_stalker: error(s) before");
         puts("     we continue:");
         
@@ -935,8 +953,8 @@ static void anything_missing(void){
             puts("     not found");
         }
 
-        if(g_thread_exception_return_addr == 0){
-            puts("   thread_exception_return");
+        if(g_offsetof_act_context == 0){
+            puts("   ACT_CONTEXT offset");
             puts("     not found");
         }
 
@@ -998,6 +1016,7 @@ static uint64_t *create_stalker_cache(uint64_t **stalker_cache_base_out){
     STALKER_CACHE_WRITE(cursor, g_h_s_c_sbn_epilogue_addr);
     STALKER_CACHE_WRITE(cursor, g_arm_prepare_syscall_return_addr);
     STALKER_CACHE_WRITE(cursor, g_mach_syscall_addr);
+    STALKER_CACHE_WRITE(cursor, g_offsetof_act_context);
 
     return cursor;
 }
@@ -1909,7 +1928,6 @@ static void stalker_prep(const char *cmd, char *args){
         0xffffffff,     /* match exactly */
     };
 
-    /* XXX leave in so I can grab the offset of ACT_CONTEXT */
     xnu_pf_maskmatch(patchset, arm_prepare_syscall_return_finder_matches,
             arm_prepare_syscall_return_finder_masks,
             num_arm_prepare_syscall_return_finder_matches, false,

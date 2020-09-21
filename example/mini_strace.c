@@ -55,8 +55,12 @@ static void handle_before_call(mach_port_t task, arm_thread_state64_t state,
 
     printf("%d: ", pid);
 
+    /* exit */
+    if(call_num == 1){
+        printf("exit(%d)\n", state.__x[0]);
+    }
     /* fork */
-    if(call_num == 2){
+    else if(call_num == 2){
         printf("fork()");
     }
     /* write */
@@ -343,6 +347,16 @@ int main(int argc, char **argv){
 
     if(ret){
         printf("Couldn't register write: %s\n", strerror(errno));
+        /* always unregister */
+        syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
+        return 1;
+    }
+
+    /* exit */
+    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 1, 1);
+
+    if(ret){
+        printf("Couldn't register exit: %s\n", strerror(errno));
         /* always unregister */
         syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
         return 1;

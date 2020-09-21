@@ -22,8 +22,8 @@ _main:
     cbz x0, done
 
     mrs x19, TPIDR_EL1
-    ; iphone 8 13.6.1, ACT_CONTEXT
-    ldr x0, [x19, 0x448]
+    ldr x20, [x24, OFFSETOF_ACT_CONTEXT]
+    ldr x0, [x19, x20]
     ldr w0, [x0, 0x88]
     str w0, [sp, CALL_NUM]
     ldr x19, [x24, SHOULD_INTERCEPT_CALL]
