@@ -1,0 +1,7 @@
+#ifndef TAIL_CALL_INIT
+#define TAIL_CALL_INIT
+
+#define NUM_INSTRS_BEFORE_CACHE     (0)
+#define STALKER_CACHE_PTR_PTR       (-((4*NUM_INSTRS_BEFORE_CACHE)+8))
+
+#endif

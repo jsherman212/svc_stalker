@@ -1,7 +1,0 @@
-#ifndef FRAME_INSERTER
-#define FRAME_INSERTER
-
-#define NUM_INSTRS_BEFORE_CACHE     (2)
-#define STALKER_CACHE_PTR_PTR       (-((4*NUM_INSTRS_BEFORE_CACHE)+8))
-
-#endif

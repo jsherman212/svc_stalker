@@ -201,16 +201,13 @@ static void handle_call_completion(mach_port_t task, mach_port_t thread,
     }
 }
 
+static pthread_mutex_t g_mini_strace_lock = PTHREAD_MUTEX_INITIALIZER;
+
 kern_return_t catch_mach_exception_raise(mach_port_t exception_port,
         mach_port_t thread, mach_port_t task, exception_type_t exception,
         mach_exception_data_t code, mach_msg_type_number_t code_count){
-    /* If we're here, the system call/Mach trap has not yet happened.
-     * Once we return from this function, the kernel carries it out as normal.
-     * You're free to modify registers before giving control back to
-     * the kernel.
-     */
+    pthread_mutex_lock(&g_mini_strace_lock);
 
-    /* you can also get the call number from X16 */
     pid_t pid = code[0];
     long call_status = code[1];
 
@@ -221,13 +218,19 @@ kern_return_t catch_mach_exception_raise(mach_port_t exception_port,
 
     if(kret){
         printf("thread_get_state failed: %s\n", mach_error_string(kret));
+        pthread_mutex_unlock(&g_mini_strace_lock);
         return KERN_SUCCESS;
     }
 
+    /* for both of these, you're free to inspect/modify registers before
+     * giving contol back to the kernel
+     */
     if(call_status == BEFORE_CALL)
         handle_before_call(task, state, pid);
     else
         handle_call_completion(task, thread, state, pid);
+
+    pthread_mutex_unlock(&g_mini_strace_lock);
 
     /* always return KERN_SUCCESS to let the kernel know you've handled
      * this exception
