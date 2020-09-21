@@ -181,6 +181,7 @@ static uint64_t g_h_s_c_sbn_epilogue_addr = 0;
 static uint64_t g_arm_prepare_syscall_return_addr = 0;
 static uint64_t g_mach_syscall_addr = 0;
 static uint32_t g_offsetof_act_context = 0;
+static uint64_t g_thread_syscall_return_addr = 0;
 
 static bool g_patched_mach_syscall = false;
 
@@ -699,6 +700,19 @@ static bool thread_exception_return_finder(xnu_pf_patch_t *patch,
 }
 
 /* confirmed working on all kernels 13.0-13.7 */
+static bool thread_syscall_return_finder(xnu_pf_patch_t *patch,
+        void *cacheable_stream){
+    /* we're guarenteed to have landed in thread_syscall_return */
+    xnu_pf_disable_patch(patch);
+
+    g_thread_syscall_return_addr = xnu_ptr_to_va(cacheable_stream);
+
+    puts("svc_stalker: found thread_syscall_return");
+
+    return true;
+}
+
+/* confirmed working on all kernels 13.0-13.7 */
 static bool patch_exception_triage_thread(uint32_t *opcode_stream){
     /* patch exception_triage_thread to return to its caller on EXC_SYSCALL and
      * EXC_MACH_SYSCALL
@@ -877,7 +891,7 @@ static void anything_missing(void){
             g_lck_rw_lock_shared_addr == 0 || g_lck_rw_done_addr == 0 ||
             g_h_s_c_sbn_branch_addr == 0 || g_h_s_c_sbn_epilogue_addr == 0 ||
             g_arm_prepare_syscall_return_addr == 0 || g_mach_syscall_addr == 0 ||
-            g_offsetof_act_context == 0){
+            g_offsetof_act_context == 0 || g_thread_syscall_return_addr == 0){
         puts("svc_stalker: error(s) before");
         puts("     we continue:");
         
@@ -955,6 +969,11 @@ static void anything_missing(void){
 
         if(g_offsetof_act_context == 0){
             puts("   ACT_CONTEXT offset");
+            puts("     not found");
+        }
+
+        if(g_thread_syscall_return_addr == 0){
+            puts("   thread_syscall_return");
             puts("     not found");
         }
 
@@ -1046,6 +1065,47 @@ static bool write_tail_call_init_calls(uint32_t **scratch_space_out,
         WRITE_INSTR_TO_SCRATCH_SPACE(replaced_instr1);
         WRITE_INSTR_TO_SCRATCH_SPACE(0xd61f00e0);   /* br x7 */
     }
+
+    *scratch_space_out = scratch_space;
+    *num_free_instrs_out = num_free_instrs;
+    *stalker_cache_cursor_out = stalker_cache_cursor;
+
+    return true;
+}
+
+static bool patch_thread_syscall_return(uint32_t **scratch_space_out,
+        uint64_t *num_free_instrs_out, uint64_t *stalker_cache_base,
+        uint64_t **stalker_cache_cursor_out, uint64_t return_interceptor_addr){
+    uint32_t *scratch_space = *scratch_space_out;
+    uint64_t num_free_instrs = *num_free_instrs_out;
+    uint64_t *stalker_cache_cursor = *stalker_cache_cursor_out;
+
+    uint32_t *thread_syscall_return_stream =
+        xnu_va_to_ptr(g_thread_syscall_return_addr);
+
+    /* Unfortunately, thread_syscall_return is marked as noreturn thanks
+     * to it directly calling thread_exception_return so I can't have it tail
+     * call return_interceptor. I'm gonna have it call return_interceptor
+     * directly. And if I do that, I need a way to make sure not to restore
+     * another stack frame, so I'll save LR of this call and check LR inside
+     * return_interceptor.
+     *
+     * We are branching at an ADRP/LDR pair, but it's just loading the value
+     * of _kernel_debug. I don't really care if I don't restore the _kernel_debug
+     * adrp/load and fix up its addressing, why even use kdbg if you're using 
+     * svc_stalker in the first place?
+     *
+     * We're replacing the ADRP with a branch to return_interceptor and
+     * the LDR with MOV X8, XZR.
+     */
+    thread_syscall_return_stream[6] =
+        assemble_bl((uint64_t)(thread_syscall_return_stream + 6),
+            return_interceptor_addr);
+    thread_syscall_return_stream[7] = 0xaa1f03e8;
+
+    uint64_t tsr_lr = xnu_ptr_to_va(thread_syscall_return_stream + 7);
+
+    STALKER_CACHE_WRITE(stalker_cache_cursor, tsr_lr);
 
     *scratch_space_out = scratch_space;
     *num_free_instrs_out = num_free_instrs;
@@ -1590,10 +1650,23 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     /* allow return_interceptor access to stalker cache */
     WRITE_QWORD_TO_SCRATCH_SPACE(xnu_ptr_to_va(stalker_cache_base));
 
+    uint64_t return_interceptor_addr = (uint64_t)scratch_space;
+
     /* virtual addr of return_interceptor */
-    STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(scratch_space));
+    STALKER_CACHE_WRITE(stalker_cache_cursor,
+            xnu_ptr_to_va((void *)return_interceptor_addr));
 
     scratch_space = write_return_interceptor_instrs(scratch_space, &num_free_instrs);
+
+    if(!patch_thread_syscall_return(&scratch_space, &num_free_instrs,
+                stalker_cache_base, &stalker_cache_cursor, return_interceptor_addr)){
+        puts("svc_stalker: failed to");
+        puts("   patch thread_syscall_return");
+
+        stalker_fatal_error();
+    }
+
+    puts("svc_stalker: patched thread_syscall_return");
 
 #define IMPORTANT_MSG(x) \
     putchar('*'); \
@@ -1953,6 +2026,33 @@ static void stalker_prep(const char *cmd, char *args){
             thread_exception_return_finder_masks,
             num_thread_exception_return_finder_matches, false,
             thread_exception_return_finder);
+
+    uint64_t thread_syscall_return_finder_matches[] = {
+        0xa9bf7bfd,     /* stp x29, x30, [sp, -0x10]! */
+        0x910003fd,     /* mov x29, sp */
+        0xd538d088,     /* mrs x8, TPIDR_EL1 */
+        0xf9400109,     /* ldr x9, [x8, n] */
+        0x93407c08,     /* sxtw x8, w0 */
+        0xf9000528,     /* str x8, [x9, #0x8] */
+    };
+
+    const size_t num_thread_syscall_return_finder_matches =
+        sizeof(thread_syscall_return_finder_matches) /
+        sizeof(*thread_syscall_return_finder_matches);
+
+    uint64_t thread_syscall_return_finder_masks[] = {
+        0xffffffff,     /* match exactly */
+        0xffffffff,     /* match exactly */
+        0xffffffff,     /* match exactly */
+        0xffc003ff,     /* ignore immediate */
+        0xffffffff,     /* match exactly */
+        0xffffffff,     /* match exactly */
+    };
+
+    xnu_pf_maskmatch(patchset, thread_syscall_return_finder_matches,
+            thread_syscall_return_finder_masks,
+            num_thread_syscall_return_finder_matches, false,
+            thread_syscall_return_finder);
 
     /* AMFI for proc_pid */
     struct mach_header_64 *AMFI = xnu_pf_get_kext_header(mh_execute_header,

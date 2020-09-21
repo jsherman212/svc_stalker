@@ -36,5 +36,6 @@
 #define SVC_STALKER_SYSCTL_MIB_COUNT_PTR                (0xe8)
 #define SVC_STALKER_CTL_CALLNUM                         (0xf0)
 #define RETURN_INTERCEPTOR                              (0xf8)
+#define THREAD_SYSCALL_RETURN_LR                        (0x100)
 
 #endif
