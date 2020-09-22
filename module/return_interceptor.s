@@ -47,13 +47,25 @@ almost_done:
     ldp x29, x30, [sp, STACK-0x10]
 
     ; did we tail call this function?
-    ;  arm_prepare_syscall_return and mach_syscall: yes
-    ;  thread_syscall_return: no
+    ;  arm_prepare_syscall_return, mach_syscall: yes
+    ;  thread_syscall_return, platform_syscall: no
     ldr x19, [x24, THREAD_SYSCALL_RETURN_LR]
     cmp x30, x19
-    b.ne tail_called
+    b.eq called_from_thread_syscall_return
+    ldr x19, [x24, PLATFORM_SYSCALL_START]
+    cmp x30, x19
+    b.lo tail_called
+    ldr x19, [x24, PLATFORM_SYSCALL_END]
+    cmp x30, x19
+    b.hi tail_called
+    ; fall thru
 
-done:
+called_from_platform_syscall:
+    ; in this case, all we have to do is call thread_exception_return
+    ldr x19, [x24, THREAD_EXCEPTION_RETURN]
+    blr x19
+
+called_from_thread_syscall_return:
     ldp x20, x19, [sp, STACK-0x20]
     ldp x22, x21, [sp, STACK-0x30]
     ldp x24, x23, [sp, STACK-0x40]
