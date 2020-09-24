@@ -121,7 +121,15 @@ static void handle_before_call(mach_port_t task, arm_thread_state64_t state,
         uint64_t ps_call_num = state.__x[3];
 
         if(ps_call_num == 3)
-            printf("thread_get_cthread_self() = ");
+            printf("thread_get_cthread_self()");
+    }
+    /* mach_absolute_time() */
+    else if(call_num == -3){
+        printf("mach_absolute_time()");
+    }
+    /* mach_continuous_time() */
+    else if(call_num == -4){
+        printf("mach_continuous_time()");
     }
     /* mach_msg_trap */
     else if(call_num == -31){
@@ -192,6 +200,16 @@ static void handle_call_completion(mach_port_t task, mach_port_t thread,
             printf("%s: thread_set_state failed: %s\n", __func__,
                     mach_error_string(kret));
         }
+    }
+    /* mach_absolute_time() */
+    else if(call_num == -3){
+        uint64_t ret = state.__x[0];
+        printf(" = %#llx\n", ret);
+    }
+    /* mach_continuous_time() */
+    else if(call_num == -4){
+        uint64_t ret = state.__x[0];
+        printf(" = %#llx\n", ret);
     }
     /* mach_msg_trap */
     else if(call_num == -31){
@@ -415,6 +433,8 @@ int main(int argc, char **argv){
 
     /* mach_msg_trap */
     ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, -31, 1);
+    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, -3, 1);
+    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, -4, 1);
 
     if(ret){
         printf("Couldn't register mach_msg_trap: %s\n", strerror(errno));

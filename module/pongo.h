@@ -99,7 +99,7 @@ extern volatile char gBootFlag;
 typedef uint64_t lock;
 extern void lock_take(lock* lock); // takes a lock spinning initially but after being pre-empted once it will start yielding until it acquires it
 extern void lock_take_spin(lock* lock); // takes a lock spinning until it acquires it
-extern void lock_release(lock* lock); // releases ownership on a lock
+/* extern void lock_release(lock* lock); // releases ownership on a lock */
 
 extern int dt_check(void* mem, uint32_t size, uint32_t* offp);
 extern int dt_parse(dt_node_t* node, int depth, uint32_t* offp, int (*cb_node)(void*, dt_node_t*), void* cbn_arg, int (*cb_prop)(void*, dt_node_t*, int, const char*, void*, uint32_t), void* cbp_arg);
