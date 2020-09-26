@@ -30,5 +30,5 @@ done:
     ldr x3, [x3, SLEH_SYNCHRONOUS]
     ; we overwrote one instruction to branch to here
     add x3, x3, 0x4
-    ; write_sleh_synchronous_tail_call writes back the instr we overwrote
+    ; hijack_sleh_synchronous writes back the instr we overwrote
     ; and br x3 here

@@ -63,7 +63,7 @@ static uint32_t assemble_bl(uint64_t from, uint64_t to){
 
 static uint32_t assemble_mov(uint8_t sf, uint32_t imm, uint32_t Rd){
     uint32_t imm16 = imm & 0xffff;
-    uint32_t hw = imm & 0x30000;
+    uint16_t hw = imm & 0x30000;
 
     return ((sf << 31) | (0xa5 << 23) | (hw << 21) | (imm16 << 5) | Rd);
 }
@@ -262,6 +262,28 @@ static uint64_t get_function_len(uint64_t fxn){
     return 0;
 }
 
+/* this function scans opcode_stream for calls to thread_exception_return */
+static void scan_for_ter(uint32_t *opcode_stream, uint64_t fxn_len,
+        uint32_t **ter_calls_out){
+    uint32_t cur_ter_calls_idx = 0;
+
+    for(int i=0; i<fxn_len; i++){
+        uint32_t instr = opcode_stream[i];
+
+        /* b or bl? */
+        if((instr & 0x7c000000) == 0x14000000){
+            int32_t imm26 = sign_extend(bits(instr, 0, 25) << 2, 28);
+            uint32_t *dst = (uint32_t *)((intptr_t)(opcode_stream + i) + imm26);
+
+            /* first instr in this function is mov x0, TPIDR_EL1? */
+            if(*dst == 0xd538d080){
+                ter_calls_out[cur_ter_calls_idx] = opcode_stream + i;
+                cur_ter_calls_idx++;
+            }
+        }
+    }
+}
+
 #define IS_B_NE(opcode) ((opcode & 0xff000001) == 0x54000001)
 
 static uint64_t g_proc_pid_addr = 0;
@@ -288,11 +310,14 @@ static uint64_t g_platform_syscall_start_addr = 0;
 static uint64_t g_platform_syscall_end_addr = 0;
 static uint64_t g_thread_syscall_return_start_addr = 0;
 static uint64_t g_thread_syscall_return_end_addr = 0;
+static uint64_t g_unix_syscall_return_start_addr = 0;
+static uint64_t g_unix_syscall_return_end_addr = 0;
 
 /* this limit is safe */
 enum { g_max_ter_calls = 50 };
 static uint32_t *g_platform_syscall_ter_calls[g_max_ter_calls];
 static uint32_t *g_thread_syscall_return_ter_calls[g_max_ter_calls];
+static uint32_t *g_unix_syscall_return_ter_calls[g_max_ter_calls];
 
 static bool g_patched_mach_syscall = false;
 
@@ -616,7 +641,7 @@ static bool ExceptionVectorsBase_finder(xnu_pf_patch_t *patch,
     g_exec_scratch_space_addr = xnu_ptr_to_va(opcode_stream);
 
     puts("svc_stalker: found unused executable code");
-    
+
     return true;
 }
 
@@ -840,30 +865,15 @@ static bool thread_syscall_return_scanner(xnu_pf_patch_t *patch,
         return false;
     }
 
-    thread_syscall_return_len /= sizeof(uint32_t);
-
-    uint32_t cur_thread_exception_call_idx = 0;
     uint32_t *opcode_stream = cacheable_stream;
 
     g_thread_syscall_return_end_addr =
         xnu_ptr_to_va(opcode_stream + thread_syscall_return_len);
 
-    for(int i=0; i<thread_syscall_return_len; i++){
-        uint32_t instr = opcode_stream[i];
+    thread_syscall_return_len /= sizeof(uint32_t);
 
-        /* b or bl? */
-        if((instr & 0x7c000000) == 0x14000000){
-            int32_t imm26 = sign_extend(bits(instr, 0, 25) << 2, 28);
-            uint32_t *dst = (uint32_t *)((intptr_t)(opcode_stream + i) + imm26);
-
-            /* first instr in this function is mov x0, TPIDR_EL1? */
-            if(*dst == 0xd538d080){
-                g_thread_syscall_return_ter_calls[cur_thread_exception_call_idx] =
-                    opcode_stream + i;
-                cur_thread_exception_call_idx++;
-            }
-        }
-    }
+    scan_for_ter(opcode_stream, thread_syscall_return_len,
+            g_thread_syscall_return_ter_calls);
 
     puts("svc_stalker: finished scanning thread_syscall_return");
 
@@ -910,26 +920,63 @@ static bool platform_syscall_scanner(xnu_pf_patch_t *patch,
     /* opcode_stream still points to beginning of platform_syscall */
     platform_syscall_fxn_len /= sizeof(uint32_t);
 
-    uint32_t cur_thread_exception_call_idx = 0;
-
-    for(int i=0; i<platform_syscall_fxn_len; i++){
-        uint32_t instr = opcode_stream[i];
-
-        /* b or bl? */
-        if((instr & 0x7c000000) == 0x14000000){
-            int32_t imm26 = sign_extend(bits(instr, 0, 25) << 2, 28);
-            uint32_t *dst = (uint32_t *)((intptr_t)(opcode_stream + i) + imm26);
-
-            /* first instr in this function is mov x0, TPIDR_EL1? */
-            if(*dst == 0xd538d080){
-                g_platform_syscall_ter_calls[cur_thread_exception_call_idx] =
-                    opcode_stream + i;
-                cur_thread_exception_call_idx++;
-            }
-        }
-    }
+    scan_for_ter(opcode_stream, platform_syscall_fxn_len,
+            g_platform_syscall_ter_calls);
 
     puts("svc_stalker: finished scanning platform_syscall");
+
+    return true;
+}
+
+/* confirmed working in all kernels 13.0-13.7 */
+static bool unix_syscall_return_scanner(xnu_pf_patch_t *patch,
+        void *cacheable_stream){
+    xnu_pf_disable_patch(patch);
+
+    /* purpose is the same as the above function */
+
+    /* find unix_syscall_return's prologue
+     *
+     * whatever compiles these kernels decided to not begin the prologue with
+     * sub sp, sp, n, but instead, a pre-index stp, so search for
+     * stp rt1, rt2, [sp, n]!
+     */
+    uint32_t *opcode_stream = cacheable_stream;
+    uint32_t instr_limit = 50;
+
+    while((*opcode_stream & 0xffc003e0) != 0xa98003e0){
+        if(instr_limit-- == 0){
+            puts("svc_stalker: didn't find");
+            puts("   prologue for");
+            puts("   unix_syscall_return?");
+            return false;
+        }
+
+        opcode_stream--;
+    }
+
+    g_unix_syscall_return_start_addr = xnu_ptr_to_va(opcode_stream);
+
+    uint64_t unix_syscall_return_fxn_len =
+        get_function_len(g_unix_syscall_return_start_addr);
+
+    if(!unix_syscall_return_fxn_len){
+        puts("svc_stalker: failed to");
+        puts("   find len of");
+        puts("   unix_syscall_return?");
+        return false;
+    }
+
+    g_unix_syscall_return_end_addr = g_unix_syscall_return_start_addr +
+        unix_syscall_return_fxn_len;
+
+    /* opcode_stream still points to beginning of unix_syscall_return */
+    unix_syscall_return_fxn_len /= sizeof(uint32_t);
+
+    scan_for_ter(opcode_stream, unix_syscall_return_fxn_len,
+            g_unix_syscall_return_ter_calls);
+
+    puts("svc_stalker: finished scanning unix_syscall_return");
 
     return true;
 }
@@ -1004,7 +1051,7 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
 
         opcode_stream++;
     }
-    
+
     if(!cmp_wn_4_first || !cmp_wn_4_second || !b_cs || !b_cc){
         if(!cmp_wn_4_first)
             puts("cmp_wn_4_first not found");
@@ -1116,10 +1163,11 @@ static void anything_missing(void){
             g_offsetof_act_context == 0 || g_thread_syscall_return_start_addr  == 0 ||
             g_thread_syscall_return_end_addr == 0 || 
             g_thread_exception_return_addr == 0 || g_platform_syscall_start_addr == 0 ||
-            g_platform_syscall_end_addr == 0){
+            g_platform_syscall_end_addr == 0 || g_unix_syscall_return_start_addr == 0 ||
+            g_unix_syscall_return_end_addr == 0){
         puts("svc_stalker: error(s) before");
         puts("     we continue:");
-        
+
         if(g_proc_pid_addr == 0)
             puts("   proc_pid not found");
 
@@ -1130,7 +1178,7 @@ static void anything_missing(void){
             puts("   kalloc_canblock");
             puts("     not found");
         }
-            
+
         if(g_kfree_addr_addr == 0){
             puts("   kfree_addr");
             puts("     not found");
@@ -1222,6 +1270,16 @@ static void anything_missing(void){
             puts("     is still zero?");
         }
 
+        if(g_unix_syscall_return_start_addr == 0){
+            puts("   g_unix_syscall_return_start_addr");
+            puts("     is still zero?");
+        }
+
+        if(g_unix_syscall_return_end_addr == 0){
+            puts("   g_unix_syscall_return_end_addr");
+            puts("     is still zero?");
+        }
+
         stalker_fatal_error();
     }
 }
@@ -1286,6 +1344,8 @@ static uint64_t *create_stalker_cache(uint64_t **stalker_cache_base_out){
     STALKER_CACHE_WRITE(cursor, g_platform_syscall_end_addr);
     STALKER_CACHE_WRITE(cursor, g_thread_syscall_return_start_addr);
     STALKER_CACHE_WRITE(cursor, g_thread_syscall_return_end_addr);
+    STALKER_CACHE_WRITE(cursor, g_unix_syscall_return_start_addr);
+    STALKER_CACHE_WRITE(cursor, g_unix_syscall_return_end_addr);
 
     return cursor;
 }
@@ -1313,28 +1373,17 @@ static bool hijack_sleh_synchronous(uint32_t **scratch_space_out,
     return true;
 }
 
-static bool patch_thread_syscall_return(uint64_t return_interceptor_addr){
-    /* this array is NULL terminated */
-    uint32_t **ter_calls = g_thread_syscall_return_ter_calls;
+static void patch_thread_exception_return_calls(uint32_t ***all_ter_call_arrays,
+        size_t n_ter_call_arrays, uint64_t return_interceptor_addr){
+    for(int i=0; i<n_ter_call_arrays; i++){
+        /* this array is NULL terminated */
+        uint32_t **ter_calls = all_ter_call_arrays[i];
 
-    while(*ter_calls){
-        **ter_calls = assemble_bl((uint64_t)(*ter_calls), return_interceptor_addr);
-        ter_calls++;
+        while(*ter_calls){
+            **ter_calls = assemble_bl((uint64_t)(*ter_calls), return_interceptor_addr);
+            ter_calls++;
+        }
     }
-    
-    return true;
-}
-
-static bool patch_platform_syscall(uint64_t return_interceptor_addr){
-    /* this array is NULL terminated */
-    uint32_t **ter_calls = g_platform_syscall_ter_calls;
-
-    while(*ter_calls){
-        **ter_calls = assemble_bl((uint64_t)(*ter_calls), return_interceptor_addr);
-        ter_calls++;
-    }
-
-    return true;
 }
 
 /* confirmed working on all kernels 13.0-13.7 */
@@ -1508,7 +1557,7 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
         puts("svc_stalker: failed");
         puts("     patching");
         puts("     exception_triage_thread");
-        
+
         stalker_fatal_error();
     }
 
@@ -1742,7 +1791,7 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
                 *(uint64_t *)sysent_to_patch = xnu_ptr_to_va(scratch_space);
             else{
                 uint64_t untagged = (xnu_ptr_to_va(scratch_space) &
-                    0xffffffffffff) - kernel_slide;
+                        0xffffffffffff) - kernel_slide;
 
                 /* re-tag */
                 uint64_t new_sy_call = untagged | ((uint64_t)old_tag << 48);
@@ -1848,23 +1897,21 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
 
     scratch_space = write_return_interceptor_instrs(scratch_space, &num_free_instrs);
 
-    if(!patch_thread_syscall_return(return_interceptor_addr)){
-        puts("svc_stalker: failed to");
-        puts("   patch thread_syscall_return");
+    uint32_t **all_ter_call_arrays[] = {
+        g_platform_syscall_ter_calls,
+        g_thread_syscall_return_ter_calls,
+        g_unix_syscall_return_ter_calls,
+    };
 
-        stalker_fatal_error();
-    }
+    size_t n_ter_call_arrays = sizeof(all_ter_call_arrays) /
+        sizeof(*all_ter_call_arrays);
 
-    puts("svc_stalker: patched thread_syscall_return");
-
-    if(!patch_platform_syscall(return_interceptor_addr)){
-        puts("svc_stalker: failed to");
-        puts("   patch platform_syscall");
-
-        stalker_fatal_error();
-    }
+    patch_thread_exception_return_calls(all_ter_call_arrays, n_ter_call_arrays,
+            return_interceptor_addr);
 
     puts("svc_stalker: patched platform_syscall");
+    puts("svc_stalker: patched thread_syscall_return");
+    puts("svc_stalker: patched unix_syscall_return");
 
 #define IMPORTANT_MSG(x) \
     putchar('*'); \
@@ -2279,6 +2326,31 @@ static void stalker_prep(const char *cmd, char *args){
             num_platform_syscall_scanner_matches, false,
             platform_syscall_scanner);
 
+    uint64_t unix_syscall_return_scanner_matches[] = {
+        0xd538d096,     /* mrs x22, TPIDR_EL1 */
+        0x94000000,     /* bl n */
+        0xaa0003f4,     /* mov x20, x0 */
+        0xf94002d5,     /* ldr x21, [x22, n] */
+        0xf94002c1,     /* ldr x1, [x22, n] */
+    };
+
+    const size_t num_unix_syscall_return_scanner_matches =
+        sizeof(unix_syscall_return_scanner_matches) /
+        sizeof(*unix_syscall_return_scanner_matches);
+
+    uint64_t unix_syscall_return_scanner_masks[] = {
+        0xffffffff,     /* match exactly */
+        0xfc000000,     /* ignore immediate */
+        0xffffffff,     /* match exactly */
+        0xffc003ff,     /* ignore immediate */
+        0xffc003ff,     /* ignore immediate */
+    };
+
+    xnu_pf_maskmatch(patchset, unix_syscall_return_scanner_matches,
+            unix_syscall_return_scanner_masks,
+            num_unix_syscall_return_scanner_matches, false,
+            unix_syscall_return_scanner);
+
     /* AMFI for proc_pid */
     struct mach_header_64 *AMFI = xnu_pf_get_kext_header(mh_execute_header,
             "com.apple.driver.AppleMobileFileIntegrity");
@@ -2384,6 +2456,7 @@ void module_entry(void){
 
     memset(g_platform_syscall_ter_calls, 0, sizeof(uint32_t *) * g_max_ter_calls);
     memset(g_thread_syscall_return_ter_calls, 0, sizeof(uint32_t *) * g_max_ter_calls);
+    memset(g_unix_syscall_return_ter_calls, 0, sizeof(uint32_t *) * g_max_ter_calls);
 
     mh_execute_header = xnu_header();
     kernel_slide = xnu_slide_value(mh_execute_header);

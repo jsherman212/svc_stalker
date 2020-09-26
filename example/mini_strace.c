@@ -63,6 +63,10 @@ static void handle_before_call(mach_port_t task, arm_thread_state64_t state,
     else if(call_num == 2){
         printf("fork()");
     }
+    /* read */
+    else if(call_num == 3){
+        printf("read(%lld, %#llx, %lld)", state.__x[0], state.__x[1], state.__x[2]);
+    }
     /* write */
     else if(call_num == 4){
         /* write(fd, buf, count)
@@ -160,6 +164,11 @@ static void handle_call_completion(mach_port_t task, mach_port_t thread,
          */
         pid_t child_pid = (pid_t)state.__x[0];
         printf(" = %d\n", child_pid);
+    }
+    /* read */
+    if(call_num == 3){
+        size_t bytes_read = state.__x[0];
+        printf(" = %ld\n", bytes_read);
     }
     /* write */
     if(call_num == 4){
@@ -362,6 +371,7 @@ int main(int argc, char **argv){
     /* register some call numbers to intercept */
     /* write */
     ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 4, 1);
+    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 3, 1);
 
     if(ret){
         printf("Couldn't register write: %s\n", strerror(errno));

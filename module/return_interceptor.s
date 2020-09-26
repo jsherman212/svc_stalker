@@ -46,9 +46,10 @@ _main:
 almost_done:
     ldp x29, x30, [sp, STACK-0x10]
 
-    ; do we need to restore another stack frame?
-    ;  sleh_synchronous: yes (see sleh_synchronous_hijacker.s)
-    ;  thread_syscall_return, platform_syscall: no
+    ; do we need to restore another stack frame? if we were called from...
+    ;  ...sleh_synchronous: yes (see sleh_synchronous_hijacker.s)
+    ;  ...thread_syscall_return, platform_syscall, unix_syscall_return: no,
+    ;       and we just need to call thread_exception_return
 maybe_called_from_thread_syscall_return:
     ldr x19, [x24, THREAD_SYSCALL_RETURN_START]
     cmp x30, x19
@@ -56,26 +57,30 @@ maybe_called_from_thread_syscall_return:
     ldr x19, [x24, THREAD_SYSCALL_RETURN_END]
     cmp x30, x19
     b.hi maybe_called_from_platform_syscall
-    ; fall thru
-
-called_from_thread_syscall_return:
-    ; in this case, all we have to do is call thread_exception_return
-    ldr x19, [x24, THREAD_EXCEPTION_RETURN]
-    blr x19
+    b call_thread_exception_return
 
 maybe_called_from_platform_syscall:
     ldr x19, [x24, PLATFORM_SYSCALL_START]
     cmp x30, x19
-    b.lo called_from_sleh_synchronous
+    b.lo maybe_called_from_unix_syscall_return
     ldr x19, [x24, PLATFORM_SYSCALL_END]
+    cmp x30, x19
+    b.hi maybe_called_from_unix_syscall_return
+    b call_thread_exception_return
+
+maybe_called_from_unix_syscall_return:
+    ldr x19, [x24, UNIX_SYSCALL_RETURN_START]
+    cmp x30, x19
+    b.lo called_from_sleh_synchronous
+    ldr x19, [x24, UNIX_SYSCALL_RETURN_END]
     cmp x30, x19
     b.hi called_from_sleh_synchronous
     ; fall thru
 
-called_from_platform_syscall:
-    ; again, in this case, all we have to do is call thread_exception_return
+call_thread_exception_return:
     ldr x19, [x24, THREAD_EXCEPTION_RETURN]
     blr x19
+    ; not reached
 
 called_from_sleh_synchronous:
     ldp x20, x19, [sp, STACK-0x20]
