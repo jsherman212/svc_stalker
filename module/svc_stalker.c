@@ -312,6 +312,8 @@ static uint64_t g_thread_syscall_return_start_addr = 0;
 static uint64_t g_thread_syscall_return_end_addr = 0;
 static uint64_t g_unix_syscall_return_start_addr = 0;
 static uint64_t g_unix_syscall_return_end_addr = 0;
+static uint64_t g_lck_grp_alloc_init_addr = 0;
+static uint64_t g_lck_rw_alloc_init_addr = 0;
 
 /* this limit is safe */
 enum { g_max_ter_calls = 50 };
@@ -905,7 +907,8 @@ static bool platform_syscall_scanner(xnu_pf_patch_t *patch,
     /* now we're at the start of platform_syscall, so get its size */
     g_platform_syscall_start_addr = xnu_ptr_to_va(opcode_stream);
 
-    uint64_t platform_syscall_fxn_len = get_function_len(g_platform_syscall_start_addr);
+    uint64_t platform_syscall_fxn_len =
+        get_function_len(g_platform_syscall_start_addr);
 
     if(!platform_syscall_fxn_len){
         puts("svc_stalker: failed to");
@@ -977,6 +980,64 @@ static bool unix_syscall_return_scanner(xnu_pf_patch_t *patch,
             g_unix_syscall_return_ter_calls);
 
     puts("svc_stalker: finished scanning unix_syscall_return");
+
+    return true;
+}
+
+/* confirmed working in all kernels 13.0-13.7 */
+static bool lck_grp_alloc_init_finder(xnu_pf_patch_t *patch,
+        void *cacheable_stream){
+    xnu_pf_disable_patch(patch);
+
+    /* the BL we matched is guarenteed to be branching to lck_grp_alloc_init */
+    uint32_t *blp = ((uint32_t *)cacheable_stream) + 2;
+    int32_t imm26 = sign_extend((*blp & 0x3ffffff) << 2, 26);
+
+    uint32_t *lck_grp_alloc_init = (uint32_t *)((intptr_t)blp + imm26);
+
+    g_lck_grp_alloc_init_addr = xnu_ptr_to_va(lck_grp_alloc_init);
+
+    puts("svc_stalker: found lck_grp_alloc_init");
+
+    return true;
+}
+
+/* confirmed working in all kernels 13.0-13.7 */
+static bool lck_rw_alloc_init_finder(xnu_pf_patch_t *patch,
+        void *cacheable_stream){
+    xnu_pf_disable_patch(patch);
+
+    uint32_t *opcode_stream = cacheable_stream;
+
+    /* the second BL we matched is branching to lck_rw_alloc_init */
+    uint32_t instr_limit = 25;
+    uint32_t bl_cnt = 0;
+
+    for(;;){
+        if(instr_limit-- == 0){
+            puts("svc_stalker:");
+            puts("   lck_rw_alloc_init_finder:");
+            puts("   no BLs?");
+            return false;
+        }
+
+        if((*opcode_stream & 0xfc000000) == 0x94000000){
+            bl_cnt++;
+
+            if(bl_cnt == 2)
+                break;
+        }
+
+        opcode_stream++;
+    }
+
+    int32_t imm26 = sign_extend((*opcode_stream & 0x3ffffff) << 2, 26);
+
+    uint32_t *lck_rw_alloc_init = (uint32_t *)((intptr_t)opcode_stream + imm26);
+
+    g_lck_rw_alloc_init_addr = xnu_ptr_to_va(lck_rw_alloc_init);
+
+    puts("svc_stalker: found lck_rw_alloc_init");
 
     return true;
 }
@@ -1164,7 +1225,8 @@ static void anything_missing(void){
             g_thread_syscall_return_end_addr == 0 || 
             g_thread_exception_return_addr == 0 || g_platform_syscall_start_addr == 0 ||
             g_platform_syscall_end_addr == 0 || g_unix_syscall_return_start_addr == 0 ||
-            g_unix_syscall_return_end_addr == 0){
+            g_unix_syscall_return_end_addr == 0 || g_lck_grp_alloc_init_addr == 0 ||
+            g_lck_rw_alloc_init_addr == 0){
         puts("svc_stalker: error(s) before");
         puts("     we continue:");
 
@@ -1280,6 +1342,12 @@ static void anything_missing(void){
             puts("     is still zero?");
         }
 
+        if(g_lck_grp_alloc_init_addr == 0)
+            puts("   lck_grp_alloc_init not found?");
+
+        if(g_lck_rw_alloc_init_addr == 0)
+            puts("   lck_rw_alloc_init not found?");
+
         stalker_fatal_error();
     }
 }
@@ -1346,6 +1414,8 @@ static uint64_t *create_stalker_cache(uint64_t **stalker_cache_base_out){
     STALKER_CACHE_WRITE(cursor, g_thread_syscall_return_end_addr);
     STALKER_CACHE_WRITE(cursor, g_unix_syscall_return_start_addr);
     STALKER_CACHE_WRITE(cursor, g_unix_syscall_return_end_addr);
+    STALKER_CACHE_WRITE(cursor, g_lck_grp_alloc_init_addr);
+    STALKER_CACHE_WRITE(cursor, g_lck_rw_alloc_init_addr);
 
     return cursor;
 }
@@ -1913,6 +1983,14 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     puts("svc_stalker: patched thread_syscall_return");
     puts("svc_stalker: patched unix_syscall_return");
 
+    /* reserve stalker cache space for stalker lock and current call ID
+     *
+     * Current call ID is used by mini_strace to know when a system call
+     * has completed.
+     */
+    STALKER_CACHE_WRITE(stalker_cache_cursor, 0);
+    STALKER_CACHE_WRITE(stalker_cache_cursor, 0);
+
 #define IMPORTANT_MSG(x) \
     putchar('*'); \
     putchar(' '); \
@@ -2351,6 +2429,60 @@ static void stalker_prep(const char *cmd, char *args){
             num_unix_syscall_return_scanner_matches, false,
             unix_syscall_return_scanner);
 
+    uint64_t lck_grp_alloc_init_finder_matches[] = {
+        0xf9400260,     /* ldr x0, [x19] */
+        0xf9400281,     /* ldr x1, [x20, n] */
+        0x94000000,     /* bl n */
+    };
+
+    const size_t num_lck_grp_alloc_init_finder_matches =
+        sizeof(lck_grp_alloc_init_finder_matches) /
+        sizeof(*lck_grp_alloc_init_finder_matches);
+
+    uint64_t lck_grp_alloc_init_finder_masks[] = {
+        0xffffffff,     /* match exactly */
+        0xffc003ff,     /* ignore immediate */
+        0xfc000000,     /* ignore immediate */
+    };
+
+    xnu_pf_maskmatch(patchset, lck_grp_alloc_init_finder_matches,
+            lck_grp_alloc_init_finder_masks,
+            num_lck_grp_alloc_init_finder_matches, false,
+            lck_grp_alloc_init_finder);
+
+    uint64_t lck_rw_alloc_init_finder_matches[] = {
+        0xb4000000,     /* cbz x0, n */
+        0xd37ced01,     /* lsl x1, x8, #4 */
+        0x94000000,     /* bl n (bzero) */
+        0x10000008,     /* adrp x8, n or adr x8, n */
+        0x0,            /* ignore this instruction */
+        0xd2800001,     /* mov x1, 0 */
+        0x94000000,     /* bl n (lck_rw_alloc_init) */
+        0xf9000260,     /* str x0, [x19, n] */
+        0xb5000000,     /* cbnz x0, n */
+    };
+
+    const size_t num_lck_rw_alloc_init_finder_matches =
+        sizeof(lck_rw_alloc_init_finder_matches) /
+        sizeof(*lck_rw_alloc_init_finder_matches);
+
+    uint64_t lck_rw_alloc_init_finder_masks[] = {
+        0xff00001f,     /* ignore immediate */
+        0xffffffff,     /* match exactly */
+        0xfc000000,     /* ignore immediate */
+        0x1f00001f,     /* ignore immediate */
+        0x0,            /* ignore this instruction */
+        0xffffffff,     /* match exactly */
+        0xfc000000,     /* ignore immediate */
+        0xffc003ff,     /* ignore immediate */
+        0xff00001f,     /* ignore immediate */
+    };
+
+    xnu_pf_maskmatch(patchset, lck_rw_alloc_init_finder_matches,
+            lck_rw_alloc_init_finder_masks,
+            num_lck_rw_alloc_init_finder_matches, false,
+            lck_rw_alloc_init_finder);
+
     /* AMFI for proc_pid */
     struct mach_header_64 *AMFI = xnu_pf_get_kext_header(mh_execute_header,
             "com.apple.driver.AppleMobileFileIntegrity");
@@ -2364,7 +2496,7 @@ static void stalker_prep(const char *cmd, char *args){
 
     xnu_pf_range_t *AMFI___TEXT_EXEC = xnu_pf_segment(AMFI, "__TEXT_EXEC");
 
-    /* sandbox for hook_system_check_sysctlbyname */
+    /* sandbox for hook_system_check_sysctlbyname and lck_grp_alloc_init */
     struct mach_header_64 *sandbox = xnu_pf_get_kext_header(mh_execute_header,
             "com.apple.security.sandbox");
 

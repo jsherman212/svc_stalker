@@ -28,6 +28,12 @@ _main:
     ; XXX from now on, X28 == stalker cache pointer, do not modify X28
     ldr x28, [x22]
 
+take_stalker_lock:
+    ldr x0, [x28, STALKER_LOCK]
+    cbz x0, done
+    ldr x19, [x28, LCK_RW_LOCK_SHARED]
+    blr x19
+
     ldr w22, [x20, FLAVOR_ARG]
     cmp w22, PID_MANAGE
     ; first, let's see if the user wants to check if this syscall was
@@ -37,7 +43,7 @@ _main:
     b.eq call_manage
     ; if you're interested in checking out the stalker table in userland,
     ; uncomment this stuff and out_givetablekaddr
-    ;cmp w22, 2
+    ;cmp w22, 0x2
     ;b.eq out_givetablekaddr
     b out_einval
 
@@ -81,7 +87,7 @@ add_pid:
     ; increment stalker table size
     ldr x22, [x28, STALKER_TABLE_PTR]
     ldr w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
-    add w23, w23, 1
+    add w23, w23, 0x1
     str w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
 
     b success
@@ -96,15 +102,15 @@ delete_pid:
     cbz x0, out_einval
     ; at this point we have the stalker_ctl entry that belongs to pid
     ; it's now free
-    mov w22, 1
+    mov w22, 0x1
     str w22, [x0, STALKER_CTL_FREE_OFF]
-    ; it belongs to no pids
+    ; it belongs to no one
     str wzr, [x0, STALKER_CTL_PID_OFF]
 
     ; decrement stalker table size
     ldr x22, [x28, STALKER_TABLE_PTR]
     ldr w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
-    sub w23, w23, 1
+    sub w23, w23, 0x1
     str w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
 
     ; free call_list if it isn't NULL
@@ -138,7 +144,8 @@ call_manage:
 
     ; this stalker_ctl's call list is NULL, kalloc a new one
     mov x0, CALL_LIST_MAX
-    add x0, xzr, x0, lsl 2                     ; CALL_LIST_MAX*sizeof(int32_t)
+    ; CALL_LIST_MAX*sizeof(int32_t)
+    add x0, xzr, x0, lsl 0x2
     str x0, [sp, CALL_LIST_KALLOC_SZ]
     ; kalloc_canblock expects a pointer for size
     add x0, sp, CALL_LIST_KALLOC_SZ
@@ -156,7 +163,7 @@ call_manage:
     mov x23, CALL_LIST_FREE_SLOT
     mov x24, x0
     mov w25, CALL_LIST_MAX
-    add x25, x24, w25, lsl 2
+    add x25, x24, w25, lsl 0x2
 
     ; this new call list has all its elems free
 call_list_init_loop:
@@ -195,32 +202,40 @@ delete_call:
     b success
 
 out_einval:
-    mov w0, -1
+    mov w0, 0xffffffff
     str w0, [x21]
-    mov w0, 22
-    b done
+    mov w0, 0x16
+    b release_stalker_lock
 
 out_enomem:
-    mov w0, -1
+    mov w0, 0xffffffff
     str w0, [x21]
-    mov w0, 12
-    b done
+    mov w0, 0xc
+    b release_stalker_lock
 
 out_patched:
-    mov w0, 999
+    mov w0, 0x3e7
     str w0, [x21]
-    mov w0, 0
-    b done
+    mov w0, wzr
+    b release_stalker_lock
 
 ; out_givetablekaddr:
 ;     ldr x0, [x28, STALKER_TABLE]
 ;     str x0, [x21]
-;     mov w0, 0
-;     b done
+;     mov w0, wzr
+;     b release_stalker_lock
 
 success:
-    mov w0, 0
+    mov w0, wzr
     str w0, [x21]
+
+release_stalker_lock:
+    ; back up return value
+    mov x20, x0
+    ldr x0, [x28, STALKER_LOCK]
+    ldr x19, [x28, LCK_RW_DONE]
+    blr x19
+    mov x0, x20
 
 done:
     ldp x29, x30, [sp, STACK-0x10]

@@ -43,6 +43,27 @@ _main:
     ldr x19, [x24, SEND_EXCEPTION_MSG]
     blr x19
 
+    ; remove the call ID from this thread's X16
+    ; see handle_svc_hook.s
+    mrs x19, TPIDR_EL1
+    ldr x20, [x24, OFFSETOF_ACT_CONTEXT]
+    ldr x21, [x19, x20]
+    ldr x22, [x21, 0x88]
+    cmp w22, wzr
+    b.lo sign_extend_mach_trap_call_num
+
+    ; zeroing out the top 32 bits for a syscall number works fine
+    and x22, x22, 0xffffffff
+    str x22, [x21, 0x88]
+
+    b almost_done
+
+sign_extend_mach_trap_call_num:
+    mov x23, 0xffffffff
+    lsl x23, x23, 0x20
+    orr x22, x22, x23
+    str x22, [x21, 0x88]
+
 almost_done:
     ldp x29, x30, [sp, STACK-0x10]
 

@@ -50,10 +50,12 @@ static void handle_before_call(mach_port_t task, arm_thread_state64_t state,
         pid_t pid){
     kern_return_t kret = KERN_SUCCESS;
 
-    long call_num = state.__x[16];
+    int call_num = state.__x[16];
+    int call_id = state.__x[16] >> 32;
     /* printf("call_num %ld\n", call_num); */
 
-    printf("%d: ", pid);
+    /* printf("%d (call ID: %d, x16 = %#llx): ", pid, call_id, state.__x[16]); */
+    printf("%d (call #%d): ", pid, call_id);
 
     /* exit */
     if(call_num == 1){
@@ -152,6 +154,7 @@ static void handle_before_call(mach_port_t task, arm_thread_state64_t state,
 static void handle_call_completion(mach_port_t task, mach_port_t thread,
         arm_thread_state64_t state, pid_t pid){
     int call_num = (int)state.__x[16];
+    int call_id = state.__x[16] >> 32;
 
     /* printf("call num %d\n", call_num); */
 
@@ -163,27 +166,27 @@ static void handle_call_completion(mach_port_t task, mach_port_t thread,
          * be returning child pid here
          */
         pid_t child_pid = (pid_t)state.__x[0];
-        printf(" = %d\n", child_pid);
+        printf(" = %d", child_pid);
     }
     /* read */
     if(call_num == 3){
         size_t bytes_read = state.__x[0];
-        printf(" = %ld\n", bytes_read);
+        printf(" = %ld", bytes_read);
     }
     /* write */
     if(call_num == 4){
         size_t bytes_written = state.__x[0];
-        printf(" = %ld\n", bytes_written);
+        printf(" = %ld", bytes_written);
     }
     /* open */
     else if(call_num == 5){
         int fd = (int)state.__x[0];
-        printf(" = %d\n", fd);
+        printf(" = %d", fd);
     }
     /* access */
     else if(call_num == 33){
         int retval = (int)state.__x[0];
-        printf(" = %d\n", retval);
+        printf(" = %d", retval);
     }
     /* getpid */
     else if(call_num == 20){
@@ -196,11 +199,11 @@ static void handle_call_completion(mach_port_t task, mach_port_t thread,
         /*     printf("%s: thread_set_state failed: %s\n", __func__, */
         /*             mach_error_string(kret)); */
         /* } */
-        printf(" = %d\n", pid);
+        printf(" = %d", pid);
     }
     else if(call_num == 0x80000000){
         uint64_t ret = state.__x[0];
-        printf(" = %#llx\n", ret);
+        printf(" = %#llx", ret);
         state.__x[0] = 0x41414141;
         mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT;
         kern_return_t kret = thread_set_state(thread, ARM_THREAD_STATE64,
@@ -213,23 +216,26 @@ static void handle_call_completion(mach_port_t task, mach_port_t thread,
     /* mach_absolute_time() */
     else if(call_num == -3){
         uint64_t ret = state.__x[0];
-        printf(" = %#llx\n", ret);
+        printf(" = %#llx", ret);
     }
     /* mach_continuous_time() */
     else if(call_num == -4){
         uint64_t ret = state.__x[0];
-        printf(" = %#llx\n", ret);
+        printf(" = %#llx", ret);
     }
     /* mach_msg_trap */
     else if(call_num == -31){
         kern_return_t retval = (kern_return_t)state.__x[0];
-        printf(" = %s\n", mach_error_string(retval));
+        printf(" = %s", mach_error_string(retval));
     }
     /* _kernelrpc_mach_port_allocate_trap */
     else if(call_num == -16){
         kern_return_t retval = (kern_return_t)state.__x[0];
-        printf(" = %s\n", mach_error_string(retval));
+        printf(" = %s", mach_error_string(retval));
     }
+
+    /* printf(" (call ID: %d, x16 = %#llx)\n", call_id, state.__x[16]); */
+    printf(" (return value for call #%d)\n", call_id);
 }
 
 static pthread_mutex_t g_mini_strace_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -299,6 +305,8 @@ int main(int argc, char **argv){
      * system call is always number 8. It could be different for you.
      */
     ret = syscall(SYS_svc_stalker_ctl, -1, PID_MANAGE, 0, 0);
+
+    printf("ret %d\n", ret);
 
     if(ret != 999){
         printf("svc_stalker_ctl wasn't patched correctly\n");

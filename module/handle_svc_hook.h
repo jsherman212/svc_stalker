@@ -11,6 +11,7 @@
 #define EXC_CODES                   (STACK-0x78)    /* XXX array of 2 uint64_t */
 #define CUR_PID                     (STACK-0x88)
 #define SYSCTL_OID_STRUCT           (STACK-0xe0)    /* XXX sizeof(sysctl_oid) == 0x50 */
+#define STALKER_LOCK_GROUP_NAME     (STACK-0xe8)
 
 /* sysctl stuff */
 #define OID_AUTO                    (-1)

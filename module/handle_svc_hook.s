@@ -27,7 +27,7 @@ _main:
     ldr x19, [x28, IS_SYSCTL_REGISTERED]
     blr x19
     ; if we've already registered the sysctl, don't do it again
-    cbnz x0, maybeintercept
+    cbnz x0, try_create_stalker_lock
 
     ; set up the kern.svc_stalker_ctl_callnum sysctl
     ; oid_parent, _kern
@@ -51,7 +51,7 @@ _main:
     ; oid_name, "kern.svc_stalker_ctl_callnum"
     ldr x19, [x28, SVC_STALKER_SYSCTL_NAME_PTR]
     ; skip "kern."
-    add x19, x19, 5
+    add x19, x19, 0x5
     str x19, [sp, SYSCTL_OID_STRUCT+0x28]
     ; oid_handler
     ldr x19, [x28, SYSCTL_HANDLE_LONG]
@@ -83,7 +83,6 @@ _main:
     ; with hook_system_check_sysctlbyname_hook.
     ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
     ldr x0, [x0]
-    mov x21, x0
     ldr x19, [x28, LCK_RW_LOCK_SHARED]
     blr x19
     ldr x0, [x28, SVC_STALKER_SYSCTL_NAME_PTR]
@@ -94,27 +93,76 @@ _main:
     ldr x19, [x28, STALKER_TABLE_PTR]
     mov x20, 0x1
     str x20, [x19, STALKER_TABLE_REGISTERED_SYSCTL_OFF]
-    mov x0, x21
+    ldr x0, [x28, SYSCTL_GEOMETRY_LOCK_PTR]
+    ldr x0, [x0]
     ldr x19, [x28, LCK_RW_DONE]
     blr x19
 
-maybeintercept:
+try_create_stalker_lock:
+    ; racy... but it's only a read. could be worse :D
+    ldr x19, [x28, STALKER_LOCK]
+    ; skip this part if it already exists
+    cbnz x19, maybe_intercept
+
+    ; Should be done far before springboard even launches, and I don't care
+    ; about leaking a few bytes if this does end up getting raced
+    ; X0 == "stkr_lg"
+    movk x0, 0x7473
+    movk x0, 0x726b, lsl 0x10
+    movk x0, 0x6c5f, lsl 0x20
+    movk x0, 0x0067, lsl 0x30
+    str x0, [sp, STALKER_LOCK_GROUP_NAME]
+    add x0, sp, STALKER_LOCK_GROUP_NAME
+    mov x1, xzr
+    ldr x19, [x28, LCK_GRP_ALLOC_INIT]
+    blr x19
+    cbz x0, done
+    mov x1, xzr
+    ldr x19, [x28, LCK_RW_ALLOC_INIT]
+    blr x19
+    cbz x0, done
+    str x0, [x28, STALKER_LOCK]
+
+maybe_intercept:
     ldr x19, [sp, SAVED_STATE_PTR]
     ldr w0, [x19, 0x88]
     ldr x19, [x28, SHOULD_INTERCEPT_CALL]
     blr x19
     cbz x0, done
 
+    ; since call numbers are 32 bits in XNU, we can use the upper 32
+    ; bits of X16 as a call ID that remains constant between BEFORE_CALL and
+    ; CALL_COMPLETED so mini_strace can figure out which BEFORE_CALL saved state
+    ; corresponds to a given CALL_COMPLETED saved state
+
+    ldr x0, [x28, STALKER_LOCK]
+    ldr x19, [x28, LCK_RW_LOCK_SHARED]
+    blr x19
+    ldr x19, [sp, SAVED_STATE_PTR]
+    ldr x20, [x19, 0x88]                    ; X16 of userspace thread
+    ; clear upper 32 bits
+    and x20, x20, 0xffffffff
+    ldr x21, [x28, CUR_CALL_ID]
+    mov x22, x21
+    lsl x21, x21, 0x20
+    orr x20, x20, x21
+    str x20, [x19, 0x88]
+    add x22, x22, 0x1
+    str x22, [x28, CUR_CALL_ID]
+    ldr x0, [x28, STALKER_LOCK]
+    ldr x19, [x28, LCK_RW_DONE]
+    blr x19
+
     ldr x19, [x28, CURRENT_PROC]
     blr x19
     ldr x19, [x28, PROC_PID]
     blr x19
     mov w1, w0
+    ldr x2, [sp, SAVED_STATE_PTR]
+    ldr w2, [x2, 0x88]
+    cmp w2, wzr
     mov x0, EXC_SYSCALL
     mov x3, EXC_MACH_SYSCALL
-    ldr x2, [sp, SAVED_STATE_PTR]
-    ldr w2, [x2, 0x88]                      ; X16, call number
-    cmp w2, wzr
     csel x0, x3, x0, lt                     ; exception
     mov w2, BEFORE_CALL                     ; if we're here, this call has
                                             ; not happened yet
