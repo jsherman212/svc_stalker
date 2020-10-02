@@ -9,6 +9,8 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+#include "array.h"
+
 static pid_t g_pid = 0;
 
 static long SYS_svc_stalker_ctl = 0;
@@ -240,10 +242,206 @@ static void handle_call_completion(mach_port_t task, mach_port_t thread,
 
 static pthread_mutex_t g_mini_strace_lock = PTHREAD_MUTEX_INITIALIZER;
 
+struct xnu_call {
+    pid_t caller;
+    /* handle_svc_hook OR's a unique value into the thread's X16 so
+     * we can figure out which xnu_call struct corresponds to one that
+     * has completed
+     */
+    int call_id;
+    int call_num;
+    /* thread state BEFORE this call has happened */
+    arm_thread_state64_t *before_state;
+};
+
+static int xnu_call_cmp(const void *a, const void *b){
+    struct xnu_call *first = *(struct xnu_call **)a;
+    struct xnu_call *second = *(struct xnu_call **)b;
+
+    return first->call_id - second->call_id;
+}
+
+static struct array *g_pending_calls = NULL;
+
+static void add_pending_call(arm_thread_state64_t *state, pid_t caller){
+    pthread_mutex_lock(&g_mini_strace_lock);
+
+    if(!g_pending_calls)
+        g_pending_calls = array_new();
+
+    pthread_mutex_unlock(&g_mini_strace_lock);
+
+    struct xnu_call *call = malloc(sizeof(struct xnu_call));
+    call->caller = caller;
+    call->call_id = state->__x[16] >> 32;
+    /* mask for clarity */
+    call->call_num = state->__x[16] & 0xffffffff;
+    call->before_state = malloc(sizeof(arm_thread_state64_t));
+    memcpy(call->before_state, state, sizeof(arm_thread_state64_t));
+
+    pthread_mutex_lock(&g_mini_strace_lock);
+
+    if(array_insert(g_pending_calls, call) != ARRAY_OK){
+        printf("mini_strace: could not insert pending call %d, call number %d\n",
+                call->call_id, call->call_num);
+        free(call->before_state);
+        free(call);
+    }
+
+    pthread_mutex_unlock(&g_mini_strace_lock);
+}
+
+static void describe_completed_call(mach_port_t task, struct xnu_call *call,
+        arm_thread_state64_t *completed_state){
+    kern_return_t kret = KERN_SUCCESS;
+    int call_num = call->call_num;
+
+    printf("%d: ", call->caller);
+
+    /* TODO: display errno when syscall ret value is -1 */
+    if(call_num == 1)
+        printf("exit(%d)\n", call->before_state->__x[0]);
+    else if(call_num == 2)
+        printf("fork() = %d\n", completed_state->__x[0]);
+    else if(call_num == 3)
+        printf("read(%lld, %#llx, %lld) = %ld\n", call->before_state->__x[0],
+                call->before_state->__x[1], call->before_state->__x[2],
+                completed_state->__x[0]);
+    else if(call_num == 4){
+        /* write(fd, buf, count)
+         *
+         * W0 == fd
+         * X1 == buf
+         * X2 == count
+         */
+        char buf[call->before_state->__x[2]];
+
+        mach_msg_type_number_t sz = call->before_state->__x[2];
+        kret = vm_read_overwrite(task, call->before_state->__x[1], sz, buf, &sz);
+
+        if(kret){
+            printf("mini_strace: vm_read_overwrite failed: %s\n",
+                    mach_error_string(kret));
+            return;
+        }
+
+        printf("write(%lld, \"%s\", %lld) = %ld\n", call->before_state->__x[0],
+                buf, call->before_state->__x[2], completed_state->__x[0]);
+    }
+    /* open or access */
+    else if(call_num == 5 || call_num == 33){
+        /* open(pathname, flags) or access(pathname, mode)
+         * 
+         * We can handle these both here because their parameters are
+         * the exact same type
+         *
+         * X0 == pathname
+         * W1 == flags/mode
+         */
+        char buf[PATH_MAX] = {0};
+
+        mach_msg_type_number_t sz = PATH_MAX;
+        kret = vm_read_overwrite(task, call->before_state->__x[0], sz, buf, &sz);
+
+        if(kret){
+            printf("mini_strace: vm_read_overwrite failed: %s\n",
+                    mach_error_string(kret));
+            return;
+        }
+
+        if(call_num == 5)
+            printf("open");
+        else
+            printf("access");
+
+        printf("(\"%s\", %#x) = %d\n", buf, (uint32_t)call->before_state->__x[1],
+                completed_state->__x[0]);
+    }
+    /* getpid */
+    else if(call_num == 20){
+        printf("getpid() = %d\n", completed_state->__x[0]);
+    }
+    /* a platform syscall, specific number is in X3 */
+    else if(call_num == 0x80000000){
+        uint64_t ps_call_num = call->before_state->__x[3];
+
+        if(ps_call_num == 3)
+            printf("thread_get_cthread_self() = %#llx\n", completed_state->__x[0]);
+    }
+    /* mach_absolute_time() */
+    else if(call_num == -3){
+        printf("mach_absolute_time() = %#llx\n", completed_state->__x[0]);
+    }
+    /* mach_continuous_time() */
+    else if(call_num == -4){
+        printf("mach_continuous_time() = %#llx\n", completed_state->__x[0]);
+    }
+    /* mach_msg_trap */
+    else if(call_num == -31){
+        printf("mach_msg(%#llx, %#x, %#x, %#x, %#x, %#x, %#x) = %s\n",
+                call->before_state->__x[0], (uint32_t)call->before_state->__x[1],
+                (uint32_t)call->before_state->__x[2],
+                (uint32_t)call->before_state->__x[3],
+                (uint32_t)call->before_state->__x[4],
+                (uint32_t)call->before_state->__x[5],
+                (uint32_t)call->before_state->__x[6],
+                mach_error_string(completed_state->__x[0]));
+    }
+    /* _kernelrpc_mach_port_allocate_trap */
+    else if(call_num == -16){
+        printf("mach_port_allocate(%#x, %#x, %#llx) = %s\n",
+                (uint32_t)call->before_state->__x[0],
+                (uint32_t)call->before_state->__x[1],
+                call->before_state->__x[2],
+                mach_error_string(completed_state->__x[0]));
+    }
+}
+
+static void process_completed_call(mach_port_t task,
+        arm_thread_state64_t *state, pid_t caller){
+    pthread_mutex_lock(&g_mini_strace_lock);
+
+    if(!g_pending_calls){
+        /* strange... */
+        pthread_mutex_unlock(&g_mini_strace_lock);
+        return;
+    }
+
+    /* sort for bsearch */
+    array_qsort(g_pending_calls, xnu_call_cmp);
+
+    int call_id = state->__x[16] >> 32;
+    /* mask for clarity */
+    int call_num = state->__x[16] & 0xffffffff;
+
+    struct xnu_call key = {
+        .caller = 0,
+        .call_id = call_id,
+        .call_num = 0,
+        .before_state = NULL
+    };
+
+    struct xnu_call *keyp = &key;
+    struct xnu_call *foundp = NULL;
+
+    if(array_bsearch(g_pending_calls, &keyp, xnu_call_cmp, &foundp) == ARRAY_OK){
+        struct xnu_call *found = *(struct xnu_call **)foundp;
+
+        describe_completed_call(task, found, state);
+
+        if(array_remove_elem(g_pending_calls, found) == ARRAY_OK){
+            free(found->before_state);
+            free(found);
+        }
+    }
+
+    pthread_mutex_unlock(&g_mini_strace_lock);
+}
+
 kern_return_t catch_mach_exception_raise(mach_port_t exception_port,
         mach_port_t thread, mach_port_t task, exception_type_t exception,
         mach_exception_data_t code, mach_msg_type_number_t code_count){
-    pthread_mutex_lock(&g_mini_strace_lock);
+    /* pthread_mutex_lock(&g_mini_strace_lock); */
 
     pid_t pid = code[0];
     long call_status = code[1];
@@ -255,19 +453,25 @@ kern_return_t catch_mach_exception_raise(mach_port_t exception_port,
 
     if(kret){
         printf("thread_get_state failed: %s\n", mach_error_string(kret));
-        pthread_mutex_unlock(&g_mini_strace_lock);
+        /* pthread_mutex_unlock(&g_mini_strace_lock); */
         return KERN_SUCCESS;
     }
 
     /* for both of these, you're free to inspect/modify registers before
      * giving contol back to the kernel
      */
-    if(call_status == BEFORE_CALL)
-        handle_before_call(task, state, pid);
-    else
-        handle_call_completion(task, thread, state, pid);
+    /* if(call_status == BEFORE_CALL) */
+    /*     handle_before_call(task, state, pid); */
+    /* else */
+    /*     handle_call_completion(task, thread, state, pid); */
 
-    pthread_mutex_unlock(&g_mini_strace_lock);
+    if(call_status == BEFORE_CALL)
+        add_pending_call(&state, pid);
+    else
+        process_completed_call(task, &state, pid);
+
+
+    /* pthread_mutex_unlock(&g_mini_strace_lock); */
 
     /* always return KERN_SUCCESS to let the kernel know you've handled
      * this exception
@@ -306,7 +510,7 @@ int main(int argc, char **argv){
      */
     ret = syscall(SYS_svc_stalker_ctl, -1, PID_MANAGE, 0, 0);
 
-    printf("ret %d\n", ret);
+    /* printf("ret %d\n", ret); */
 
     if(ret != 999){
         printf("svc_stalker_ctl wasn't patched correctly\n");
