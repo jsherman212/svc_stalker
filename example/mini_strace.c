@@ -48,198 +48,6 @@ kern_return_t catch_mach_exception_raise_state_identity(mach_port_t exception_po
     return KERN_FAILURE;
 }
 
-static void handle_before_call(mach_port_t task, arm_thread_state64_t state,
-        pid_t pid){
-    kern_return_t kret = KERN_SUCCESS;
-
-    int call_num = state.__x[16];
-    int call_id = state.__x[16] >> 32;
-    /* printf("call_num %ld\n", call_num); */
-
-    /* printf("%d (call ID: %d, x16 = %#llx): ", pid, call_id, state.__x[16]); */
-    printf("%d (call #%d): ", pid, call_id);
-
-    /* exit */
-    if(call_num == 1){
-        printf("exit(%d)\n", state.__x[0]);
-    }
-    /* fork */
-    else if(call_num == 2){
-        printf("fork()");
-    }
-    /* read */
-    else if(call_num == 3){
-        printf("read(%lld, %#llx, %lld)", state.__x[0], state.__x[1], state.__x[2]);
-    }
-    /* write */
-    else if(call_num == 4){
-        /* write(fd, buf, count)
-         *
-         * W0 == fd
-         * X1 == buf
-         * X2 == count
-         */
-
-        char buf[state.__x[2]];
-
-        mach_msg_type_number_t sz = state.__x[2];
-        kret = vm_read_overwrite(task, state.__x[1], sz, buf, &sz);
-
-        if(kret){
-            printf("vm_read_overwrite failed: %s\n", mach_error_string(kret));
-            return;
-        }
-
-        printf("write(%lld, \"%s\", %lld)", state.__x[0], buf, state.__x[2]);
-    }
-    /* open or access */
-    else if(call_num == 5 || call_num == 33){
-        /* open(pathname, flags) or access(pathname, mode)
-         * 
-         * We can handle these both here because their parameters are
-         * the exact same type
-         *
-         * X0 == pathname
-         * W1 == flags/mode
-         */
-        char buf[PATH_MAX] = {0};
-
-        mach_msg_type_number_t sz = PATH_MAX;
-        kret = vm_read_overwrite(task, state.__x[0], sz, buf, &sz);
-
-        if(kret){
-            printf("vm_read_overwrite failed: %s\n", mach_error_string(kret));
-            return;
-        }
-
-        if(call_num == 5)
-            printf("open");
-        else
-            printf("access");
-
-        printf("(\"%s\", %#x)", buf, (uint32_t)state.__x[1]);
-    }
-    /* getpid */
-    else if(call_num == 20){
-        printf("getpid()");
-        /* printf("Spoofing getpid() return value\n"); */
-    }
-    /* a platform syscall, specific number is in X3 */
-    else if(call_num == 0x80000000){
-        uint64_t ps_call_num = state.__x[3];
-
-        if(ps_call_num == 3)
-            printf("thread_get_cthread_self()");
-    }
-    /* mach_absolute_time() */
-    else if(call_num == -3){
-        printf("mach_absolute_time()");
-    }
-    /* mach_continuous_time() */
-    else if(call_num == -4){
-        printf("mach_continuous_time()");
-    }
-    /* mach_msg_trap */
-    else if(call_num == -31){
-        printf("mach_msg(%#llx, %#x, %#x, %#x, %#x, %#x, %#x)", state.__x[0],
-                (uint32_t)state.__x[1], (uint32_t)state.__x[2],
-                (uint32_t)state.__x[3], (uint32_t)state.__x[4],
-                (uint32_t)state.__x[5], (uint32_t)state.__x[6]);
-    }
-    /* _kernelrpc_mach_port_allocate_trap */
-    else if(call_num == -16){
-        printf("_kernelrpc_mach_port_allocate_trap(%#x, %#x, %#llx)",
-                (uint32_t)state.__x[0], (uint32_t)state.__x[1], state.__x[2]);
-    }
-}
-
-static void handle_call_completion(mach_port_t task, mach_port_t thread,
-        arm_thread_state64_t state, pid_t pid){
-    int call_num = (int)state.__x[16];
-    int call_id = state.__x[16] >> 32;
-
-    /* printf("call num %d\n", call_num); */
-
-    /* printf(" = %d", pid); */
-
-    /* fork */
-    if(call_num == 2){
-        /* since we're catching syscalls for the parent process, fork should
-         * be returning child pid here
-         */
-        pid_t child_pid = (pid_t)state.__x[0];
-        printf(" = %d", child_pid);
-    }
-    /* read */
-    if(call_num == 3){
-        size_t bytes_read = state.__x[0];
-        printf(" = %ld", bytes_read);
-    }
-    /* write */
-    if(call_num == 4){
-        size_t bytes_written = state.__x[0];
-        printf(" = %ld", bytes_written);
-    }
-    /* open */
-    else if(call_num == 5){
-        int fd = (int)state.__x[0];
-        printf(" = %d", fd);
-    }
-    /* access */
-    else if(call_num == 33){
-        int retval = (int)state.__x[0];
-        printf(" = %d", retval);
-    }
-    /* getpid */
-    else if(call_num == 20){
-        /* pid_t pid = (pid_t)state.__x[0]; */
-        /* state.__x[0] = 0x41414141; */
-        /* mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT; */
-        /* kern_return_t kret = thread_set_state(thread, ARM_THREAD_STATE64, */
-        /*         (thread_state_t)&state, count); */
-        /* if(kret){ */
-        /*     printf("%s: thread_set_state failed: %s\n", __func__, */
-        /*             mach_error_string(kret)); */
-        /* } */
-        printf(" = %d", pid);
-    }
-    else if(call_num == 0x80000000){
-        uint64_t ret = state.__x[0];
-        printf(" = %#llx", ret);
-        state.__x[0] = 0x41414141;
-        mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT;
-        kern_return_t kret = thread_set_state(thread, ARM_THREAD_STATE64,
-                (thread_state_t)&state, count);
-        if(kret){
-            printf("%s: thread_set_state failed: %s\n", __func__,
-                    mach_error_string(kret));
-        }
-    }
-    /* mach_absolute_time() */
-    else if(call_num == -3){
-        uint64_t ret = state.__x[0];
-        printf(" = %#llx", ret);
-    }
-    /* mach_continuous_time() */
-    else if(call_num == -4){
-        uint64_t ret = state.__x[0];
-        printf(" = %#llx", ret);
-    }
-    /* mach_msg_trap */
-    else if(call_num == -31){
-        kern_return_t retval = (kern_return_t)state.__x[0];
-        printf(" = %s", mach_error_string(retval));
-    }
-    /* _kernelrpc_mach_port_allocate_trap */
-    else if(call_num == -16){
-        kern_return_t retval = (kern_return_t)state.__x[0];
-        printf(" = %s", mach_error_string(retval));
-    }
-
-    /* printf(" (call ID: %d, x16 = %#llx)\n", call_id, state.__x[16]); */
-    printf(" (return value for call #%d)\n", call_id);
-}
-
 static pthread_mutex_t g_mini_strace_lock = PTHREAD_MUTEX_INITIALIZER;
 
 struct xnu_call {
@@ -290,23 +98,63 @@ static void add_pending_call(arm_thread_state64_t *state, pid_t caller){
 
     pthread_mutex_unlock(&g_mini_strace_lock);
 }
+        
+/* osfmk/arm/proc_reg.h */
+#define PSR_CF 0x20000000
+
+/* void */
+#define RETTYPE_NONE        (0)
+/* %d */
+#define RETTYPE_INT         (1)
+/* %#x */
+#define RETTYPE_INT_H       (2)
+/* %ld */
+#define RETTYPE_LONG        (3)
+/* %#lx */
+#define RETTYPE_LONG_H      (4)
+
+static void print_unix_syscall_retval(arm_thread_state64_t *completed_state,
+        int rettype){
+    if(rettype == RETTYPE_NONE){
+        /* just flush stdout */
+        printf("\n");
+        return;
+    }
+
+    /* see arm_prepare_u64_syscall_return @ bsd/dev/arm/systemcalls.c */
+    if(completed_state->__cpsr & PSR_CF)
+        printf(" = %s\n", strerror(completed_state->__x[0]));
+    else if(rettype == RETTYPE_INT)
+        printf(" = %d\n", (int)completed_state->__x[0]);
+    else if(rettype == RETTYPE_INT_H)
+        printf(" = %#x\n", (int)completed_state->__x[0]);
+    else if(rettype == RETTYPE_LONG)
+        printf(" = %ld\n", completed_state->__x[0]);
+    else if(rettype == RETTYPE_LONG_H)
+        printf(" = %#lx\n", completed_state->__x[0]);
+}
 
 static void describe_completed_call(mach_port_t task, struct xnu_call *call,
         arm_thread_state64_t *completed_state){
     kern_return_t kret = KERN_SUCCESS;
+
     int call_num = call->call_num;
+    int rettype = RETTYPE_NONE;
 
     printf("%d: ", call->caller);
 
-    /* TODO: display errno when syscall ret value is -1 */
+    /* if(call_num == 0){ */
+    /*     printf("Indirect system call\n"); */
+    /* } */
     if(call_num == 1)
         printf("exit(%d)\n", call->before_state->__x[0]);
     else if(call_num == 2)
         printf("fork() = %d\n", completed_state->__x[0]);
-    else if(call_num == 3)
-        printf("read(%lld, %#llx, %lld) = %ld\n", call->before_state->__x[0],
-                call->before_state->__x[1], call->before_state->__x[2],
-                completed_state->__x[0]);
+    else if(call_num == 3){
+        printf("read(%lld, %#llx, %lld)", call->before_state->__x[0],
+                call->before_state->__x[1], call->before_state->__x[2]);
+        rettype = RETTYPE_LONG;
+    }
     else if(call_num == 4){
         /* write(fd, buf, count)
          *
@@ -325,8 +173,10 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
             return;
         }
 
-        printf("write(%lld, \"%s\", %lld) = %ld\n", call->before_state->__x[0],
-                buf, call->before_state->__x[2], completed_state->__x[0]);
+        printf("write(%lld, \"%s\", %lld)", call->before_state->__x[0],
+                buf, call->before_state->__x[2]);
+
+        rettype = RETTYPE_LONG;
     }
     /* open or access */
     else if(call_num == 5 || call_num == 33){
@@ -354,19 +204,49 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
         else
             printf("access");
 
-        printf("(\"%s\", %#x) = %d\n", buf, (uint32_t)call->before_state->__x[1],
-                completed_state->__x[0]);
+        printf("(\"%s\", %#x)", buf, (uint32_t)call->before_state->__x[1]);
+
+        rettype = RETTYPE_INT;
+    }
+    /* symlink */
+    else if(call_num == 57){
+        char path[PATH_MAX];
+        char link[PATH_MAX];
+
+        mach_msg_type_number_t sz = PATH_MAX;
+        kret = vm_read_overwrite(task, call->before_state->__x[0], sz, path, &sz);
+
+        if(kret){
+            printf("mini_strace: vm_read_overwrite failed: %s\n",
+                    mach_error_string(kret));
+            return;
+        }
+
+        sz = PATH_MAX;
+        kret = vm_read_overwrite(task, call->before_state->__x[1], sz, link, &sz);
+
+        if(kret){
+            printf("mini_strace: vm_read_overwrite failed: %s\n",
+                    mach_error_string(kret));
+            return;
+        }
+
+        printf("symlink(\"%s\", \"%s\")", path, link);
+        rettype = RETTYPE_INT;
     }
     /* getpid */
     else if(call_num == 20){
-        printf("getpid() = %d\n", completed_state->__x[0]);
+        printf("getpid()");
+        rettype = RETTYPE_INT;
     }
     /* a platform syscall, specific number is in X3 */
     else if(call_num == 0x80000000){
         uint64_t ps_call_num = call->before_state->__x[3];
 
-        if(ps_call_num == 3)
-            printf("thread_get_cthread_self() = %#llx\n", completed_state->__x[0]);
+        if(ps_call_num == 3){
+            printf("thread_get_cthread_self()");
+            rettype = RETTYPE_LONG_H;
+        }
     }
     /* mach_absolute_time() */
     else if(call_num == -3){
@@ -395,6 +275,10 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
                 call->before_state->__x[2],
                 mach_error_string(completed_state->__x[0]));
     }
+
+    if(call_num >= 0)
+        /* so we can handle printing of errno */
+        print_unix_syscall_retval(completed_state, rettype);
 }
 
 static void process_completed_call(mach_port_t task,
@@ -441,8 +325,6 @@ static void process_completed_call(mach_port_t task,
 kern_return_t catch_mach_exception_raise(mach_port_t exception_port,
         mach_port_t thread, mach_port_t task, exception_type_t exception,
         mach_exception_data_t code, mach_msg_type_number_t code_count){
-    /* pthread_mutex_lock(&g_mini_strace_lock); */
-
     pid_t pid = code[0];
     long call_status = code[1];
 
@@ -452,26 +334,18 @@ kern_return_t catch_mach_exception_raise(mach_port_t exception_port,
                 (thread_state_t)&state, &count);
 
     if(kret){
-        printf("thread_get_state failed: %s\n", mach_error_string(kret));
-        /* pthread_mutex_unlock(&g_mini_strace_lock); */
+        printf("mini_strace: thread_get_state failed: %s\n",
+                mach_error_string(kret));
         return KERN_SUCCESS;
     }
 
     /* for both of these, you're free to inspect/modify registers before
      * giving contol back to the kernel
      */
-    /* if(call_status == BEFORE_CALL) */
-    /*     handle_before_call(task, state, pid); */
-    /* else */
-    /*     handle_call_completion(task, thread, state, pid); */
-
     if(call_status == BEFORE_CALL)
         add_pending_call(&state, pid);
     else
         process_completed_call(task, &state, pid);
-
-
-    /* pthread_mutex_unlock(&g_mini_strace_lock); */
 
     /* always return KERN_SUCCESS to let the kernel know you've handled
      * this exception
@@ -509,8 +383,6 @@ int main(int argc, char **argv){
      * system call is always number 8. It could be different for you.
      */
     ret = syscall(SYS_svc_stalker_ctl, -1, PID_MANAGE, 0, 0);
-
-    /* printf("ret %d\n", ret); */
 
     if(ret != 999){
         printf("svc_stalker_ctl wasn't patched correctly\n");
@@ -565,11 +437,7 @@ int main(int argc, char **argv){
         return 1;
     }
 
-    /* That's all set up, so start filtering for write, open, access,
-     * and _kernelrpc_mach_port_allocate_trap.
-     *
-     * register this PID for interception
-     */
+    /* That's all set up, so register the pid argument for interception */
     ret = syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 1, 0);
 
     if(ret){
@@ -578,102 +446,45 @@ int main(int argc, char **argv){
         return 1;
     }
 
-    /* ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 0x80000000, 1); */
-
     /* register some call numbers to intercept */
+#define REGISTER_CALL(callnum) \
+    do { \
+        ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, callnum, 1); \
+        if(ret){ \
+            printf("Couldn't register %d: %s\n", callnum, strerror(errno)); \
+            /* you always need to free the stalker_ctl entry upon process exit */ \
+            syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0); \
+            return 1; \
+        } \
+    } while (0) \
+
+    REGISTER_CALL(0);
     /* write */
-    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 4, 1);
-    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 3, 1);
-
-    if(ret){
-        printf("Couldn't register write: %s\n", strerror(errno));
-        /* always unregister */
-        syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
-        return 1;
-    }
-
+    REGISTER_CALL(4);
+    /* read */
+    REGISTER_CALL(3);
     /* exit */
-    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 1, 1);
-
-    if(ret){
-        printf("Couldn't register exit: %s\n", strerror(errno));
-        /* always unregister */
-        syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
-        return 1;
-    }
-
+    REGISTER_CALL(1);
     /* open */
-    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 5, 1);
-
-    if(ret){
-        printf("Couldn't register open: %s\n", strerror(errno));
-        /* always unregister */
-        syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
-        return 1;
-    }
-
+    REGISTER_CALL(5);
     /* access */
-    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 33, 1);
-
-    if(ret){
-        printf("Couldn't register access: %s\n", strerror(errno));
-        /* always unregister */
-        syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
-        return 1;
-    }
-
-    /* getpid */
-    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 20, 1);
-
-    if(ret){
-        printf("couldn't register getpid: %s\n", strerror(errno));
-        /* always unregister */
-        syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
-        return 1;
-    }
-
+    REGISTER_CALL(33);
     /* fork */
-    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 2, 1);
-
-    if(ret){
-        printf("couldn't register getpid: %s\n", strerror(errno));
-        /* always unregister */
-        syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
-        return 1;
-    }
-
+    REGISTER_CALL(2);
+    /* getpid */
+    REGISTER_CALL(20);
+    /* symlink */
+    REGISTER_CALL(57);
     /* platform syscalls */
-    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, 0x80000000, 1);
-    /* ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, -3, 1); */
-
-    if(ret){
-        printf("Couldn't register for platform syscalls: %s\n", strerror(errno));
-        /* always unregister */
-        syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
-        return 1;
-    }
-
-    /* mach_msg_trap */
-    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, -31, 1);
-    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, -3, 1);
-    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, -4, 1);
-
-    if(ret){
-        printf("Couldn't register mach_msg_trap: %s\n", strerror(errno));
-        /* always unregister */
-        syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
-        return 1;
-    }
-
-    /* _kernelrpc_mach_port_allocate_trap */
-    ret = syscall(SYS_svc_stalker_ctl, g_pid, CALL_LIST_MANAGE, -16, 1);
-
-    if(ret){
-        printf("Couldn't register mach_msg_trap: %s\n", strerror(errno));
-        /* always unregister */
-        syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
-        return 1;
-    }
+    REGISTER_CALL(0x80000000);
+    /* mach_msg */
+    REGISTER_CALL(-31);
+    /* mach_absolute_time */
+    REGISTER_CALL(-3);
+    /* mach_continuous_time */
+    REGISTER_CALL(-4);
+    /* mach_port_allocate */
+    REGISTER_CALL(-16);
 
     pthread_t e_thread;
     pthread_create(&e_thread, NULL, e_thread_func, (void *)(uintptr_t)eport);
