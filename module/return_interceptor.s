@@ -49,34 +49,12 @@ _main:
     ldr x20, [x24, OFFSETOF_ACT_CONTEXT]
     ldr x21, [x19, x20]
     ldr x22, [x21, 0x88]
-    ; add x23, x21, 0x88
     cmp w22, wzr
     b.lo sign_extend_mach_trap_call_num
-    ; b.ne remove_call_id
-    
-    ; XXX actually don't do this, it destroys the return value
-; indirect_system_call:
-;     ; in this case, we need to remove call ID from X0
-;     ldr x22, [x21, 0x8]
-;     add x23, x21, 0x8
 
-    
-    ; b.eq die
-    ; b live
-; die:
-    ; brk 0
-; live:
-
-; remove_call_id:
     ; zeroing out the top 32 bits for a syscall number works fine
     and x22, x22, 0xffffffff
-    ; b.eq die
-    ; b live
-; die:
-    ; brk 0
-; live:
     str x22, [x21, 0x88]
-    ; str x22, [x23]
 
     b almost_done
 

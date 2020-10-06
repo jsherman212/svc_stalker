@@ -1043,6 +1043,51 @@ static bool lck_rw_alloc_init_finder(xnu_pf_patch_t *patch,
 }
 
 /* confirmed working on all kernels 13.0-13.7 */
+static bool unix_syscall_patcher(xnu_pf_patch_t *patch,
+        void *cacheable_stream){
+    /* handle_svc_hook OR's a unique 32 bit value into the upper 32 bits
+     * of the calling userspace thread's X16. This works because system
+     * call numbers are 32 bits in XNU. But it breaks indirect system calls
+     * because the code which checks if X16 == 0 compares all 64 bits of
+     * the register.
+     *
+     * So we change
+     *
+     * LDR X26, [X20, 0x88]             ; get userspace thread's X16, aka call num
+     * CBNZ X26, n                      ; non-zero? if so, not indirect
+     * LDR W26, [X20, 0x8]              ; if indirect, load call number from X0
+     *
+     * to
+     *
+     * LDR W26, [X20, 0x88]
+     * CBNZ W26, n
+     * LDR W26, [X20, 0x8]
+     */
+    xnu_pf_disable_patch(patch);
+
+    uint32_t *opcode_stream = cacheable_stream;
+
+    uint32_t *ldr = opcode_stream;
+    uint32_t *cbnz = opcode_stream + 1;
+
+    /* turn off bit 30, changing size from 3 to 2 */
+    *ldr &= ~0x40000000;
+    /* ...and because we changed the size, we need to double the immediate */
+    uint32_t imm12 = bits(*ldr, 10, 21) << 1;
+    /* zero imm12 */
+    *ldr &= ~0x3ffc00;
+    /* replace */
+    *ldr |= (imm12 << 10);
+
+    /* turn off bit 31, changing sf to 0 */
+    *cbnz &= ~0x80000000;
+
+    puts("svc_stalker: patched unix_syscall");
+
+    return true;
+}
+
+/* confirmed working on all kernels 13.0-13.7 */
 static bool patch_exception_triage_thread(uint32_t *opcode_stream){
     /* patch exception_triage_thread to return to its caller on EXC_SYSCALL and
      * EXC_MACH_SYSCALL
@@ -1989,11 +2034,7 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
      * has completed.
      */
     STALKER_CACHE_WRITE(stalker_cache_cursor, 0);
-    STALKER_CACHE_WRITE(stalker_cache_cursor, 0x41);
-
-    uint32_t *p = xnu_va_to_ptr(0xFFFFFFF0080E8114+kernel_slide);
-    /* ldr w26, [x20, 0x88], only compare syscall number for zero */
-    *p = 0xB9408A9A;
+    STALKER_CACHE_WRITE(stalker_cache_cursor, 0);
 
 #define IMPORTANT_MSG(x) \
     putchar('*'); \
@@ -2486,6 +2527,28 @@ static void stalker_prep(const char *cmd, char *args){
             lck_rw_alloc_init_finder_masks,
             num_lck_rw_alloc_init_finder_matches, false,
             lck_rw_alloc_init_finder);
+
+    uint64_t unix_syscall_patcher_matches[] = {
+        0xf940469a,     /* ldr x26, [x20, 0x88] */
+        0xb500001a,     /* cbnz x26, n */
+        0xb9400a9a,     /* ldr w26, [x20, 0x8] */
+    };
+
+    const size_t num_unix_syscall_patcher_matches =
+        sizeof(unix_syscall_patcher_matches) /
+        sizeof(*unix_syscall_patcher_matches);
+
+    uint64_t unix_syscall_patcher_masks[] = {
+        0xffffffff,     /* match exactly */
+        0xff00001f,     /* ignore immediate */
+        0xffffffff,     /* match exactly */
+    };
+
+    xnu_pf_maskmatch(patchset, unix_syscall_patcher_matches,
+            unix_syscall_patcher_masks,
+            num_unix_syscall_patcher_matches, false,
+            unix_syscall_patcher);
+
 
     /* AMFI for proc_pid */
     struct mach_header_64 *AMFI = xnu_pf_get_kext_header(mh_execute_header,

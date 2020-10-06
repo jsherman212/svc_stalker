@@ -82,23 +82,14 @@ static void add_pending_call(arm_thread_state64_t *state, pid_t caller){
     struct xnu_call *call = malloc(sizeof(struct xnu_call));
     call->caller = caller;
 
-    int call_num;
     int call_id = state->__x[16] >> 32;
+    int call_num;
 
     /* indirect system call? */
-    if(state->__x[16] & 0xffffffff){
-        /* call_id = state->__x[16] >> 32; */
+    if(state->__x[16] & 0xffffffff)
         call_num = state->__x[16] & 0xffffffff;
-        printf("mini_strace:  adding non indirect call %d, num %d x16 %#llx\n",
-                call_id, call_num, state->__x[16]);
-    }
-    else{
-        /* call_id = state->__x[0] >> 32; */
+    else
         call_num = state->__x[0] & 0xffffffff;
-        printf("mini_strace:  adding indirect call %d, num %d x0 %#llx\n",
-                call_id, call_num, state->__x[0]);
-    }
-
 
     call->call_id = call_id;
     call->call_num = call_num;
@@ -162,10 +153,6 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
 
     printf("%d: ", call->caller);
 
-    if(call_num == 0){
-        printf("Indirect system call\n");
-        rettype = RETTYPE_INT;
-    }
     if(call_num == 1)
         printf("exit(%d)\n", call->before_state->__x[0]);
     else if(call_num == 2)
@@ -314,20 +301,9 @@ static void process_completed_call(mach_port_t task,
     /* sort for bsearch */
     array_qsort(g_pending_calls, xnu_call_cmp);
 
-    /* int call_id; */
-    int call_id = state->__x[16] >> 32;
-
-    /* indirect system call? */
-    /* if(state->__x[16] & 0xffffffff) */
-    /*     call_id = state->__x[16] >> 32; */
-    /* else */
-    /*     call_id = state->__x[0] >> 32; */
-
-    printf("mini_strace: searching for call ID %d\n", call_id);
-
     struct xnu_call key = {
         .caller = 0,
-        .call_id = call_id,
+        .call_id = state->__x[16] >> 32,
         .call_num = 0,
         .before_state = NULL
     };
@@ -485,6 +461,7 @@ int main(int argc, char **argv){
         } \
     } while (0) \
 
+    /* support indirect system calls */
     REGISTER_CALL(0);
     /* write */
     REGISTER_CALL(4);
