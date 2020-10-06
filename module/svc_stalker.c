@@ -1989,7 +1989,11 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
      * has completed.
      */
     STALKER_CACHE_WRITE(stalker_cache_cursor, 0);
-    STALKER_CACHE_WRITE(stalker_cache_cursor, 0);
+    STALKER_CACHE_WRITE(stalker_cache_cursor, 0x41);
+
+    uint32_t *p = xnu_va_to_ptr(0xFFFFFFF0080E8114+kernel_slide);
+    /* ldr w26, [x20, 0x88], only compare syscall number for zero */
+    *p = 0xB9408A9A;
 
 #define IMPORTANT_MSG(x) \
     putchar('*'); \

@@ -134,12 +134,30 @@ maybe_intercept:
     ; bits of X16 as a call ID that remains constant between BEFORE_CALL and
     ; CALL_COMPLETED so mini_strace can figure out which BEFORE_CALL saved state
     ; corresponds to a given CALL_COMPLETED saved state
+    ; However, we also need to support interception of indirect system calls,
+    ; so if X16 == XZR, then the call number is in X0, and we'll OR the call
+    ; ID into it as well
 
     ldr x0, [x28, STALKER_LOCK]
     ldr x19, [x28, LCK_RW_LOCK_SHARED]
     blr x19
     ldr x19, [sp, SAVED_STATE_PTR]
-    ldr x20, [x19, 0x88]                    ; X16 of userspace thread
+    ldr x20, [x19, 0x88]                ; X16
+    ; add x23, x19, 0x88
+    ; cbnz x20, write_call_id
+    ; indirect system call, X0
+    ; ldr x20, [x19, 0x8]
+    ; add x23, x19, 0x8
+
+; write_call_id:
+
+    ; XXX indirect syscall bug: this is setting up call ID fine
+    ; cmp w20, wzr
+    ; b.eq die
+    ; b live
+; die:
+    ; brk 0
+; live:
     ; clear upper 32 bits
     and x20, x20, 0xffffffff
     ldr x21, [x28, CUR_CALL_ID]
@@ -147,6 +165,13 @@ maybe_intercept:
     lsl x21, x21, 0x20
     orr x20, x20, x21
     str x20, [x19, 0x88]
+    ; str x20, [x23]
+    ; cmp w20, wzr
+    ; b.eq die
+    ; b live
+; die:
+    ; brk 0
+; live:
     add x22, x22, 0x1
     str x22, [x28, CUR_CALL_ID]
     ldr x0, [x28, STALKER_LOCK]
