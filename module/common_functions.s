@@ -5,22 +5,15 @@
 #include "stalker_cache.h"
 #include "stalker_table.h"
 
-; TODO after final version of these fxns, only save used callee-saved regs
-
-; Common functions shared across handle_svc_hook, svc_stalker_ctl,
-; and hook_system_check_sysctlbyname_hook, to save space.
+; Common functions shared across all parts of this project.
 ;
-; In order to know when a function from here starts, I'll put udf 0xffff right
-; before it. This is needed so hookgen.pl sees it and writes it to a
+; In order to know when a function starts, I'll put udf 0xffff right
+; before it. When hookgen.pl sees it, it'll write its file offset to a
 ; "function starts" array in common_instrs.h. In svc_stalker.c, I'll use that
 ; function starts array to calculate the virtual address of each of these
 ; functions to store in the stalker cache. Thus, the order of these functions
 ; in this file cannot change, if a new one is to be added, I need to put
 ; it at the end.
-;
-; Finally, these functions don't use temp registers x9 to x15 because I can't
-; know if kernel code relies on these regs not being modified after we return
-; from handle_svc_hook or hook_system_check_sysctlbyname_hook.
 
 .macro INDICATE_FUNCTION_START
     udf 0xffff
@@ -104,17 +97,13 @@ stalker_ctl_from_table_done:
 ; returns: boolean
 INDICATE_FUNCTION_START
 _should_intercept_call:
-    sub sp, sp, 0x70
-    stp x28, x27, [sp, 0x10]
-    stp x26, x25, [sp, 0x20]
-    stp x24, x23, [sp, 0x30]
-    stp x22, x21, [sp, 0x40]
-    stp x20, x19, [sp, 0x50]
-    stp x29, x30, [sp, 0x60]
-    add x29, sp, 0x60
+    sub sp, sp, 0x30
+    stp x22, x21, [sp]
+    stp x20, x19, [sp, 0x10]
+    stp x29, x30, [sp, 0x20]
+    add x29, sp, 0x20
 
     mov w19, w0
-
     bl _common_fxns_get_stalker_cache
     mov x20, x0
 
@@ -126,31 +115,22 @@ _should_intercept_call:
     ldr x0, [x20, STALKER_TABLE_PTR]
     bl _stalker_ctl_from_table
     ; no stalker_ctl struct for this process?
-    cbz x0, do_not_intercept
+    cbz x0, should_intercept_call_done
 
     ldr x0, [x0, STALKER_CTL_CALL_LIST_OFF]
     ; no call list for this stalker_ctl struct?
-    cbz x0, do_not_intercept
+    cbz x0, should_intercept_call_done
 
     mov w1, w19
-    bl _get_call_list_slot
-    cmp x0, xzr
-    mov w0, 1
-    csel w0, w0, wzr, ne
-
-    b should_intercept_call_done
-
-do_not_intercept:
-    mov w0, wzr
+    bl _get_flag_ptr_for_call_num
+    cbz x0, should_intercept_call_done
+    ldrb w0, [x0]
 
 should_intercept_call_done:
-    ldp x29, x30, [sp, 0x60]
-    ldp x20, x19, [sp, 0x50]
-    ldp x22, x21, [sp, 0x40]
-    ldp x24, x23, [sp, 0x30]
-    ldp x26, x25, [sp, 0x20]
-    ldp x28, x27, [sp, 0x10]
-    add sp, sp, 0x70
+    ldp x29, x30, [sp, 0x20]
+    ldp x20, x19, [sp, 0x10]
+    ldp x22, x21, [sp]
+    add sp, sp, 0x30
     ret
 
 ; this function returns a pointer to the next free stalker_ctl struct
@@ -179,7 +159,7 @@ _get_next_free_stalker_ctl:
     add x19, x0, 0x10
 
     mov w20, STALKER_TABLE_MAX
-    add x20, x19, w20, lsl 4
+    add x20, x19, w20, lsl 0x4
 
 find_free_stalker_ctl:
     ; STALKER_CTL_FREE_OFF == 0
@@ -198,103 +178,6 @@ found_free_stalker_ctl:
     ; fall thru
 
 get_nearest_free_stalker_ctl_done:
-    ldp x29, x30, [sp, 0x60]
-    ldp x20, x19, [sp, 0x50]
-    ldp x22, x21, [sp, 0x40]
-    ldp x24, x23, [sp, 0x30]
-    ldp x26, x25, [sp, 0x20]
-    ldp x28, x27, [sp, 0x10]
-    add sp, sp, 0x70
-    ret
-
-; this function returns a pointer to the first free slot found in a stalker_ctl's
-; call list
-;
-; arguments
-;   X0 = call list pointer
-;
-; returns: a pointer if a free slot is found, NULL otherwise
-INDICATE_FUNCTION_START
-_get_call_list_free_slot:
-    sub sp, sp, 0x70
-    stp x28, x27, [sp, 0x10]
-    stp x26, x25, [sp, 0x20]
-    stp x24, x23, [sp, 0x30]
-    stp x22, x21, [sp, 0x40]
-    stp x20, x19, [sp, 0x50]
-    stp x29, x30, [sp, 0x60]
-    add x29, sp, 0x60
-
-    mov x19, x0
-    mov w20, CALL_LIST_MAX
-    add x20, x19, w20, lsl 2
-
-find_free_call_list_slot:
-    ldr w21, [x19], 0x4
-    cmp w21, CALL_LIST_FREE_SLOT
-    b.eq found_free_call_list_slot
-    subs x21, x20, x19
-    cbnz x21, find_free_call_list_slot
-
-full_call_list:
-    mov x0, xzr
-    b get_call_list_free_slot_done
-
-found_free_call_list_slot:
-    ; postindex ldr variant incremented X19 by sizeof(int32_t)
-    sub x0, x19, 0x4
-    ; fall thru
-
-get_call_list_free_slot_done:
-    ldp x29, x30, [sp, 0x60]
-    ldp x20, x19, [sp, 0x50]
-    ldp x22, x21, [sp, 0x40]
-    ldp x24, x23, [sp, 0x30]
-    ldp x26, x25, [sp, 0x20]
-    ldp x28, x27, [sp, 0x10]
-    add sp, sp, 0x70
-    ret
-
-; this function returns a pointer to the slot occupied by a call
-; number in a stalker_ctl's call table
-;
-; arguments
-;   X0 = call list pointer
-;   W1 = call number
-;
-; returns: pointer if system call number is found, NULL otherwise
-INDICATE_FUNCTION_START
-_get_call_list_slot:
-    sub sp, sp, 0x70
-    stp x28, x27, [sp, 0x10]
-    stp x26, x25, [sp, 0x20]
-    stp x24, x23, [sp, 0x30]
-    stp x22, x21, [sp, 0x40]
-    stp x20, x19, [sp, 0x50]
-    stp x29, x30, [sp, 0x60]
-    add x29, sp, 0x60
-
-    mov x19, x0
-    mov w20, CALL_LIST_MAX
-    add x20, x19, w20, lsl 2
-
-find_call_list_slot:
-    ldr w21, [x19], 0x4
-    cmp w21, w1
-    b.eq found_call_list_slot
-    subs x21, x20, x19
-    cbnz x21, find_call_list_slot
-
-not_present_in_call_list:
-    mov x0, xzr
-    b get_call_list_slot_done
-
-found_call_list_slot:
-    ; postindex ldr variant incremented X19 by sizeof(int32_t)
-    sub x0, x19, 0x4
-    ; fall thru
-
-get_call_list_slot_done:
     ldp x29, x30, [sp, 0x60]
     ldp x20, x19, [sp, 0x50]
     ldp x22, x21, [sp, 0x40]
@@ -369,6 +252,73 @@ _send_exception_msg:
 
     ldp x29, x30, [sp, 0x20]
     ldp x20, x19, [sp, 0x10]
+    add sp, sp, 0x30
+    ret
+
+; This function returns a pointer to the flag for a call number
+;
+; Arguments
+;   X0, pointer to stalker_ctl struct
+;   W1, SIGNED call number
+;
+; Returns: pointer to flag on valid call number, NULL otherwise
+INDICATE_FUNCTION_START
+_get_flag_ptr_for_call_num:
+    sub sp, sp, 0x30
+    stp x22, x21, [sp]
+    stp x20, x19, [sp, 0x10]
+    stp x29, x30, [sp, 0x20]
+    add x29, sp, 0x20
+
+    ; XXX if I decide not to lock in the common functions then remove
+    ; the extra callee-saved regs and _common_fxns_get_stalker_cache
+
+    cbz x0, get_flag_ptr_for_call_num_done
+
+    mov x19, x0
+    bl _common_fxns_get_stalker_cache
+    mov x22, x0
+
+    ; TAKE_STALKER_LOCK_CHK x22, x21, bad_call_num
+
+    mov w20, CALL_NUM_MIN
+    cmp w1, w20
+    b.lt maybe_platform_syscall_call_num
+    mov w20, CALL_NUM_MAX
+    cmp w1, w20
+    b.gt bad_call_num
+    b got_flag_index
+
+maybe_platform_syscall_call_num:
+    mov w20, 0x1
+    add w20, wzr, w20, lsl PLATFORM_SYSCALL_CALL_NUM_SHIFT
+    cmp w1, w20
+    b.ne bad_call_num
+    mov w1, 0x1
+    neg w1, w1, lsl CALL_LIST_DISPLACEMENT_SHIFT
+    ; fall thru
+
+got_flag_index:
+    ; insanity
+    ; TAKE_STALKER_LOCK_CHK x22, x21, bad_call_num
+    ldr x0, [x19, STALKER_CTL_CALL_LIST_OFF]
+    cbz x0, get_flag_ptr_for_call_num_done
+    add x0, x0, x1
+    ; RELEASE_STALKER_LOCK x22, x21
+    b get_flag_ptr_for_call_num_done
+
+; bad_call_num_and_release:
+;     RELEASE_STALKER_LOCK x22, x21
+;     mov x0, xzr
+
+bad_call_num:
+    mov x0, xzr
+    ; fall thru
+
+get_flag_ptr_for_call_num_done:
+    ldp x29, x30, [sp, 0x20]
+    ldp x20, x19, [sp, 0x10]
+    ldp x22, x21, [sp]
     add sp, sp, 0x30
     ret
 

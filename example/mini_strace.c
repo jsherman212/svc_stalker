@@ -82,6 +82,7 @@ static void add_pending_call(arm_thread_state64_t *state, pid_t caller){
     struct xnu_call *call = malloc(sizeof(struct xnu_call));
     call->caller = caller;
 
+    /* see handle_svc_hook & unix_syscall_patcher inside svc_stalker.c */
     int call_id = state->__x[16] >> 32;
     int call_num;
 
@@ -241,6 +242,13 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
         printf("symlink(\"%s\", \"%s\")", path, link);
         rettype = RETTYPE_INT;
     }
+    /* lseek */
+    else if(call_num == 199){
+        printf("lseek(%d, %#lx, %d)", (int)call->before_state->__x[0],
+                call->before_state->__x[1],
+                (int)call->before_state->__x[2]);
+        rettype = RETTYPE_INT_H;
+    }
     /* getpid */
     else if(call_num == 20){
         printf("getpid()");
@@ -282,6 +290,10 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
                 call->before_state->__x[2],
                 mach_error_string(completed_state->__x[0]));
     }
+    /* else{ */
+    /*     printf("Caught %s %d", call_num < 0 ? "Mach trap" : "system call", */
+    /*             call_num); */
+    /* } */
 
     if(call_num >= 0)
         /* so we can handle printing of errno */
@@ -366,6 +378,12 @@ static void *e_thread_func(void *arg){
 }
 
 int main(int argc, char **argv){
+    /* mach_port_t tfp0 = MACH_PORT_NULL; */
+    /* kern_return_t kret = task_for_pid(mach_task_self(), 0, &tfp0); */
+    /* printf("task_for_pid %s tfp0 = %#x\n", mach_error_string(kret), tfp0); */
+
+
+    /* return 0; */
     if(argc < 2){
         printf("No PID\n");
         return 1;
@@ -400,7 +418,8 @@ int main(int argc, char **argv){
     g_pid = atoi(argv[1]);
 
     mach_port_t tfp = MACH_PORT_NULL;
-    kern_return_t kret = task_for_pid(mach_task_self(), g_pid, &tfp);
+    /* kern_return_t kret = task_for_pid(mach_task_self(), g_pid, &tfp); */
+    kret = task_for_pid(mach_task_self(), g_pid, &tfp);
 
     if(kret){
         printf("task_for_pid for pid %d failed: %s\n", g_pid, mach_error_string(kret));
@@ -461,6 +480,9 @@ int main(int argc, char **argv){
         } \
     } while (0) \
 
+    /* for(int i=0; i<530; i++) */
+    /*     REGISTER_CALL(i); */
+
     /* support indirect system calls */
     REGISTER_CALL(0);
     /* write */
@@ -479,6 +501,8 @@ int main(int argc, char **argv){
     REGISTER_CALL(20);
     /* symlink */
     REGISTER_CALL(57);
+    /* lseek */
+    REGISTER_CALL(199);
     /* platform syscalls */
     REGISTER_CALL(0x80000000);
     /* mach_msg */

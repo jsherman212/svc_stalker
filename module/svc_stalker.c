@@ -302,7 +302,6 @@ static uint64_t g_lck_rw_lock_shared_addr = 0;
 static uint64_t g_lck_rw_done_addr = 0;
 static uint64_t g_h_s_c_sbn_branch_addr = 0;
 static uint64_t g_h_s_c_sbn_epilogue_addr = 0;
-static uint64_t g_arm_prepare_syscall_return_addr = 0;
 static uint64_t g_mach_syscall_addr = 0;
 static uint32_t g_offsetof_act_context = 0;
 static uint64_t g_thread_exception_return_addr = 0;
@@ -808,24 +807,6 @@ static bool hook_system_check_sysctlbyname_finder(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-13.7
- *
- * XXX: 9/24/2020: currently unused. Remove before merging to master.
- */
-static bool arm_prepare_syscall_return_finder(xnu_pf_patch_t *patch,
-        void *cacheable_stream){
-    /* we're guarenteed to be at the beginning of arm_prepare_syscall_return's
-     * function prologue, which is where we're writing the branch
-     */
-    xnu_pf_disable_patch(patch);
-
-    g_arm_prepare_syscall_return_addr = xnu_ptr_to_va(cacheable_stream);
-
-    puts("svc_stalker: found arm_prepare_syscall_return");
-
-    return true;
-}
-
 /* confirmed working on all kernels 13.0-13.7 */
 static bool thread_exception_return_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
@@ -1265,7 +1246,7 @@ static void anything_missing(void){
             g_name2oid_addr == 0 || g_sysctl_geometry_lock_addr == 0 ||
             g_lck_rw_lock_shared_addr == 0 || g_lck_rw_done_addr == 0 ||
             g_h_s_c_sbn_branch_addr == 0 || g_h_s_c_sbn_epilogue_addr == 0 ||
-            g_arm_prepare_syscall_return_addr == 0 || g_mach_syscall_addr == 0 ||
+            g_mach_syscall_addr == 0 ||
             g_offsetof_act_context == 0 || g_thread_syscall_return_start_addr  == 0 ||
             g_thread_syscall_return_end_addr == 0 || 
             g_thread_exception_return_addr == 0 || g_platform_syscall_start_addr == 0 ||
@@ -1334,11 +1315,6 @@ static void anything_missing(void){
 
         if(g_h_s_c_sbn_epilogue_addr == 0){
             puts("   h_s_c_sbn epilogue");
-            puts("     not found");
-        }
-
-        if(g_arm_prepare_syscall_return_addr == 0){
-            puts("   arm_prepare_syscall_return");
             puts("     not found");
         }
 
@@ -1449,7 +1425,6 @@ static uint64_t *create_stalker_cache(uint64_t **stalker_cache_base_out){
     STALKER_CACHE_WRITE(cursor, g_lck_rw_lock_shared_addr);
     STALKER_CACHE_WRITE(cursor, g_lck_rw_done_addr);
     STALKER_CACHE_WRITE(cursor, g_h_s_c_sbn_epilogue_addr);
-    STALKER_CACHE_WRITE(cursor, g_arm_prepare_syscall_return_addr);
     STALKER_CACHE_WRITE(cursor, g_mach_syscall_addr);
     STALKER_CACHE_WRITE(cursor, g_offsetof_act_context);
     STALKER_CACHE_WRITE(cursor, g_thread_exception_return_addr);
@@ -2351,29 +2326,6 @@ static void stalker_prep(const char *cmd, char *args){
             num_hook_system_check_sysctlbyname_finder_matches, false,
             hook_system_check_sysctlbyname_finder);
 
-    uint64_t arm_prepare_syscall_return_finder_matches[] = {
-        0xa9bf7bfd,     /* STP X29, X30, [SP, -0x10]! */
-        0x910003fd,     /* MOV X29, SP */
-        0xb9400028,     /* LDR W8, [X1] */
-        0x7100511f,     /* CMP W8, 0x14 */
-    };
-
-    const size_t num_arm_prepare_syscall_return_finder_matches =
-        sizeof(arm_prepare_syscall_return_finder_matches) /
-        sizeof(*arm_prepare_syscall_return_finder_matches);
-
-    uint64_t arm_prepare_syscall_return_finder_masks[] = {
-        0xffffffff,     /* match exactly */
-        0xffffffff,     /* match exactly */
-        0xffffffff,     /* match exactly */
-        0xffffffff,     /* match exactly */
-    };
-
-    xnu_pf_maskmatch(patchset, arm_prepare_syscall_return_finder_matches,
-            arm_prepare_syscall_return_finder_masks,
-            num_arm_prepare_syscall_return_finder_matches, false,
-            arm_prepare_syscall_return_finder);
-
     uint64_t thread_exception_return_finder_matches[] = {
         0xd538d080,     /* MRS X0, TPIDR_EL1 */
         0x91000015,     /* ADD X21, X0, n */
@@ -2548,7 +2500,6 @@ static void stalker_prep(const char *cmd, char *args){
             unix_syscall_patcher_masks,
             num_unix_syscall_patcher_matches, false,
             unix_syscall_patcher);
-
 
     /* AMFI for proc_pid */
     struct mach_header_64 *AMFI = xnu_pf_get_kext_header(mh_execute_header,

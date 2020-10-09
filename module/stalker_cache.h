@@ -14,39 +14,71 @@
 #define LCK_RW_LOCK_SHARED                              (0x40)
 #define LCK_RW_DONE                                     (0x48)
 #define H_S_C_SBN_EPILOGUE_ADDR                         (0x50)
-#define ARM_PREPARE_SYSCALL_RETURN                      (0x58)
-#define MACH_SYSCALL                                    (0x60)
-#define OFFSETOF_ACT_CONTEXT                            (0x68)
-#define THREAD_EXCEPTION_RETURN                         (0x70)
-#define PLATFORM_SYSCALL_START                          (0x78)
-#define PLATFORM_SYSCALL_END                            (0x80)
-#define THREAD_SYSCALL_RETURN_START                     (0x88)
-#define THREAD_SYSCALL_RETURN_END                       (0x90)
-#define UNIX_SYSCALL_RETURN_START                       (0x98)
-#define UNIX_SYSCALL_RETURN_END                         (0xa0)
-#define LCK_GRP_ALLOC_INIT                              (0xa8)
-#define LCK_RW_ALLOC_INIT                               (0xb0)
-#define CURRENT_PROC                                    (0xb8)
-#define EXCEPTION_TRIAGE                                (0xc0)
+#define MACH_SYSCALL                                    (0x58)
+#define OFFSETOF_ACT_CONTEXT                            (0x60)
+#define THREAD_EXCEPTION_RETURN                         (0x68)
+#define PLATFORM_SYSCALL_START                          (0x70)
+#define PLATFORM_SYSCALL_END                            (0x78)
+#define THREAD_SYSCALL_RETURN_START                     (0x80)
+#define THREAD_SYSCALL_RETURN_END                       (0x88)
+#define UNIX_SYSCALL_RETURN_START                       (0x90)
+#define UNIX_SYSCALL_RETURN_END                         (0x98)
+#define LCK_GRP_ALLOC_INIT                              (0xa0)
+#define LCK_RW_ALLOC_INIT                               (0xa8)
+#define CURRENT_PROC                                    (0xb0)
+#define EXCEPTION_TRIAGE                                (0xb8)
 /* next one only to be called inside common_functions.s */
-#define COMMON_FXNS_GET_STALKER_CACHE                   (0xc8)
-#define STALKER_CTL_FROM_TABLE                          (0xd0)
-#define SHOULD_INTERCEPT_CALL                           (0xd8)
-#define GET_NEXT_FREE_STALKER_CTL                       (0xe0)
-#define GET_CALL_LIST_FREE_SLOT                         (0xe8)
-#define GET_CALL_LIST_SLOT                              (0xf0)
-#define IS_SYSCTL_REGISTERED                            (0xf8)
-#define SEND_EXCEPTION_MSG                              (0x100)
-#define STALKER_TABLE_PTR                               (0x108)
-#define SVC_STALKER_SYSCTL_NAME_PTR                     (0x110)
-#define SVC_STALKER_SYSCTL_DESCR_PTR                    (0x118)
-#define SVC_STALKER_SYSCTL_FMT_PTR                      (0x120)
-#define SVC_STALKER_SYSCTL_MIB_PTR                      (0x128)
-#define SVC_STALKER_SYSCTL_MIB_COUNT_PTR                (0x130)
-#define SVC_STALKER_CTL_CALLNUM                         (0x138)
-#define SLEH_SYNCHRONOUS                                (0x140)
-#define RETURN_INTERCEPTOR                              (0x148)
-#define STALKER_LOCK                                    (0x150)
-#define CUR_CALL_ID                                     (0x158)
+/* XXX start common functions */
+#define COMMON_FXNS_GET_STALKER_CACHE                   (0xc0)
+#define STALKER_CTL_FROM_TABLE                          (0xc8)
+#define SHOULD_INTERCEPT_CALL                           (0xd0)
+#define GET_NEXT_FREE_STALKER_CTL                       (0xd8)
+/* #define GET_CALL_LIST_FREE_SLOT                         (0xe0) */
+/* #define GET_CALL_LIST_SLOT                              (0xe8) */
+#define IS_SYSCTL_REGISTERED                            (0xe0)
+#define SEND_EXCEPTION_MSG                              (0xe8)
+#define GET_FLAG_PTR_FOR_CALL_NUM                       (0xf0)
+#define _______PLACEHOLDER                              (0xf8)
+/* XXX end common functions */
+#define STALKER_TABLE_PTR                               (0x100)
+#define SVC_STALKER_SYSCTL_NAME_PTR                     (0x108)
+#define SVC_STALKER_SYSCTL_DESCR_PTR                    (0x110)
+#define SVC_STALKER_SYSCTL_FMT_PTR                      (0x118)
+#define SVC_STALKER_SYSCTL_MIB_PTR                      (0x120)
+#define SVC_STALKER_SYSCTL_MIB_COUNT_PTR                (0x128)
+#define SVC_STALKER_CTL_CALLNUM                         (0x130)
+#define SLEH_SYNCHRONOUS                                (0x138)
+#define RETURN_INTERCEPTOR                              (0x140)
+#define STALKER_LOCK                                    (0x148)
+#define CUR_CALL_ID                                     (0x150)
+
+/* $0: stalker cache pointer
+ * $1: register to store function pointer
+ * $2: label to branch to is lock is NULL
+ */
+.macro TAKE_STALKER_LOCK_CHK
+ldr x0, [$0, STALKER_LOCK]
+cbz x0, $2
+ldr $1, [$0, LCK_RW_LOCK_SHARED]
+blr $1
+.endmacro
+
+/* $0: stalker cache pointer
+ * $1: register to store function pointer
+ */
+/* .macro TAKE_STALKER_LOCK */
+/* ldr x0, [$0, STALKER_LOCK] */
+/* ldr $1, [$0, LCK_RW_LOCK_SHARED] */
+/* blr $1 */
+/* .endmacro */
+
+/* $0: stalker cache pointer
+ * $1: register to store function pointer
+ */
+.macro RELEASE_STALKER_LOCK
+ldr x0, [$0, STALKER_LOCK]
+ldr $1, [$0, LCK_RW_LOCK_SHARED]
+blr $1
+.endmacro
 
 #endif
