@@ -92,11 +92,9 @@ set to `EINVAL`.
 #### Errors Pertaining to `PID_MANAGE`
 `errno` is set to `EINVAL` if...
 - `pid` was less than `-1`.
-- You tried to turn off system call/Mach trap interception for a PID which
-never had it on to begin with.
+- You tried to turn off interception for a PID which never had it on.
 - The internally-managed table of PIDs reached capacity. This should never happen,
-as long as you are removing PIDs which you no longer wish to intercept
-system calls/Mach traps for.
+as long as you are removing PIDs which you no longer wish to intercept calls for.
 
 #### Errors Pertaining to `CALL_LIST_MANAGE`
 `errno` is set to `ENOMEM` if...
@@ -105,9 +103,8 @@ system calls/Mach traps for.
 `errno` is set to `EINVAL` if...
 - You tried to add a system call/Mach trap to intercept for a PID that hasn't had
 interception enabled yet.
-- There are no more free slots in the internally-managed list of system
-calls/Mach traps to intercept for a given PID. This should never happen, as the limit
-is much, much higher (0x400) than the number of available system calls/Mach traps.
+- You tried to add a call number which was larger than `0x1fff` or smaller
+than `-0x1fff` (unless you're filtering for platform system calls)
 - You tried to turn off interception for a system call/Mach trap which
 never had it on to begin with.
 

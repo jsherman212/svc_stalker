@@ -118,11 +118,15 @@ delete_pid:
     ldr x22, [x0, STALKER_CTL_CALL_LIST_OFF]
     cbz x22, success
 
-    mov x23, x0
-    mov x0, x22
+    mov x24, x0
+    mov w23, 0x1
+    ; sub x23, x22, x23, lsl CALL_LIST_DISPLACEMENT_SHIFT
+    sub x0, x22, x23, lsl CALL_LIST_DISPLACEMENT_SHIFT
+    ; mov x23, x0
+    ; mov x0, x22
     ldr x22, [x28, KFREE_ADDR]
     blr x22
-    str xzr, [x23, STALKER_CTL_CALL_LIST_OFF]
+    str xzr, [x24, STALKER_CTL_CALL_LIST_OFF]
 
     b success
 
@@ -140,11 +144,15 @@ call_manage:
     cbz w22, delete_call
 
     ; if non-NULL, the call list for this pid already exists
+    ; ldr x0, [x0, STALKER_CTL_CALL_LIST_OFF]
     ldr x22, [x0, STALKER_CTL_CALL_LIST_OFF]
+    ; in case we end up branching to add_call label
+    ;mov x0, x22
+    ; ldr x0, [sp, CUR_STALKER_CTL]
+    ; X0 still contains a pointer to the current stalker ctl struct
     cbnz x22, add_call
 
     ; this stalker_ctl's call list is NULL, kalloc a new one
-    ; mov x0, CALL_LIST_MAX
 
     ; one page
     mov x0, 0x1
@@ -161,7 +169,11 @@ call_manage:
     cbz x0, out_enomem
 
     mov x22, x0
-    add x23, xzr, x0, lsl 0xe
+    mov w23, 0x1
+    add x23, x0, x23, lsl 0xe
+
+    ; mov x18, 0x4141
+    ; brk 0
 
     ; zero out this memory
 zero_loop:
@@ -175,91 +187,34 @@ zero_loop:
     mov w23, 0x1
     add x0, x0, x23, lsl CALL_LIST_DISPLACEMENT_SHIFT
     str x0, [x22, STALKER_CTL_CALL_LIST_OFF]
+    ; brk 0
+
+    mov x0, x22
 
 add_call:
-    ldr x0, [x22, STALKER_CTL_CALL_LIST_OFF]
+    ; X0 already contains pointer to current stalker_ctl struct
     ldr w1, [x20, ARG2]
-    ; XXX ldr x22, [x28, GET_FLAG_PTR_FOR_CALL_NUM]
+    ldr x22, [x28, GET_FLAG_PTR_FOR_CALL_NUM]
+    blr x22
+    ; bad call number?
+    cbz x0, out_einval
 
-
-    ; ldr x22, [x22, STALKER_CTL_CALL_LIST_OFF]
-    ; ldr w23, [x20, ARG2]
-    ; get pointer to flag for this call number
-    ; add x24, x22, x23
-    ; get base pointer to call_list if we are intercepting platform syscalls
-    ; mov x25, 0x1
-    ; sub x25, x22, x25, lsl CALL_LIST_DISPLACEMENT_SHIFT
-    ; mov w26, 0x1
-    ; add w26, wzr, w26, lsl PLATFORM_SYSCALL_CALL_NUM_SHIFT
-    ; cmp w23, w26
-    ; if the call number for platform syscalls was given, then we use the
-    ; first byte of call_list as its flag. Otherwise, we use x24.
-    ; csel x22, x25, x24, eq
-    ; mov w23, 0x1
-    ; strb w23, [x22]
-
-; platform_syscall:
-    ; mov w24, 0x1
-    ; add w24, wzr, w24, lsl 0x1f
-    ; cmp w23, w24
-
-; add_call:
-;     mov w23, 0x1
-;     add w23, wzr, w23, lsl 0x1f
-;     ldr w22, [x20, ARG2]
-;     cmp w22, w23
-;     ; XXX XXX
-;     b.ne add_call
-
-; add_call:
-;     mov w23, 0x1
-    ; strb w23, [x0, 
-
-
-    ; get call number 
-
+    ; we are now intercepting for this call number
+    mov w22, 0x1
+    strb w22, [x0]
 
     b success
 
-    ; mov x23, CALL_LIST_FREE_SLOT
-    ; mov x24, x0
-    ; mov w25, CALL_LIST_MAX
-    ; add x25, x24, w25, lsl 0x2
-
-    ; ; this new call list has all its elems free
-; call_list_init_loop:
-    ; str w23, [x24], 0x4
-    ; subs x26, x25, x24
-    ; cbnz x26, call_list_init_loop
-
-; add_call:
-;     ; TODO check if this system call is already present and do nothing if it is
-;     ldr x22, [sp, CUR_STALKER_CTL]
-;     ldr x0, [x22, STALKER_CTL_CALL_LIST_OFF]
-;     ldr x22, [x28, GET_CALL_LIST_FREE_SLOT]
-;     blr x22
-;     ; no free slots in call list?
-;     cbz x0, out_einval
-;     ; X0 = pointer to free slot in call list
-;     ldr w22, [x20, ARG2]
-;     ; X22 = system call user wants to intercept
-;     str w22, [x0]
-
-;     b success
-
 delete_call:
-    ldr x22, [sp, CUR_STALKER_CTL]
-    ldr x0, [x22, STALKER_CTL_CALL_LIST_OFF]
+    ldr x0, [sp, CUR_STALKER_CTL]
     ldr w1, [x20, ARG2]
-    ldr x22, [x28, GET_CALL_LIST_SLOT]
+    ldr x22, [x28, GET_FLAG_PTR_FOR_CALL_NUM]
     blr x22
-    ; this system call was never added?
+    ; bad call number?
     cbz x0, out_einval
-    ; X0 = pointer to slot in call list which this system call occupies
-    ; this slot is now free
-    ; XXX XXX XXX XXX
-    ; mov x22, CALL_LIST_FREE_SLOT
-    str x22, [x0]
+
+    ; no longer intercepting for this call number
+    strb wzr, [x0]
 
     b success
 
@@ -297,7 +252,7 @@ release_stalker_lock:
     ldr x0, [x28, STALKER_LOCK]
     ldr x23, [x28, LCK_RW_DONE]
     blr x23
-    mov x0, x20
+    mov x0, x22
 
 done:
     ldp x29, x30, [sp, STACK-0x10]

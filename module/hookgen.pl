@@ -17,7 +17,8 @@ printf(HEADER "#define $macroname \\\n");
 my $curlabel;
 my $num_instrs = 0;
 my @function_starts;
-my $cur_kaddr = 0xFFFFFFF0081F8808;
+# my $cur_kaddr = 0xFFFFFFF0081F8808;
+my $cur_kaddr = 0xfffffff0081f8a94;
 
 while(my $line = <DISFILE>){
     chomp($line);

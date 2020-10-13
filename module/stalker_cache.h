@@ -38,19 +38,19 @@
 #define IS_SYSCTL_REGISTERED                            (0xe0)
 #define SEND_EXCEPTION_MSG                              (0xe8)
 #define GET_FLAG_PTR_FOR_CALL_NUM                       (0xf0)
-#define _______PLACEHOLDER                              (0xf8)
+/* #define _______PLACEHOLDER                              (0xf8) */
 /* XXX end common functions */
-#define STALKER_TABLE_PTR                               (0x100)
-#define SVC_STALKER_SYSCTL_NAME_PTR                     (0x108)
-#define SVC_STALKER_SYSCTL_DESCR_PTR                    (0x110)
-#define SVC_STALKER_SYSCTL_FMT_PTR                      (0x118)
-#define SVC_STALKER_SYSCTL_MIB_PTR                      (0x120)
-#define SVC_STALKER_SYSCTL_MIB_COUNT_PTR                (0x128)
-#define SVC_STALKER_CTL_CALLNUM                         (0x130)
-#define SLEH_SYNCHRONOUS                                (0x138)
-#define RETURN_INTERCEPTOR                              (0x140)
-#define STALKER_LOCK                                    (0x148)
-#define CUR_CALL_ID                                     (0x150)
+#define STALKER_TABLE_PTR                               (0xf8)
+#define SVC_STALKER_SYSCTL_NAME_PTR                     (0x100)
+#define SVC_STALKER_SYSCTL_DESCR_PTR                    (0x108)
+#define SVC_STALKER_SYSCTL_FMT_PTR                      (0x110)
+#define SVC_STALKER_SYSCTL_MIB_PTR                      (0x118)
+#define SVC_STALKER_SYSCTL_MIB_COUNT_PTR                (0x120)
+#define SVC_STALKER_CTL_CALLNUM                         (0x128)
+#define SLEH_SYNCHRONOUS                                (0x130)
+#define RETURN_INTERCEPTOR                              (0x138)
+#define STALKER_LOCK                                    (0x140)
+#define CUR_CALL_ID                                     (0x148)
 
 /* $0: stalker cache pointer
  * $1: register to store function pointer

@@ -50,7 +50,7 @@ _main:
     ; end of our MIB array. The MIB array param and our MIB array are
     ; guarenteed to have matching lengths, so we can pick one of them
     ; to use to check if we hit the end of both
-    add x23, x21, w20, lsl 2                            
+    add x23, x21, w20, lsl 0x2
 
 mib_check_loop:
     ldr w24, [x21], 0x4
@@ -71,7 +71,7 @@ ours:
     ; epilogue, returning no error
     ldr x1, [x28, H_S_C_SBN_EPILOGUE_ADDR]
     add sp, sp, STACK
-    mov x0, 0
+    mov x0, xzr
     br x1
 
 ; in the case our sysctl wasn't being dealt with, return back to

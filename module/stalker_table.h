@@ -41,7 +41,7 @@
 /* -0x1fff instead of -0x2000 so user cannot accidentally modify platform
  * syscall flag
  */
-#define CALL_NUM_MIN                            0x1fff
+#define CALL_NUM_MIN                            -0x1fff
 #define CALL_NUM_MAX                            (0x1fff)
 
 #define PLATFORM_SYSCALL_CALL_NUM_SHIFT         31

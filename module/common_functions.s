@@ -58,7 +58,7 @@ _stalker_ctl_from_table:
     ; put cursor on PID field
     add x19, x19, STALKER_CTL_PID_OFF
     mov w20, STALKER_TABLE_MAX
-    add x20, x19, w20, lsl 4
+    add x20, x19, w20, lsl 0x4
 
 find_stalker_ctl:
     ldr w21, [x19], SIZEOF_STRUCT_STALKER_CTL
@@ -117,10 +117,13 @@ _should_intercept_call:
     ; no stalker_ctl struct for this process?
     cbz x0, should_intercept_call_done
 
+    mov x1, x0
+
     ldr x0, [x0, STALKER_CTL_CALL_LIST_OFF]
     ; no call list for this stalker_ctl struct?
     cbz x0, should_intercept_call_done
 
+    mov x0, x1
     mov w1, w19
     bl _get_flag_ptr_for_call_num
     cbz x0, should_intercept_call_done
@@ -205,6 +208,8 @@ _is_sysctl_registered:
     bl _common_fxns_get_stalker_cache
     mov x19, x0
 
+    ; since we set this flag while holding sysctl geometry lock,
+    ; we should access it while holding that same lock
     ldr x0, [x19, SYSCTL_GEOMETRY_LOCK_PTR]
     ldr x0, [x0]
     mov x22, x0
@@ -264,7 +269,7 @@ _send_exception_msg:
 ; Returns: pointer to flag on valid call number, NULL otherwise
 INDICATE_FUNCTION_START
 _get_flag_ptr_for_call_num:
-    sub sp, sp, 0x30
+    sub sp, sp, 0x40
     stp x22, x21, [sp]
     stp x20, x19, [sp, 0x10]
     stp x29, x30, [sp, 0x20]
@@ -303,7 +308,18 @@ got_flag_index:
     ; TAKE_STALKER_LOCK_CHK x22, x21, bad_call_num
     ldr x0, [x19, STALKER_CTL_CALL_LIST_OFF]
     cbz x0, get_flag_ptr_for_call_num_done
+
+    ; sign extend W1 to 64 bits. I honestly have no idea how to do this other
+    ; than sticking it on the stack and using LDRSW
+    str w1, [sp, 0x30]
+    ldrsw x1, [sp, 0x30]
+    mov x19, x1
     add x0, x0, x1
+    ; mov x6, 0x4141
+    ; brk 0
+    ; add x0, x0, x1
+    ; add x0, x0, x1, sxtx
+    ; add x0, x0, w1, sxtw
     ; RELEASE_STALKER_LOCK x22, x21
     b get_flag_ptr_for_call_num_done
 
@@ -319,7 +335,7 @@ get_flag_ptr_for_call_num_done:
     ldp x29, x30, [sp, 0x20]
     ldp x20, x19, [sp, 0x10]
     ldp x22, x21, [sp]
-    add sp, sp, 0x30
+    add sp, sp, 0x40
     ret
 
     ; so clang doesn't complain when linking

@@ -295,7 +295,7 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
     /*             call_num); */
     /* } */
 
-    if(call_num >= 0)
+    if(call_num >= 0 || call_num == 0x80000000)
         /* so we can handle printing of errno */
         print_unix_syscall_retval(completed_state, rettype);
 }
@@ -405,10 +405,13 @@ int main(int argc, char **argv){
      */
     ret = syscall(SYS_svc_stalker_ctl, -1, PID_MANAGE, 0, 0);
 
+    printf("%d\n", ret);
+
     if(ret != 999){
         printf("svc_stalker_ctl wasn't patched correctly\n");
         return 1;
     }
+    /* return 0; */
 
     /* install signal handler for Ctrl-C so when user wants to exit this
      * program, we also unregister the PID we're intercepting calls for
@@ -418,8 +421,8 @@ int main(int argc, char **argv){
     g_pid = atoi(argv[1]);
 
     mach_port_t tfp = MACH_PORT_NULL;
-    /* kern_return_t kret = task_for_pid(mach_task_self(), g_pid, &tfp); */
-    kret = task_for_pid(mach_task_self(), g_pid, &tfp);
+    kern_return_t kret = task_for_pid(mach_task_self(), g_pid, &tfp);
+    /* kret = task_for_pid(mach_task_self(), g_pid, &tfp); */
 
     if(kret){
         printf("task_for_pid for pid %d failed: %s\n", g_pid, mach_error_string(kret));
@@ -467,6 +470,10 @@ int main(int argc, char **argv){
                 strerror(errno));
         return 1;
     }
+
+    /* printf("good\n"); */
+
+    /* return 0; */
 
     /* register some call numbers to intercept */
 #define REGISTER_CALL(callnum) \
