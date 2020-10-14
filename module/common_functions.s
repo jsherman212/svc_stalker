@@ -12,7 +12,7 @@
 ; "function starts" array in common_instrs.h. In svc_stalker.c, I'll use that
 ; function starts array to calculate the virtual address of each of these
 ; functions to store in the stalker cache. Thus, the order of these functions
-; in this file cannot change, if a new one is to be added, I need to put
+; in this file cannot change. If a new one is to be added, I need to put
 ; it at the end.
 
 .macro INDICATE_FUNCTION_START
@@ -33,6 +33,8 @@ _common_fxns_get_stalker_cache:
 ;   X0 = stalker table pointer
 ;   W1 = pid
 ;
+; Locks taken: stalker lock
+;
 ; returns: pointer if pid is in stalker table, NULL otherwise
 INDICATE_FUNCTION_START
 _stalker_ctl_from_table:
@@ -45,37 +47,48 @@ _stalker_ctl_from_table:
     stp x29, x30, [sp, 0x60]
     add x29, sp, 0x60
 
+    mov x19, x0
+    mov w20, w1
+
+    bl _common_fxns_get_stalker_cache
+    mov x28, x0
+
+    TAKE_STALKER_LOCK x28, x21
+
     ; empty stalker table?
-    ldr w19, [x0, STALKER_TABLE_NUM_PIDS_OFF]
-    cbz w19, no_stalker_ctl
+    ldr w21, [x19, STALKER_TABLE_NUM_PIDS_OFF]
+    cbz w21, no_stalker_ctl
 
     ; search the whole table because I don't bother with moving
     ; back stalker_ctl structs when one is freed to make sure
     ; they're all adjacent. TODO
     ; first, get past the first 16 bytes, which won't ever hold a stalker_ctl
-    add x19, x0, 0x10
+    add x21, x19, 0x10
 
     ; put cursor on PID field
-    add x19, x19, STALKER_CTL_PID_OFF
-    mov w20, STALKER_TABLE_MAX
-    add x20, x19, w20, lsl 0x4
+    add x21, x21, STALKER_CTL_PID_OFF
+    mov w22, STALKER_TABLE_MAX
+    ; end
+    add x22, x21, w22, lsl 0x4
 
 find_stalker_ctl:
-    ldr w21, [x19], SIZEOF_STRUCT_STALKER_CTL
-    cmp w21, w1
+    ldr w23, [x21], SIZEOF_STRUCT_STALKER_CTL
+    cmp w23, w20
     b.eq found_stalker_ctl
-    subs x21, x20, x19
-    cbnz x21, find_stalker_ctl
+    subs x23, x22, x21
+    cbnz x23, find_stalker_ctl
 
 no_stalker_ctl:
+    RELEASE_STALKER_LOCK x28, x19
     mov x0, xzr
     b stalker_ctl_from_table_done 
 
 found_stalker_ctl:
-    ; postindex ldr variant incremented X19 by SIZEOF_STRUCT_STALKER_CTL
-    sub x19, x19, SIZEOF_STRUCT_STALKER_CTL
+    RELEASE_STALKER_LOCK x28, x19
+    ; postindex ldr variant incremented x21 by SIZEOF_STRUCT_STALKER_CTL
+    sub x21, x21, SIZEOF_STRUCT_STALKER_CTL
     ; get off of PID field
-    sub x0, x19, STALKER_CTL_PID_OFF
+    sub x0, x21, STALKER_CTL_PID_OFF
     ; fall thru
 
 stalker_ctl_from_table_done:
@@ -93,6 +106,8 @@ stalker_ctl_from_table_done:
 ;
 ; parameters:
 ;   W0 = SIGNED call number
+;
+; Locks taken: stalker lock (for call list read)
 ;
 ; returns: boolean
 INDICATE_FUNCTION_START
@@ -117,17 +132,28 @@ _should_intercept_call:
     ; no stalker_ctl struct for this process?
     cbz x0, should_intercept_call_done
 
-    mov x1, x0
+    mov x22, x0
 
-    ldr x0, [x0, STALKER_CTL_CALL_LIST_OFF]
+    TAKE_STALKER_LOCK x20, x21
+
+    ldr x0, [x22, STALKER_CTL_CALL_LIST_OFF]
     ; no call list for this stalker_ctl struct?
-    cbz x0, should_intercept_call_done
+    cbz x0, release_no_call_list
 
-    mov x0, x1
+    RELEASE_STALKER_LOCK x20, x21
+
+    mov x0, x22
     mov w1, w19
     bl _get_flag_ptr_for_call_num
     cbz x0, should_intercept_call_done
     ldrb w0, [x0]
+
+    b should_intercept_call_done
+
+release_no_call_list:
+    RELEASE_STALKER_LOCK x20, x19
+    mov x0, xzr
+    ; fall thru
 
 should_intercept_call_done:
     ldp x29, x30, [sp, 0x20]
@@ -154,12 +180,17 @@ _get_next_free_stalker_ctl:
     stp x29, x30, [sp, 0x60]
     add x29, sp, 0x60
 
-    ldr w19, [x0, STALKER_TABLE_NUM_PIDS_OFF]
-    cmp w19, STALKER_TABLE_MAX
+    mov x19, x0
+
+    bl _common_fxns_get_stalker_cache
+    mov x22, x0
+
+    ldr w20, [x19, STALKER_TABLE_NUM_PIDS_OFF]
+    cmp w20, STALKER_TABLE_MAX
     b.ge full_table
 
     ; first, get past the first 16 bytes, which won't ever hold a stalker_ctl
-    add x19, x0, 0x10
+    add x19, x19, 0x10
 
     mov w20, STALKER_TABLE_MAX
     add x20, x19, w20, lsl 0x4
@@ -281,6 +312,7 @@ _get_flag_ptr_for_call_num:
     cbz x0, get_flag_ptr_for_call_num_done
 
     mov x19, x0
+
     bl _common_fxns_get_stalker_cache
     mov x22, x0
 
@@ -308,18 +340,7 @@ got_flag_index:
     ; TAKE_STALKER_LOCK_CHK x22, x21, bad_call_num
     ldr x0, [x19, STALKER_CTL_CALL_LIST_OFF]
     cbz x0, get_flag_ptr_for_call_num_done
-
-    ; sign extend W1 to 64 bits. I honestly have no idea how to do this other
-    ; than sticking it on the stack and using LDRSW
-    str w1, [sp, 0x30]
-    ldrsw x1, [sp, 0x30]
-    mov x19, x1
-    add x0, x0, x1
-    ; mov x6, 0x4141
-    ; brk 0
-    ; add x0, x0, x1
-    ; add x0, x0, x1, sxtx
-    ; add x0, x0, w1, sxtw
+    add x0, x0, w1, sxtw
     ; RELEASE_STALKER_LOCK x22, x21
     b get_flag_ptr_for_call_num_done
 

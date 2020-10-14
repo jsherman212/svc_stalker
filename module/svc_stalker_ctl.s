@@ -28,11 +28,11 @@ _main:
     ; XXX from now on, X28 == stalker cache pointer, do not modify X28
     ldr x28, [x22]
 
-take_stalker_lock:
-    ldr x0, [x28, STALKER_LOCK]
-    cbz x0, done
-    ldr x22, [x28, LCK_RW_LOCK_SHARED]
-    blr x22
+; take_stalker_lock:
+;     ldr x0, [x28, STALKER_LOCK]
+;     cbz x0, done
+;     ldr x22, [x28, LCK_RW_LOCK_SHARED]
+;     blr x22
     ; TAKE_STALKER_LOCK x28 x22
 
     ldr w22, [x20, FLAVOR_ARG]
@@ -120,10 +120,7 @@ delete_pid:
 
     mov x24, x0
     mov w23, 0x1
-    ; sub x23, x22, x23, lsl CALL_LIST_DISPLACEMENT_SHIFT
     sub x0, x22, x23, lsl CALL_LIST_DISPLACEMENT_SHIFT
-    ; mov x23, x0
-    ; mov x0, x22
     ldr x22, [x28, KFREE_ADDR]
     blr x22
     str xzr, [x24, STALKER_CTL_CALL_LIST_OFF]
@@ -144,11 +141,7 @@ call_manage:
     cbz w22, delete_call
 
     ; if non-NULL, the call list for this pid already exists
-    ; ldr x0, [x0, STALKER_CTL_CALL_LIST_OFF]
     ldr x22, [x0, STALKER_CTL_CALL_LIST_OFF]
-    ; in case we end up branching to add_call label
-    ;mov x0, x22
-    ; ldr x0, [sp, CUR_STALKER_CTL]
     ; X0 still contains a pointer to the current stalker ctl struct
     cbnz x22, add_call
 
@@ -172,9 +165,6 @@ call_manage:
     mov w23, 0x1
     add x23, x0, x23, lsl 0xe
 
-    ; mov x18, 0x4141
-    ; brk 0
-
     ; zero out this memory
 zero_loop:
     stp xzr, xzr, [x22], 0x10
@@ -187,7 +177,6 @@ zero_loop:
     mov w23, 0x1
     add x0, x0, x23, lsl CALL_LIST_DISPLACEMENT_SHIFT
     str x0, [x22, STALKER_CTL_CALL_LIST_OFF]
-    ; brk 0
 
     mov x0, x22
 
@@ -222,19 +211,22 @@ out_einval:
     mov w0, 0xffffffff
     str w0, [x21]
     mov w0, 0x16
-    b release_stalker_lock
+    ; b release_stalker_lock
+    b done
 
 out_enomem:
     mov w0, 0xffffffff
     str w0, [x21]
     mov w0, 0xc
-    b release_stalker_lock
+    ; b release_stalker_lock
+    b done
 
 out_patched:
     mov w0, 0x3e7
     str w0, [x21]
     mov w0, wzr
-    b release_stalker_lock
+    ; b release_stalker_lock
+    b done
 
 ; out_givetablekaddr:
 ;     ldr x0, [x28, STALKER_TABLE]
@@ -246,13 +238,13 @@ success:
     mov w0, wzr
     str w0, [x21]
 
-release_stalker_lock:
-    ; back up return value
-    mov x22, x0
-    ldr x0, [x28, STALKER_LOCK]
-    ldr x23, [x28, LCK_RW_DONE]
-    blr x23
-    mov x0, x22
+; release_stalker_lock:
+;     ; back up return value
+;     mov x22, x0
+;     ldr x0, [x28, STALKER_LOCK]
+;     ldr x23, [x28, LCK_RW_DONE]
+;     blr x23
+;     mov x0, x22
 
 done:
     ldp x29, x30, [sp, STACK-0x10]

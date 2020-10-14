@@ -27,18 +27,14 @@
 #define LCK_RW_ALLOC_INIT                               (0xa8)
 #define CURRENT_PROC                                    (0xb0)
 #define EXCEPTION_TRIAGE                                (0xb8)
-/* next one only to be called inside common_functions.s */
 /* XXX start common functions */
 #define COMMON_FXNS_GET_STALKER_CACHE                   (0xc0)
 #define STALKER_CTL_FROM_TABLE                          (0xc8)
 #define SHOULD_INTERCEPT_CALL                           (0xd0)
 #define GET_NEXT_FREE_STALKER_CTL                       (0xd8)
-/* #define GET_CALL_LIST_FREE_SLOT                         (0xe0) */
-/* #define GET_CALL_LIST_SLOT                              (0xe8) */
 #define IS_SYSCTL_REGISTERED                            (0xe0)
 #define SEND_EXCEPTION_MSG                              (0xe8)
 #define GET_FLAG_PTR_FOR_CALL_NUM                       (0xf0)
-/* #define _______PLACEHOLDER                              (0xf8) */
 /* XXX end common functions */
 #define STALKER_TABLE_PTR                               (0xf8)
 #define SVC_STALKER_SYSCTL_NAME_PTR                     (0x100)
@@ -54,20 +50,20 @@
 
 /* $0: stalker cache pointer
  * $1: register to store function pointer
- * $2: label to branch to is lock is NULL
  */
-.macro TAKE_STALKER_LOCK_CHK
+.macro TAKE_STALKER_LOCK
 ldr x0, [$0, STALKER_LOCK]
-cbz x0, $2
 ldr $1, [$0, LCK_RW_LOCK_SHARED]
 blr $1
 .endmacro
 
 /* $0: stalker cache pointer
  * $1: register to store function pointer
+ * $2: label to branch to is lock is NULL
  */
-/* .macro TAKE_STALKER_LOCK */
+/* .macro TAKE_STALKER_LOCK_CHK */
 /* ldr x0, [$0, STALKER_LOCK] */
+/* cbz x0, $2 */
 /* ldr $1, [$0, LCK_RW_LOCK_SHARED] */
 /* blr $1 */
 /* .endmacro */
@@ -77,7 +73,7 @@ blr $1
  */
 .macro RELEASE_STALKER_LOCK
 ldr x0, [$0, STALKER_LOCK]
-ldr $1, [$0, LCK_RW_LOCK_SHARED]
+ldr $1, [$0, LCK_RW_DONE]
 blr $1
 .endmacro
 

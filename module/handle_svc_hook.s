@@ -21,7 +21,6 @@ _main:
     str x19, [sp, SAVED_STATE_PTR]
 
     adr x19, STALKER_CACHE_PTR_PTR
-    ; XXX from now on, X28 == stalker cache pointer, do not modify X28
     ldr x28, [x19]
 
     ldr x19, [x28, IS_SYSCTL_REGISTERED]
@@ -135,9 +134,12 @@ maybe_intercept:
     ; CALL_COMPLETED so mini_strace can figure out which BEFORE_CALL saved state
     ; corresponds to a given CALL_COMPLETED saved state
 
-    ldr x0, [x28, STALKER_LOCK]
-    ldr x19, [x28, LCK_RW_LOCK_SHARED]
-    blr x19
+    ; ldr x0, [x28, STALKER_LOCK]
+    ; ldr x19, [x28, LCK_RW_LOCK_SHARED]
+    ; blr x19
+
+    TAKE_STALKER_LOCK x28, x19
+
     ldr x19, [sp, SAVED_STATE_PTR]
     ldr x20, [x19, 0x88]                ; X16
     ; clear upper 32 bits
@@ -149,9 +151,11 @@ maybe_intercept:
     str x20, [x19, 0x88]
     add x22, x22, 0x1
     str x22, [x28, CUR_CALL_ID]
-    ldr x0, [x28, STALKER_LOCK]
-    ldr x19, [x28, LCK_RW_DONE]
-    blr x19
+
+    RELEASE_STALKER_LOCK x28, x19
+    ; ldr x0, [x28, STALKER_LOCK]
+    ; ldr x19, [x28, LCK_RW_DONE]
+    ; blr x19
 
     ldr x19, [x28, CURRENT_PROC]
     blr x19

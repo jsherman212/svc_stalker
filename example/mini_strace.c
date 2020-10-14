@@ -259,8 +259,8 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
         uint64_t ps_call_num = call->before_state->__x[3];
 
         if(ps_call_num == 3){
-            printf("thread_get_cthread_self()");
-            rettype = RETTYPE_LONG_H;
+            printf("thread_get_cthread_self() = %#llx\n",
+                    completed_state->__x[0]);
         }
     }
     /* mach_absolute_time() */
@@ -295,9 +295,10 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
     /*             call_num); */
     /* } */
 
-    if(call_num >= 0 || call_num == 0x80000000)
+    if(call_num >= 0){
         /* so we can handle printing of errno */
         print_unix_syscall_retval(completed_state, rettype);
+    }
 }
 
 static void process_completed_call(mach_port_t task,
