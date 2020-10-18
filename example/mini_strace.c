@@ -6,26 +6,68 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/sysctl.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
 #include "array.h"
+#include "svc_stalker.h"
 
 static pid_t g_pid = 0;
-
 static long SYS_svc_stalker_ctl = 0;
-
-#define PID_MANAGE                  0
-#define CALL_LIST_MANAGE            1
-
-#define BEFORE_CALL                 0
-#define CALL_COMPLETED              1
 
 static void interrupt(int sig){
     /* unregister this PID upon exit */
     syscall(SYS_svc_stalker_ctl, g_pid, PID_MANAGE, 0, 0);
     write(1, "\nExiting\n", 9);
     exit(0);
+}
+
+static int _concat_internal(char **dst, const char *src, va_list args){
+    if(!src || !dst)
+        return 0;
+
+    size_t srclen = strlen(src), dstlen = 0;
+
+    if(*dst)
+        dstlen = strlen(*dst);
+
+    /* Back up args before it gets used. Client calls va_end
+     * on the parameter themselves when calling vconcat.
+     */
+    va_list args1;
+    va_copy(args1, args);
+
+    size_t total = srclen + dstlen + vsnprintf(NULL, 0, src, args) + 1;
+
+    char *dst1 = malloc(total);
+
+    if(!(*dst))
+        *dst1 = '\0';
+    else{
+        strncpy(dst1, *dst, dstlen + 1);
+        free(*dst);
+        *dst = NULL;
+    }
+
+    int w = vsnprintf(dst1 + dstlen, total, src, args1);
+
+    va_end(args1);
+
+    *dst = realloc(dst1, strlen(dst1) + 1);
+
+    return w;
+}
+
+int concat(char **dst, const char *src, ...){
+    va_list args;
+    va_start(args, src);
+
+    int w = _concat_internal(dst, src, args);
+
+    va_end(args);
+
+    return w;
 }
 
 extern boolean_t mach_exc_server(mach_msg_header_t *, mach_msg_header_t *);
@@ -58,6 +100,8 @@ struct xnu_call {
      */
     int call_id;
     int call_num;
+    /* indirect unix syscall? */
+    int indirect;
     /* thread state BEFORE this call has happened */
     arm_thread_state64_t *before_state;
 };
@@ -85,15 +129,19 @@ static void add_pending_call(arm_thread_state64_t *state, pid_t caller){
     /* see handle_svc_hook & unix_syscall_patcher inside svc_stalker.c */
     int call_id = state->__x[16] >> 32;
     int call_num;
+    int indirect = 0;
 
     /* indirect system call? */
     if(state->__x[16] & 0xffffffff)
         call_num = state->__x[16] & 0xffffffff;
-    else
+    else{
         call_num = state->__x[0] & 0xffffffff;
+        indirect = 1;
+    }
 
     call->call_id = call_id;
     call->call_num = call_num;
+    call->indirect = indirect;
 
     call->before_state = malloc(sizeof(arm_thread_state64_t));
     memcpy(call->before_state, state, sizeof(arm_thread_state64_t));
@@ -103,13 +151,42 @@ static void add_pending_call(arm_thread_state64_t *state, pid_t caller){
     if(array_insert(g_pending_calls, call) != ARRAY_OK){
         printf("mini_strace: could not insert pending call %d, call number %d\n",
                 call->call_id, call->call_num);
+
         free(call->before_state);
         free(call);
     }
 
     pthread_mutex_unlock(&g_mini_strace_lock);
 }
-        
+
+static char *name2str(int *name, int len){
+    if(!name || len == 0)
+        return NULL;
+
+    /* I've got no idea why this works
+     *
+     * See https://opensource.apple.com/source/system_cmds/system_cmds-279/sysctl.tproj/sysctl.c.auto.html @ show_var
+     */
+    int oid[len + 2];
+    oid[0] = 0;
+    oid[1] = 1;
+    memcpy(oid + 2, name, len * sizeof(int));
+
+    char buf[1024] = {0};
+    size_t buflen = sizeof(buf);
+
+    int ret = sysctl(oid, len + 2, buf, &buflen, NULL, 0);
+
+    if(ret)
+        return NULL;
+    
+    char *str = malloc(buflen + 1);
+    strncpy(str, buf, buflen);
+    str[buflen] = '\0';
+
+    return str;
+}
+
 /* osfmk/arm/proc_reg.h */
 #define PSR_CF 0x20000000
 
@@ -152,28 +229,43 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
     int call_num = call->call_num;
     int rettype = RETTYPE_NONE;
 
+    /* if there's any more, just read them off of sp */
+    uint64_t arg0, arg1, arg2, arg3, arg4, arg5, arg6;
+
+    if(call->indirect){
+        arg0 = call->before_state->__x[1];
+        arg1 = call->before_state->__x[2];
+        arg2 = call->before_state->__x[3];
+        arg3 = call->before_state->__x[4];
+        arg4 = call->before_state->__x[5];
+        arg5 = call->before_state->__x[6];
+        arg6 = call->before_state->__x[7];
+    }
+    else{
+        arg0 = call->before_state->__x[0];
+        arg1 = call->before_state->__x[1];
+        arg2 = call->before_state->__x[2];
+        arg3 = call->before_state->__x[3];
+        arg4 = call->before_state->__x[4];
+        arg5 = call->before_state->__x[5];
+        arg6 = call->before_state->__x[6];
+    }
+
     printf("%d: ", call->caller);
 
     if(call_num == 1)
-        printf("exit(%d)\n", call->before_state->__x[0]);
+        printf("exit(%d)\n", (uint32_t)arg0);
     else if(call_num == 2)
         printf("fork() = %d\n", completed_state->__x[0]);
     else if(call_num == 3){
-        printf("read(%lld, %#llx, %lld)", call->before_state->__x[0],
-                call->before_state->__x[1], call->before_state->__x[2]);
+        printf("read(%lld, %#llx, %lld)", arg0, arg1, arg2);
         rettype = RETTYPE_LONG;
     }
     else if(call_num == 4){
-        /* write(fd, buf, count)
-         *
-         * W0 == fd
-         * X1 == buf
-         * X2 == count
-         */
-        char buf[call->before_state->__x[2]];
+        char buf[arg2];
 
-        mach_msg_type_number_t sz = call->before_state->__x[2];
-        kret = vm_read_overwrite(task, call->before_state->__x[1], sz, buf, &sz);
+        mach_msg_type_number_t sz = arg2;
+        kret = vm_read_overwrite(task, arg1, sz, buf, &sz);
 
         if(kret){
             printf("mini_strace: vm_read_overwrite failed: %s\n",
@@ -181,8 +273,7 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
             return;
         }
 
-        printf("write(%lld, \"%s\", %lld)", call->before_state->__x[0],
-                buf, call->before_state->__x[2]);
+        printf("write(%lld, \"%s\", %lld)", arg0, buf, arg2);
 
         rettype = RETTYPE_LONG;
     }
@@ -199,7 +290,7 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
         char buf[PATH_MAX] = {0};
 
         mach_msg_type_number_t sz = PATH_MAX;
-        kret = vm_read_overwrite(task, call->before_state->__x[0], sz, buf, &sz);
+        kret = vm_read_overwrite(task, arg0, sz, buf, &sz);
 
         if(kret){
             printf("mini_strace: vm_read_overwrite failed: %s\n",
@@ -212,7 +303,7 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
         else
             printf("access");
 
-        printf("(\"%s\", %#x)", buf, (uint32_t)call->before_state->__x[1]);
+        printf("(\"%s\", %#x)", buf, (uint32_t)arg1);
 
         rettype = RETTYPE_INT;
     }
@@ -222,7 +313,7 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
         char link[PATH_MAX];
 
         mach_msg_type_number_t sz = PATH_MAX;
-        kret = vm_read_overwrite(task, call->before_state->__x[0], sz, path, &sz);
+        kret = vm_read_overwrite(task, arg0, sz, path, &sz);
 
         if(kret){
             printf("mini_strace: vm_read_overwrite failed: %s\n",
@@ -231,7 +322,7 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
         }
 
         sz = PATH_MAX;
-        kret = vm_read_overwrite(task, call->before_state->__x[1], sz, link, &sz);
+        kret = vm_read_overwrite(task, arg1, sz, link, &sz);
 
         if(kret){
             printf("mini_strace: vm_read_overwrite failed: %s\n",
@@ -244,10 +335,67 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
     }
     /* lseek */
     else if(call_num == 199){
-        printf("lseek(%d, %#lx, %d)", (int)call->before_state->__x[0],
-                call->before_state->__x[1],
-                (int)call->before_state->__x[2]);
+        printf("lseek(%d, %#lx, %d)", (uint32_t)arg0, arg1, (uint32_t)arg2);
         rettype = RETTYPE_INT_H;
+    }
+    /* sysctl */
+    else if(call_num == 202){
+        size_t namesz = sizeof(int) * arg1;
+        /* okay as a stack allocation */
+        int name[namesz];
+        memset(name, 0, namesz);
+
+        mach_msg_type_number_t sz = namesz;
+        kret = vm_read_overwrite(task, arg0, sz, name, &sz);
+
+        if(kret){
+            printf("mini_strace: vm_read_overwrite failed: %s\n",
+                    mach_error_string(kret));
+            return;
+        }
+
+        char *namearray = NULL;
+        concat(&namearray, "{");
+
+        for(int i=0; i<arg1-1; i++)
+            concat(&namearray, "%d, ", name[i]);
+
+        concat(&namearray, "%d}", name[arg1-1]);
+
+        printf("sysctl(%s", namearray);
+
+        char *namestr = name2str(name, arg1);
+
+        if(namestr)
+            printf(" <%s>", namestr);
+
+        printf(", %d, %#llx, %#llx, %#llx, %#lx)", (uint32_t)arg1, arg2, arg3,
+                arg4, arg5);
+
+        rettype = RETTYPE_INT;
+
+        if(namestr)
+            free(namestr);
+
+        free(namearray);
+    }
+    /* sysctlbyname */
+    else if(call_num == 274){
+        char name[256] = {0};
+        mach_msg_type_number_t sz = sizeof(name);
+
+        kret = vm_read_overwrite(task, arg0, sz, name, &sz);
+
+        if(kret){
+            printf("mini_strace: vm_read_overwrite failed: %s\n",
+                    mach_error_string(kret));
+            return;
+        }
+
+        printf("sysctlbyname(\"%s\", %#llx, %#llx, %#llx, %#lx)", name, arg1,
+                arg2, arg3, arg4);
+
+        rettype = RETTYPE_INT;
     }
     /* getpid */
     else if(call_num == 20){
@@ -274,26 +422,26 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
     /* mach_msg_trap */
     else if(call_num == -31){
         printf("mach_msg(%#llx, %#x, %#x, %#x, %#x, %#x, %#x) = %s\n",
-                call->before_state->__x[0], (uint32_t)call->before_state->__x[1],
-                (uint32_t)call->before_state->__x[2],
-                (uint32_t)call->before_state->__x[3],
-                (uint32_t)call->before_state->__x[4],
-                (uint32_t)call->before_state->__x[5],
-                (uint32_t)call->before_state->__x[6],
+                arg0, (uint32_t)arg1, (uint32_t)arg2, (uint32_t)arg3,
+                (uint32_t)arg4, (uint32_t)arg5, (uint32_t)arg6,
                 mach_error_string(completed_state->__x[0]));
+                /* call->before_state->__x[0], (uint32_t)call->before_state->__x[1], */
+                /* (uint32_t)call->before_state->__x[2], */
+                /* (uint32_t)call->before_state->__x[3], */
+                /* (uint32_t)call->before_state->__x[4], */
+                /* (uint32_t)call->before_state->__x[5], */
+                /* (uint32_t)call->before_state->__x[6], */
+                /* mach_error_string(completed_state->__x[0])); */
     }
     /* _kernelrpc_mach_port_allocate_trap */
     else if(call_num == -16){
-        printf("mach_port_allocate(%#x, %#x, %#llx) = %s\n",
-                (uint32_t)call->before_state->__x[0],
-                (uint32_t)call->before_state->__x[1],
-                call->before_state->__x[2],
-                mach_error_string(completed_state->__x[0]));
+        printf("mach_port_allocate(%#x, %#x, %#llx) = %s\n", (uint32_t)arg0,
+                (uint32_t)arg1, arg2, mach_error_string(completed_state->__x[0]));
+                /* (uint32_t)call->before_state->__x[0], */
+                /* (uint32_t)call->before_state->__x[1], */
+                /* call->before_state->__x[2], */
+                /* mach_error_string(completed_state->__x[0])); */
     }
-    /* else{ */
-    /*     printf("Caught %s %d", call_num < 0 ? "Mach trap" : "system call", */
-    /*             call_num); */
-    /* } */
 
     if(call_num >= 0){
         /* so we can handle printing of errno */
@@ -318,6 +466,7 @@ static void process_completed_call(mach_port_t task,
         .caller = 0,
         .call_id = state->__x[16] >> 32,
         .call_num = 0,
+        .indirect = 0,
         .before_state = NULL
     };
 
@@ -379,12 +528,6 @@ static void *e_thread_func(void *arg){
 }
 
 int main(int argc, char **argv){
-    /* mach_port_t tfp0 = MACH_PORT_NULL; */
-    /* kern_return_t kret = task_for_pid(mach_task_self(), 0, &tfp0); */
-    /* printf("task_for_pid %s tfp0 = %#x\n", mach_error_string(kret), tfp0); */
-
-
-    /* return 0; */
     if(argc < 2){
         printf("No PID\n");
         return 1;
@@ -406,13 +549,10 @@ int main(int argc, char **argv){
      */
     ret = syscall(SYS_svc_stalker_ctl, -1, PID_MANAGE, 0, 0);
 
-    printf("%d\n", ret);
-
     if(ret != 999){
         printf("svc_stalker_ctl wasn't patched correctly\n");
         return 1;
     }
-    /* return 0; */
 
     /* install signal handler for Ctrl-C so when user wants to exit this
      * program, we also unregister the PID we're intercepting calls for
@@ -423,7 +563,6 @@ int main(int argc, char **argv){
 
     mach_port_t tfp = MACH_PORT_NULL;
     kern_return_t kret = task_for_pid(mach_task_self(), g_pid, &tfp);
-    /* kret = task_for_pid(mach_task_self(), g_pid, &tfp); */
 
     if(kret){
         printf("task_for_pid for pid %d failed: %s\n", g_pid, mach_error_string(kret));
@@ -472,10 +611,6 @@ int main(int argc, char **argv){
         return 1;
     }
 
-    /* printf("good\n"); */
-
-    /* return 0; */
-
     /* register some call numbers to intercept */
 #define REGISTER_CALL(callnum) \
     do { \
@@ -488,10 +623,10 @@ int main(int argc, char **argv){
         } \
     } while (0) \
 
-    /* for(int i=0; i<530; i++) */
-    /*     REGISTER_CALL(i); */
-
     /* support indirect system calls */
+    /* XXX seems to be the intercepting of the indirect system calls
+     * that fucks up call interception for `syscall` 
+     */
     REGISTER_CALL(0);
     /* write */
     REGISTER_CALL(4);
@@ -511,10 +646,14 @@ int main(int argc, char **argv){
     REGISTER_CALL(57);
     /* lseek */
     REGISTER_CALL(199);
+    /* sysctl */
+    REGISTER_CALL(202);
+    /* sysctlbyname */
+    REGISTER_CALL(274);
     /* platform syscalls */
     REGISTER_CALL(0x80000000);
     /* mach_msg */
-    REGISTER_CALL(-31);
+    /* REGISTER_CALL(-31); */
     /* mach_absolute_time */
     REGISTER_CALL(-3);
     /* mach_continuous_time */

@@ -53,11 +53,11 @@ _stalker_ctl_from_table:
     bl _common_fxns_get_stalker_cache
     mov x28, x0
 
-    TAKE_STALKER_LOCK x28, x21
+    TAKE_STALKER_LOCK_CHK x28, x21, no_stalker_ctl
 
     ; empty stalker table?
     ldr w21, [x19, STALKER_TABLE_NUM_PIDS_OFF]
-    cbz w21, no_stalker_ctl
+    cbz w21, no_stalker_ctl_release
 
     ; search the whole table because I don't bother with moving
     ; back stalker_ctl structs when one is freed to make sure
@@ -77,9 +77,13 @@ find_stalker_ctl:
     b.eq found_stalker_ctl
     subs x23, x22, x21
     cbnz x23, find_stalker_ctl
+    ; fall thru if nothing was found
+
+no_stalker_ctl_release:
+    RELEASE_STALKER_LOCK x28, x19
+    ; fall thru
 
 no_stalker_ctl:
-    RELEASE_STALKER_LOCK x28, x19
     mov x0, xzr
     b stalker_ctl_from_table_done 
 
@@ -134,11 +138,11 @@ _should_intercept_call:
 
     mov x22, x0
 
-    TAKE_STALKER_LOCK x20, x21
+    TAKE_STALKER_LOCK_CHK x20, x21, no_call_list
 
     ldr x0, [x22, STALKER_CTL_CALL_LIST_OFF]
     ; no call list for this stalker_ctl struct?
-    cbz x0, release_no_call_list
+    cbz x0, no_call_list_release
 
     RELEASE_STALKER_LOCK x20, x21
 
@@ -150,8 +154,11 @@ _should_intercept_call:
 
     b should_intercept_call_done
 
-release_no_call_list:
+no_call_list_release:
     RELEASE_STALKER_LOCK x20, x19
+    ; fall thru
+
+no_call_list:
     mov x0, xzr
     ; fall thru
 
@@ -166,6 +173,8 @@ should_intercept_call_done:
 ;
 ; arguments
 ;  X0, stalker table pointer
+;
+; Locks taken: stalker lock
 ;
 ; returns: pointer to next free stalker_ctl struct, or NULL if stalker table
 ; is full
@@ -185,10 +194,12 @@ _get_next_free_stalker_ctl:
     bl _common_fxns_get_stalker_cache
     mov x22, x0
 
+    TAKE_STALKER_LOCK_CHK x22, x20, full_table
+
     ldr w20, [x19, STALKER_TABLE_NUM_PIDS_OFF]
     cmp w20, STALKER_TABLE_MAX
-    b.ge full_table
-
+    b.ge full_table_release
+    
     ; first, get past the first 16 bytes, which won't ever hold a stalker_ctl
     add x19, x19, 0x10
 
@@ -202,11 +213,16 @@ find_free_stalker_ctl:
     subs x21, x20, x19
     cbnz x21, find_free_stalker_ctl
 
+full_table_release:
+    RELEASE_STALKER_LOCK x22, x20
+    ; fall thru
+    
 full_table:
     mov x0, xzr
     b get_nearest_free_stalker_ctl_done
 
 found_free_stalker_ctl:
+    RELEASE_STALKER_LOCK x22, x20
     ; postindex ldr variant incremented X19 by SIZEOF_STRUCT_STALKER_CTL
     sub x0, x19, SIZEOF_STRUCT_STALKER_CTL
     ; fall thru
@@ -224,9 +240,10 @@ get_nearest_free_stalker_ctl_done:
 ; this function figures out if the svc_stalker_ctl_callnum sysctl
 ; has been registered
 ;
-; takes sysctl_geometry_lock and releases it upon return
-;
 ; Arguments: none
+;
+; Locks taken: sysctl_geometry_lock
+;
 ; Returns: boolean
 INDICATE_FUNCTION_START
 _is_sysctl_registered:
@@ -267,6 +284,8 @@ _is_sysctl_registered:
 ;   W1, pid
 ;   W2, BEFORE_CALL or CALL_COMPLETED
 ;
+; Locks taken: none
+;
 ; Returns: nothing (exception_triage return value is ignored)
 INDICATE_FUNCTION_START
 _send_exception_msg:
@@ -297,6 +316,8 @@ _send_exception_msg:
 ;   X0, pointer to stalker_ctl struct
 ;   W1, SIGNED call number
 ;
+; Locks taken: stalker lock
+;
 ; Returns: pointer to flag on valid call number, NULL otherwise
 INDICATE_FUNCTION_START
 _get_flag_ptr_for_call_num:
@@ -306,17 +327,12 @@ _get_flag_ptr_for_call_num:
     stp x29, x30, [sp, 0x20]
     add x29, sp, 0x20
 
-    ; XXX if I decide not to lock in the common functions then remove
-    ; the extra callee-saved regs and _common_fxns_get_stalker_cache
-
     cbz x0, get_flag_ptr_for_call_num_done
 
     mov x19, x0
 
     bl _common_fxns_get_stalker_cache
     mov x22, x0
-
-    ; TAKE_STALKER_LOCK_CHK x22, x21, bad_call_num
 
     mov w20, CALL_NUM_MIN
     cmp w1, w20
@@ -336,19 +352,21 @@ maybe_platform_syscall_call_num:
     ; fall thru
 
 got_flag_index:
-    ; insanity
-    ; TAKE_STALKER_LOCK_CHK x22, x21, bad_call_num
+    TAKE_STALKER_LOCK_CHK x22, x20, bad_call_num
     ldr x0, [x19, STALKER_CTL_CALL_LIST_OFF]
-    cbz x0, get_flag_ptr_for_call_num_done
-    add x0, x0, w1, sxtw
-    ; RELEASE_STALKER_LOCK x22, x21
+    cbz x0, no_call_list_release_0
+    mov x19, x0
+    mov w20, w1
+    RELEASE_STALKER_LOCK x22, x21
+    add x0, x19, w20, sxtw
     b get_flag_ptr_for_call_num_done
 
-; bad_call_num_and_release:
-;     RELEASE_STALKER_LOCK x22, x21
-;     mov x0, xzr
-
 bad_call_num:
+    mov x0, xzr
+    b get_flag_ptr_for_call_num_done
+
+no_call_list_release_0:
+    RELEASE_STALKER_LOCK x22, x19
     mov x0, xzr
     ; fall thru
 

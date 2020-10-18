@@ -50,6 +50,9 @@
 
 /* $0: stalker cache pointer
  * $1: register to store function pointer
+ *
+ * This macro is for svc_stalker_ctl syscall because by the time we
+ * can SSH in, it is initialized.
  */
 .macro TAKE_STALKER_LOCK
 ldr x0, [$0, STALKER_LOCK]
@@ -59,14 +62,16 @@ blr $1
 
 /* $0: stalker cache pointer
  * $1: register to store function pointer
- * $2: label to branch to is lock is NULL
+ * $2: label to branch to if lock is NULL
+ *
+ * This macro is for anything that isn't svc_stalker_ctl.
  */
-/* .macro TAKE_STALKER_LOCK_CHK */
-/* ldr x0, [$0, STALKER_LOCK] */
-/* cbz x0, $2 */
-/* ldr $1, [$0, LCK_RW_LOCK_SHARED] */
-/* blr $1 */
-/* .endmacro */
+.macro TAKE_STALKER_LOCK_CHK
+ldr x0, [$0, STALKER_LOCK]
+cbz x0, $2
+ldr $1, [$0, LCK_RW_LOCK_SHARED]
+blr $1
+.endmacro
 
 /* $0: stalker cache pointer
  * $1: register to store function pointer

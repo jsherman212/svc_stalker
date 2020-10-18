@@ -134,28 +134,25 @@ maybe_intercept:
     ; CALL_COMPLETED so mini_strace can figure out which BEFORE_CALL saved state
     ; corresponds to a given CALL_COMPLETED saved state
 
-    ; ldr x0, [x28, STALKER_LOCK]
-    ; ldr x19, [x28, LCK_RW_LOCK_SHARED]
-    ; blr x19
-
+    ; if we're here stalker lock is not NULL
     TAKE_STALKER_LOCK x28, x19
 
     ldr x19, [sp, SAVED_STATE_PTR]
-    ldr x20, [x19, 0x88]                ; X16
+    ldr x20, [x19, 0x88]                    ; X16 of user pcb
     ; clear upper 32 bits
     and x20, x20, 0xffffffff
     ldr x21, [x28, CUR_CALL_ID]
     mov x22, x21
     lsl x21, x21, 0x20
     orr x20, x20, x21
+    ; XXX this screws up calling syscall, it screws up X1 for some reason
+    ; the only time calling syscall works is when it's the first system
+    ; call to be intercepted for this boot
     str x20, [x19, 0x88]
     add x22, x22, 0x1
     str x22, [x28, CUR_CALL_ID]
 
     RELEASE_STALKER_LOCK x28, x19
-    ; ldr x0, [x28, STALKER_LOCK]
-    ; ldr x19, [x28, LCK_RW_DONE]
-    ; blr x19
 
     ldr x19, [x28, CURRENT_PROC]
     blr x19

@@ -25,15 +25,7 @@ _main:
     mov x21, x2
 
     adr x22, STALKER_CACHE_PTR_PTR
-    ; XXX from now on, X28 == stalker cache pointer, do not modify X28
     ldr x28, [x22]
-
-; take_stalker_lock:
-;     ldr x0, [x28, STALKER_LOCK]
-;     cbz x0, done
-;     ldr x22, [x28, LCK_RW_LOCK_SHARED]
-;     blr x22
-    ; TAKE_STALKER_LOCK x28 x22
 
     ldr w22, [x20, FLAVOR_ARG]
     cmp w22, PID_MANAGE
@@ -67,20 +59,25 @@ add_pid:
     mov w1, w22
     ldr x22, [x28, STALKER_CTL_FROM_TABLE]
     blr x22
-    ; if already added, do nothing
-    cbnz x0, success
+    ; already added?
+    cbnz x0, out_eexist
     ; otherwise, create a new stalker_ctl entry in the stalker table
     ldr x0, [x28, STALKER_TABLE_PTR]
     ldr x22, [x28, GET_NEXT_FREE_STALKER_CTL]
     blr x22
     ; table at capacity?
-    cbz x0, out_einval
+    cbz x0, out_enospc
     ; at this point, we have a free stalker_ctl entry
+
+    mov x22, x0
+
+    TAKE_STALKER_LOCK x28, x23
+
     ; it's no longer free
-    str wzr, [x0, STALKER_CTL_FREE_OFF]
+    str wzr, [x22, STALKER_CTL_FREE_OFF]
     ; it belongs to the pid argument
-    ldr w22, [x20, PID_ARG]
-    str w22, [x0, STALKER_CTL_PID_OFF]
+    ldr w23, [x20, PID_ARG]
+    str w23, [x22, STALKER_CTL_PID_OFF]
 
     ; call_list is freed/NULL'ed out upon deletion, no need to do anything
     ; with it until the user adds a system call to intercept
@@ -91,7 +88,8 @@ add_pid:
     add w23, w23, 0x1
     str w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
 
-    b success
+    ; will release stalker lock
+    b success_release
 
 delete_pid:
     ; get stalker_ctl pointer for this pid
@@ -100,32 +98,37 @@ delete_pid:
     ldr x22, [x28, STALKER_CTL_FROM_TABLE]
     blr x22
     ; can't delete something that doesn't exist
-    cbz x0, out_einval
+    cbz x0, out_enoent
     ; at this point we have the stalker_ctl entry that belongs to pid
+
+    mov x22, x0
+
+    TAKE_STALKER_LOCK x28, x23
+
     ; it's now free
-    mov w22, 0x1
-    str w22, [x0, STALKER_CTL_FREE_OFF]
+    mov w23, 0x1
+    str w23, [x22, STALKER_CTL_FREE_OFF]
     ; it belongs to no one
-    str wzr, [x0, STALKER_CTL_PID_OFF]
+    str wzr, [x22, STALKER_CTL_PID_OFF]
 
     ; decrement stalker table size
-    ldr x22, [x28, STALKER_TABLE_PTR]
-    ldr w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
-    sub w23, w23, 0x1
-    str w23, [x22, STALKER_TABLE_NUM_PIDS_OFF]
+    ldr x23, [x28, STALKER_TABLE_PTR]
+    ldr w24, [x23, STALKER_TABLE_NUM_PIDS_OFF]
+    sub w24, w24, 0x1
+    str w24, [x23, STALKER_TABLE_NUM_PIDS_OFF]
 
     ; free call_list if it isn't NULL
-    ldr x22, [x0, STALKER_CTL_CALL_LIST_OFF]
-    cbz x22, success
+    ldr x23, [x22, STALKER_CTL_CALL_LIST_OFF]
+    cbz x23, success_release
 
-    mov x24, x0
-    mov w23, 0x1
-    sub x0, x22, x23, lsl CALL_LIST_DISPLACEMENT_SHIFT
-    ldr x22, [x28, KFREE_ADDR]
-    blr x22
-    str xzr, [x24, STALKER_CTL_CALL_LIST_OFF]
+    mov w24, 0x1
+    sub x0, x23, x24, lsl CALL_LIST_DISPLACEMENT_SHIFT
+    ldr x23, [x28, KFREE_ADDR]
+    blr x23
+    str xzr, [x22, STALKER_CTL_CALL_LIST_OFF]
 
-    b success
+    ; will release stalker lock
+    b success_release
 
 call_manage:
     ; get stalker_ctl pointer for this pid
@@ -134,16 +137,20 @@ call_manage:
     ldr x22, [x28, STALKER_CTL_FROM_TABLE]
     blr x22
     ; pid hasn't been added to stalker list?
-    cbz x0, out_einval
+    cbz x0, out_enoent
     ; at this point we have the stalker_ctl entry that belongs to pid
     str x0, [sp, CUR_STALKER_CTL]
     ldr w22, [x20, ARG3]
     cbz w22, delete_call
+    mov x22, x0
+
+    TAKE_STALKER_LOCK x28, x23
 
     ; if non-NULL, the call list for this pid already exists
-    ldr x22, [x0, STALKER_CTL_CALL_LIST_OFF]
-    ; X0 still contains a pointer to the current stalker ctl struct
-    cbnz x22, add_call
+    ldr x23, [x22, STALKER_CTL_CALL_LIST_OFF]
+    cbnz x23, add_call_release
+
+    RELEASE_STALKER_LOCK x28, x22
 
     ; this stalker_ctl's call list is NULL, kalloc a new one
 
@@ -176,12 +183,21 @@ zero_loop:
     ; see stalker_table.h
     mov w23, 0x1
     add x0, x0, x23, lsl CALL_LIST_DISPLACEMENT_SHIFT
-    str x0, [x22, STALKER_CTL_CALL_LIST_OFF]
+    mov x24, x0
 
-    mov x0, x22
+    TAKE_STALKER_LOCK x28, x23
+    str x24, [x22, STALKER_CTL_CALL_LIST_OFF]
+    RELEASE_STALKER_LOCK x28, x23
+
+    b add_call
+
+add_call_release:
+    RELEASE_STALKER_LOCK x28, x23
+    ; fall thru
 
 add_call:
-    ; X0 already contains pointer to current stalker_ctl struct
+    ; if we're here, then X22 contains a pointer to current stalker_ctl struct
+    mov x0, x22
     ldr w1, [x20, ARG2]
     ldr x22, [x28, GET_FLAG_PTR_FOR_CALL_NUM]
     blr x22
@@ -190,9 +206,13 @@ add_call:
 
     ; we are now intercepting for this call number
     mov w22, 0x1
-    strb w22, [x0]
+    mov x23, x0
 
-    b success
+    TAKE_STALKER_LOCK x28, x24
+    strb w22, [x23]
+
+    ; will release stalker lock
+    b success_release
 
 delete_call:
     ldr x0, [sp, CUR_STALKER_CTL]
@@ -201,50 +221,64 @@ delete_call:
     blr x22
     ; bad call number?
     cbz x0, out_einval
+    mov x22, x0
 
     ; no longer intercepting for this call number
-    strb wzr, [x0]
+    TAKE_STALKER_LOCK x28, x23
+    strb wzr, [x22]
 
-    b success
+    ; will release stalker lock
+    b success_release
 
 out_einval:
     mov w0, 0xffffffff
     str w0, [x21]
     mov w0, 0x16
-    ; b release_stalker_lock
+    b done
+
+out_enoent:
+    mov w0, 0xffffffff
+    str w0, [x21]
+    mov w0, 0x2
+    b done
+
+out_enospc:
+    mov w0, 0xffffffff
+    str w0, [x21]
+    mov w0, 0x1c
+    b done
+
+out_eexist:
+    mov w0, 0xffffffff
+    str w0, [x21]
+    mov w0, 0x11
     b done
 
 out_enomem:
     mov w0, 0xffffffff
     str w0, [x21]
     mov w0, 0xc
-    ; b release_stalker_lock
     b done
 
 out_patched:
     mov w0, 0x3e7
     str w0, [x21]
     mov w0, wzr
-    ; b release_stalker_lock
     b done
 
 ; out_givetablekaddr:
 ;     ldr x0, [x28, STALKER_TABLE]
 ;     str x0, [x21]
 ;     mov w0, wzr
-;     b release_stalker_lock
+;     b done
+
+success_release:
+    RELEASE_STALKER_LOCK x28, x22
+    ; fall thru
 
 success:
     mov w0, wzr
     str w0, [x21]
-
-; release_stalker_lock:
-;     ; back up return value
-;     mov x22, x0
-;     ldr x0, [x28, STALKER_LOCK]
-;     ldr x23, [x28, LCK_RW_DONE]
-;     blr x23
-;     mov x0, x22
 
 done:
     ldp x29, x30, [sp, STACK-0x10]

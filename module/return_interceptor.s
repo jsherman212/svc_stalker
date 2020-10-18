@@ -50,18 +50,17 @@ _main:
     ldr x21, [x19, x20]
     ldr x22, [x21, 0x88]
     cmp w22, wzr
-    b.lo sign_extend_mach_trap_call_num
+    b.lt sign_extend_mach_trap_call_num
 
     ; zeroing out the top 32 bits for a syscall number works fine
+    ; XXX not the culprit
     and x22, x22, 0xffffffff
     str x22, [x21, 0x88]
 
     b almost_done
 
 sign_extend_mach_trap_call_num:
-    mov x23, 0xffffffff
-    lsl x23, x23, 0x20
-    orr x22, x22, x23
+    sxtw x22, w22
     str x22, [x21, 0x88]
 
 almost_done:
