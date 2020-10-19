@@ -14,7 +14,6 @@ $(TARGET) : $(SOURCES) handle_svc_hook.s handle_svc_hook.h \
 	sleh_synchronous_hijacker.s sleh_synchronous_hijacker.h \
 	return_interceptor.s return_interceptor.h
 	chmod +x ./hookgen.pl	# just in case
-	# TODO only do this when asm files have changed, not all every time
 	./hookgen.pl handle_svc_hook
 	./hookgen.pl svc_stalker_ctl
 	./hookgen.pl hook_system_check_sysctlbyname_hook

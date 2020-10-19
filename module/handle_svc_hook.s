@@ -145,9 +145,6 @@ maybe_intercept:
     mov x22, x21
     lsl x21, x21, 0x20
     orr x20, x20, x21
-    ; XXX this screws up calling syscall, it screws up X1 for some reason
-    ; the only time calling syscall works is when it's the first system
-    ; call to be intercepted for this boot
     str x20, [x19, 0x88]
     add x22, x22, 0x1
     str x22, [x28, CUR_CALL_ID]

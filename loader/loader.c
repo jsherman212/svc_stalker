@@ -185,7 +185,6 @@ int main(int argc, char **argv, const char **envp){
     usleep(800 * 1000);
 
     err = pongo_send_command(pongo_device, "bootx\n");
-    /* err = pongo_send_command(pongo_device, "stalker-mp-noboot\n"); */
 
     if(err < 0){
         printf("pongo_send_command: %s\n", libusb_error_name(err));

@@ -53,7 +53,6 @@ _main:
     b.lt sign_extend_mach_trap_call_num
 
     ; zeroing out the top 32 bits for a syscall number works fine
-    ; XXX not the culprit
     and x22, x22, 0xffffffff
     str x22, [x21, 0x88]
 

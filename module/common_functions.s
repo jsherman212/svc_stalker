@@ -11,7 +11,7 @@
 ; before it. When hookgen.pl sees it, it'll write its file offset to a
 ; "function starts" array in common_instrs.h. In svc_stalker.c, I'll use that
 ; function starts array to calculate the virtual address of each of these
-; functions to store in the stalker cache. Thus, the order of these functions
+; functions to store in the stalker cache. The order of these functions
 ; in this file cannot change. If a new one is to be added, I need to put
 ; it at the end.
 

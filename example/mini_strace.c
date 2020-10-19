@@ -217,9 +217,9 @@ static void print_unix_syscall_retval(arm_thread_state64_t *completed_state,
     else if(rettype == RETTYPE_INT_H)
         printf(" = %#x\n", (int)completed_state->__x[0]);
     else if(rettype == RETTYPE_LONG)
-        printf(" = %ld\n", completed_state->__x[0]);
+        printf(" = %lld\n", completed_state->__x[0]);
     else if(rettype == RETTYPE_LONG_H)
-        printf(" = %#lx\n", completed_state->__x[0]);
+        printf(" = %#llx\n", completed_state->__x[0]);
 }
 
 static void describe_completed_call(mach_port_t task, struct xnu_call *call,
@@ -229,7 +229,6 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
     int call_num = call->call_num;
     int rettype = RETTYPE_NONE;
 
-    /* if there's any more, just read them off of sp */
     uint64_t arg0, arg1, arg2, arg3, arg4, arg5, arg6;
 
     if(call->indirect){
@@ -256,7 +255,7 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
     if(call_num == 1)
         printf("exit(%d)\n", (uint32_t)arg0);
     else if(call_num == 2)
-        printf("fork() = %d\n", completed_state->__x[0]);
+        printf("fork() = %d\n", (uint32_t)completed_state->__x[0]);
     else if(call_num == 3){
         printf("read(%lld, %#llx, %lld)", arg0, arg1, arg2);
         rettype = RETTYPE_LONG;
@@ -264,8 +263,8 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
     else if(call_num == 4){
         char buf[arg2];
 
-        mach_msg_type_number_t sz = arg2;
-        kret = vm_read_overwrite(task, arg1, sz, buf, &sz);
+        vm_size_t sz = arg2;
+        kret = vm_read_overwrite(task, arg1, sz, (vm_address_t)buf, &sz);
 
         if(kret){
             printf("mini_strace: vm_read_overwrite failed: %s\n",
@@ -289,8 +288,8 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
          */
         char buf[PATH_MAX] = {0};
 
-        mach_msg_type_number_t sz = PATH_MAX;
-        kret = vm_read_overwrite(task, arg0, sz, buf, &sz);
+        vm_size_t sz = PATH_MAX;
+        kret = vm_read_overwrite(task, arg0, sz, (vm_address_t)buf, &sz);
 
         if(kret){
             printf("mini_strace: vm_read_overwrite failed: %s\n",
@@ -312,8 +311,8 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
         char path[PATH_MAX];
         char link[PATH_MAX];
 
-        mach_msg_type_number_t sz = PATH_MAX;
-        kret = vm_read_overwrite(task, arg0, sz, path, &sz);
+        vm_size_t sz = PATH_MAX;
+        kret = vm_read_overwrite(task, arg0, sz, (vm_address_t)path, &sz);
 
         if(kret){
             printf("mini_strace: vm_read_overwrite failed: %s\n",
@@ -322,7 +321,7 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
         }
 
         sz = PATH_MAX;
-        kret = vm_read_overwrite(task, arg1, sz, link, &sz);
+        kret = vm_read_overwrite(task, arg1, sz, (vm_address_t)link, &sz);
 
         if(kret){
             printf("mini_strace: vm_read_overwrite failed: %s\n",
@@ -335,7 +334,7 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
     }
     /* lseek */
     else if(call_num == 199){
-        printf("lseek(%d, %#lx, %d)", (uint32_t)arg0, arg1, (uint32_t)arg2);
+        printf("lseek(%d, %#llx, %d)", (uint32_t)arg0, arg1, (uint32_t)arg2);
         rettype = RETTYPE_INT_H;
     }
     /* sysctl */
@@ -345,8 +344,8 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
         int name[namesz];
         memset(name, 0, namesz);
 
-        mach_msg_type_number_t sz = namesz;
-        kret = vm_read_overwrite(task, arg0, sz, name, &sz);
+        vm_size_t sz = namesz;
+        kret = vm_read_overwrite(task, arg0, sz, (vm_address_t)name, &sz);
 
         if(kret){
             printf("mini_strace: vm_read_overwrite failed: %s\n",
@@ -366,25 +365,24 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
 
         char *namestr = name2str(name, arg1);
 
-        if(namestr)
+        if(namestr){
             printf(" <%s>", namestr);
+            free(namestr);
+        }
 
-        printf(", %d, %#llx, %#llx, %#llx, %#lx)", (uint32_t)arg1, arg2, arg3,
+        printf(", %d, %#llx, %#llx, %#llx, %#llx)", (uint32_t)arg1, arg2, arg3,
                 arg4, arg5);
 
         rettype = RETTYPE_INT;
-
-        if(namestr)
-            free(namestr);
 
         free(namearray);
     }
     /* sysctlbyname */
     else if(call_num == 274){
         char name[256] = {0};
-        mach_msg_type_number_t sz = sizeof(name);
+        vm_size_t sz = sizeof(name);
 
-        kret = vm_read_overwrite(task, arg0, sz, name, &sz);
+        kret = vm_read_overwrite(task, arg0, sz, (vm_address_t)name, &sz);
 
         if(kret){
             printf("mini_strace: vm_read_overwrite failed: %s\n",
@@ -392,7 +390,7 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
             return;
         }
 
-        printf("sysctlbyname(\"%s\", %#llx, %#llx, %#llx, %#lx)", name, arg1,
+        printf("sysctlbyname(\"%s\", %#llx, %#llx, %#llx, %#llx)", name, arg1,
                 arg2, arg3, arg4);
 
         rettype = RETTYPE_INT;
@@ -425,22 +423,11 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
                 arg0, (uint32_t)arg1, (uint32_t)arg2, (uint32_t)arg3,
                 (uint32_t)arg4, (uint32_t)arg5, (uint32_t)arg6,
                 mach_error_string(completed_state->__x[0]));
-                /* call->before_state->__x[0], (uint32_t)call->before_state->__x[1], */
-                /* (uint32_t)call->before_state->__x[2], */
-                /* (uint32_t)call->before_state->__x[3], */
-                /* (uint32_t)call->before_state->__x[4], */
-                /* (uint32_t)call->before_state->__x[5], */
-                /* (uint32_t)call->before_state->__x[6], */
-                /* mach_error_string(completed_state->__x[0])); */
     }
-    /* _kernelrpc_mach_port_allocate_trap */
+    /* mach_port_allocate */
     else if(call_num == -16){
         printf("mach_port_allocate(%#x, %#x, %#llx) = %s\n", (uint32_t)arg0,
                 (uint32_t)arg1, arg2, mach_error_string(completed_state->__x[0]));
-                /* (uint32_t)call->before_state->__x[0], */
-                /* (uint32_t)call->before_state->__x[1], */
-                /* call->before_state->__x[2], */
-                /* mach_error_string(completed_state->__x[0])); */
     }
 
     if(call_num >= 0){
@@ -473,7 +460,10 @@ static void process_completed_call(mach_port_t task,
     struct xnu_call *keyp = &key;
     struct xnu_call *foundp = NULL;
 
-    if(array_bsearch(g_pending_calls, &keyp, xnu_call_cmp, &foundp) == ARRAY_OK){
+    int search_res = array_bsearch(g_pending_calls, &keyp, xnu_call_cmp,
+            (void **)&foundp);
+
+    if(search_res == ARRAY_OK){
         struct xnu_call *found = *(struct xnu_call **)foundp;
 
         describe_completed_call(task, found, state);
@@ -624,9 +614,6 @@ int main(int argc, char **argv){
     } while (0) \
 
     /* support indirect system calls */
-    /* XXX seems to be the intercepting of the indirect system calls
-     * that fucks up call interception for `syscall` 
-     */
     REGISTER_CALL(0);
     /* write */
     REGISTER_CALL(4);
@@ -653,7 +640,7 @@ int main(int argc, char **argv){
     /* platform syscalls */
     REGISTER_CALL(0x80000000);
     /* mach_msg */
-    /* REGISTER_CALL(-31); */
+    REGISTER_CALL(-31);
     /* mach_absolute_time */
     REGISTER_CALL(-3);
     /* mach_continuous_time */
