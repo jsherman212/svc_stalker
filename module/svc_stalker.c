@@ -1777,21 +1777,15 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     /* allow handle_svc_hook access to stalker cache */
     WRITE_QWORD_TO_SCRATCH_SPACE(xnu_ptr_to_va(stalker_cache_base));
 
-    uint64_t branch_to = xnu_ptr_to_va(scratch_space);
+    /* write handle_svc kva so sleh_synchronous_hijacker can call it */
+    STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(scratch_space));
 
     /* Needs to be done before we patch the sysent entry so scratch_space lies
      * right after the end of handle_svc_hook.
      */
     scratch_space = write_handle_svc_hook_instrs(scratch_space, &num_free_instrs);
 
-    write_blr(8, branch_from, branch_to);
-
-    /* there's an extra B.NE after the five instrs we overwrote, so NOP it out */
-    *(uint32_t *)(branch_from + (sizeof(uint32_t) * 5)) = 0xd503201f;
-
-    puts("svc_stalker: patched sleh_synchronous (1)");
-
-    /* now, scratch_space points right after the end of handle_svc_hook,
+    /* now scratch_space points right after the end of handle_svc_hook,
      * so we're ready to write the instructions for svc_stalker_ctl.
      *
      * First, allow svc_stalker_ctl access to the stalker cache. This needs
@@ -1900,7 +1894,7 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     /* allow hook_system_check_sysctlbyname_hook access to stalker cache */
     WRITE_QWORD_TO_SCRATCH_SPACE(xnu_ptr_to_va(stalker_cache_base));
 
-    branch_to = xnu_ptr_to_va(scratch_space);
+    uint64_t branch_to = xnu_ptr_to_va(scratch_space);
 
     scratch_space = write_h_s_c_sbn_h_instrs(scratch_space, &num_free_instrs);
 

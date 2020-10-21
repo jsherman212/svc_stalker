@@ -14,7 +14,8 @@ _main:
     adr x3, STALKER_CACHE_PTR_PTR
     ldr x3, [x3]
 
-    ; don't do anything if this exception isn't a supervisor call from userland
+    ; leave sleh_synchronous alone if this exception isn't a supervisor call
+    ; from userland
     lsr w4, w1, 0x1a
     cmp w4, ESR_EC_SVC_64
     b.ne done
@@ -22,6 +23,16 @@ _main:
     ; save original stack frame
     stp x29, x30, [sp, -0x10]!
     mov x29, sp
+
+    ; call handle_svc_hook to send the BEFORE_CALL exception message
+    sub sp, sp, 0x20
+    stp x0, x1, [sp]
+    stp x2, x3, [sp, 0x10]
+    ldr x3, [x3, HANDLE_SVC_HOOK]
+    blr x3
+    ldp x2, x3, [sp, 0x10]
+    ldp x0, x1, [sp]
+    add sp, sp, 0x20
 
     ; set LR to return_interceptor
     ldr x30, [x3, RETURN_INTERCEPTOR]

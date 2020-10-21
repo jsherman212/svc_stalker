@@ -5,7 +5,12 @@
 #include "stalker_cache.h"
 #include "stalker_table.h"
 
-; this iterates through the PIDs/call numbers the user has registered through the
+; I guess this no longer "literally" an inlined handle_svc hook since we're
+; called from sleh_synchronous_hijacker... but we would have reached
+; inlined handle_svc shortly after sleh_synchronous_hijacker returns so I
+; think the name still fits
+;
+; This iterates through the PIDs/call numbers the user has registered through the
 ; svc_stalker_ctl syscall and calls exception_triage if current_proc()->p_pid
 ; is found in that list
 _main:
@@ -18,7 +23,7 @@ _main:
     stp x29, x30, [sp, STACK-0x10]
     add x29, sp, STACK-0x10
 
-    str x19, [sp, SAVED_STATE_PTR]
+    str x0, [sp, SAVED_STATE_PTR]
 
     adr x19, STALKER_CACHE_PTR_PTR
     ldr x28, [x19]

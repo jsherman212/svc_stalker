@@ -42,11 +42,12 @@
 #define SVC_STALKER_SYSCTL_FMT_PTR                      (0x110)
 #define SVC_STALKER_SYSCTL_MIB_PTR                      (0x118)
 #define SVC_STALKER_SYSCTL_MIB_COUNT_PTR                (0x120)
-#define SVC_STALKER_CTL_CALLNUM                         (0x128)
-#define SLEH_SYNCHRONOUS                                (0x130)
-#define RETURN_INTERCEPTOR                              (0x138)
-#define STALKER_LOCK                                    (0x140)
-#define CUR_CALL_ID                                     (0x148)
+#define HANDLE_SVC_HOOK                                 (0x128)
+#define SVC_STALKER_CTL_CALLNUM                         (0x130)
+#define SLEH_SYNCHRONOUS                                (0x138)
+#define RETURN_INTERCEPTOR                              (0x140)
+#define STALKER_LOCK                                    (0x148)
+#define CUR_CALL_ID                                     (0x150)
 
 /* $0: stalker cache pointer
  * $1: register to store function pointer
