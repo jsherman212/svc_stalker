@@ -592,7 +592,14 @@ static bool mach_syscall_patcher(xnu_pf_patch_t *patch,
 /* confirmed working on all kernels 13.0-13.7 */
 static bool ExceptionVectorsBase_finder(xnu_pf_patch_t *patch,
         void *cacheable_stream){
-    /* According to XNU source, _ExceptionVectorsBase is page aligned. We're
+    /* What I'd really like to do is generate executable pages now and
+     * write the code for all the stuff there... but page tables have not
+     * been set up yet (TTBR1_EL1 is zeroed out). Also, unless I neuter KTRR
+     * and AMCC, I cannot make the memory from alloc_static executable
+     * during runtime by modding page tables. And I really want to keep KTRR
+     * and AMCC going, so I'll have to make do with existing r-x pages.
+     *
+     * According to XNU source, _ExceptionVectorsBase is page aligned. We're
      * going to abuse that fact and use the executable free space before
      * it to write our code.
      *
@@ -1221,14 +1228,35 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
 
 #define WRITE_INSTR_TO_SCRATCH_SPACE(opcode) \
     do { \
-        if(num_free_instrs == 0){ \
-            puts("svc_stalker: ran out"); \
-            puts("     of scratch space"); \
+        if(num_free_instrs < 2){ \
+            printf("svc_stalker: ran out\n" \
+                    "  of executable scratch\n" \
+                    "  space in function %s\n", \
+                    __func__); \
             stalker_fatal_error(); \
         } \
         *scratch_space = (opcode); \
         scratch_space++; \
         num_free_instrs--; \
+    } while (0) \
+
+#define WRITE_QWORD_TO_SCRATCH_SPACE(qword) \
+    do { \
+        if(num_free_instrs < 2){ \
+            printf("svc_stalker: ran out\n" \
+                    "  of executable scratch\n" \
+                    "  space in function %s\n", \
+                    __func__); \
+            stalker_fatal_error(); \
+        } \
+        *(uint64_t *)scratch_space = (qword); \
+        scratch_space += 2; \
+        num_free_instrs -= 2; \
+    } while (0); \
+
+#define STALKER_CACHE_WRITE(cursor, thing) \
+    do { \
+        *cursor++ = (thing); \
     } while (0) \
 
 /* these functions are so stalker_main_patcher doesn't
@@ -1285,158 +1313,51 @@ static uint32_t *write_return_interceptor_instrs(uint32_t *scratch_space,
 }
 
 static void anything_missing(void){
-    if(g_proc_pid_addr == 0 || g_sysent_addr == 0 ||
-            g_kalloc_canblock_addr == 0 || g_kfree_addr_addr == 0 ||
-            !g_patched_mach_syscall || g_sysctl__kern_children_addr == 0 ||
-            g_sysctl_register_oid_addr == 0 || g_sysctl_handle_long_addr == 0 ||
-            g_name2oid_addr == 0 || g_sysctl_geometry_lock_addr == 0 ||
-            g_lck_rw_lock_shared_addr == 0 || g_lck_rw_done_addr == 0 ||
-            g_h_s_c_sbn_branch_addr == 0 || g_h_s_c_sbn_epilogue_addr == 0 ||
-            g_mach_syscall_addr == 0 ||
-            g_offsetof_act_context == 0 || g_thread_syscall_return_start_addr  == 0 ||
-            g_thread_syscall_return_end_addr == 0 || 
-            g_thread_exception_return_addr == 0 || g_platform_syscall_start_addr == 0 ||
-            g_platform_syscall_end_addr == 0 || g_unix_syscall_return_start_addr == 0 ||
-            g_unix_syscall_return_end_addr == 0 || g_lck_grp_alloc_init_addr == 0 ||
-            g_lck_rw_alloc_init_addr == 0){
-        puts("svc_stalker: error(s) before");
-        puts("     we continue:");
+    static int printed_err_hdr = 0;
 
-        if(g_proc_pid_addr == 0)
-            puts("   proc_pid not found");
-
-        if(g_sysent_addr == 0)
-            puts("   sysent not found");
-
-        if(g_kalloc_canblock_addr == 0){
-            puts("   kalloc_canblock");
-            puts("     not found");
-        }
-
-        if(g_kfree_addr_addr == 0){
-            puts("   kfree_addr");
-            puts("     not found");
-        }
-
-        if(!g_patched_mach_syscall){
-            puts("   did not patch");
-            puts("     mach_syscall");
-        }
-
-        if(g_sysctl__kern_children_addr == 0){
-            puts("   sysctl__kern_children");
-            puts("     not found");
-        }
-
-        if(g_sysctl_register_oid_addr == 0){
-            puts("   sysctl_register_oid");
-            puts("     not found");
-        }
-
-        if(g_sysctl_handle_long_addr == 0){
-            puts("   sysctl_handle_long");
-            puts("     not found");
-        }
-
-        if(g_name2oid_addr == 0)
-            puts("   name2oid not found");
-
-        if(g_sysctl_geometry_lock_addr == 0){
-            puts("   sysctl_geometry_lock");
-            puts("     not found");
-        }
-
-        if(g_lck_rw_lock_shared_addr == 0){
-            puts("   lck_rw_lock_shared");
-            puts("     not found");
-        }
-
-        if(g_lck_rw_done_addr == 0)
-            puts("   lck_rw_done not found");
-
-        if(g_h_s_c_sbn_branch_addr == 0){
-            puts("   h_s_c_sbn addr");
-            puts("     not found");
-        }
-
-        if(g_h_s_c_sbn_epilogue_addr == 0){
-            puts("   h_s_c_sbn epilogue");
-            puts("     not found");
-        }
-
-        if(g_mach_syscall_addr == 0){
-            puts("   mach_syscall");
-            puts("     not found");
-        }
-
-        if(g_offsetof_act_context == 0){
-            puts("   ACT_CONTEXT offset");
-            puts("     not found");
-        }
-
-        if(g_thread_exception_return_addr == 0){
-            puts("   thread_exception_return");
-            puts("     not found");
-        }
-
-        if(g_platform_syscall_start_addr == 0){
-            puts("   g_platform_syscall_start_addr");
-            puts("     is still zero?");
-        }
-
-        if(g_platform_syscall_end_addr == 0){
-            puts("   g_platform_syscall_end_addr");
-            puts("     is still zero?");
-        }
-
-        if(g_thread_syscall_return_start_addr == 0){
-            puts("   g_thread_syscall_return_start_addr");
-            puts("     is still zero?");
-        }
-
-        if(g_thread_syscall_return_end_addr == 0){
-            puts("   g_thread_syscall_return_end_addr");
-            puts("     is still zero?");
-        }
-
-        if(g_unix_syscall_return_start_addr == 0){
-            puts("   g_unix_syscall_return_start_addr");
-            puts("     is still zero?");
-        }
-
-        if(g_unix_syscall_return_end_addr == 0){
-            puts("   g_unix_syscall_return_end_addr");
-            puts("     is still zero?");
-        }
-
-        if(g_lck_grp_alloc_init_addr == 0)
-            puts("   lck_grp_alloc_init not found?");
-
-        if(g_lck_rw_alloc_init_addr == 0)
-            puts("   lck_rw_alloc_init not found?");
-
-        stalker_fatal_error();
-    }
-}
-
-#define WRITE_QWORD_TO_SCRATCH_SPACE(qword) \
+#define chk(expression, msg) \
     do { \
-        if(num_free_instrs < 2){ \
-            puts("svc_stalker: ran out"); \
-            puts("     of scratch space"); \
-            puts("     at line:"); \
-            print_register(__LINE__); \
-            stalker_fatal_error(); \
+        if(expression){ \
+            if(!printed_err_hdr){ \
+                printf("svc_stalker: error(s) before\n" \
+                        "  we continue:\n"); \
+                printed_err_hdr = 1; \
+            } \
+            printf("  "msg); \
         } \
-        *(uint64_t *)scratch_space = (qword); \
-        scratch_space += 2; \
-        num_free_instrs -= 2; \
-    } while (0); \
-
-#define STALKER_CACHE_WRITE(cursor, thing) \
-    do { \
-        *cursor++ = (thing); \
     } while (0) \
+
+    chk(!g_proc_pid_addr, "proc_pid not found\n");
+    chk(!g_sysent_addr, "sysent not found\n");
+    chk(!g_kalloc_canblock_addr, "kalloc_canblock not found\n");
+    chk(!g_kfree_addr_addr, "kfree_addr not found\n");
+    chk(!g_patched_mach_syscall, "did not patch mach_syscall\n");
+    chk(!g_sysctl__kern_children_addr, "sysctl__kern_children\n"
+                                        "  not found\n");
+    chk(!g_sysctl_register_oid_addr, "sysctl_register_oid not found\n");
+    chk(!g_sysctl_handle_long_addr, "sysctl_handle_long not found\n");
+    chk(!g_name2oid_addr, "name2oid not found\n");
+    chk(!g_sysctl_geometry_lock_addr, "sysctl_geometry_lock not found\n");
+    chk(!g_lck_rw_lock_shared_addr, "lck_rw_lock_shared not found\n");
+    chk(!g_lck_rw_done_addr, "lck_rw_done not found\n");
+    chk(!g_h_s_c_sbn_branch_addr, "did not find hscsbn branch addr\n");
+    chk(!g_h_s_c_sbn_epilogue_addr, "hscsbn epilogue not found\n");
+    chk(!g_mach_syscall_addr, "mach_syscall not found\n");
+    chk(!g_offsetof_act_context, "ACT_CONTEXT offset not found\n");
+    chk(!g_thread_exception_return_addr, "thread_exception_return not found\n");
+    chk(!g_thread_syscall_return_start_addr || !g_thread_syscall_return_end_addr,
+            "thread_syscall_return not scanned\n");
+    chk(!g_platform_syscall_start_addr|| !g_platform_syscall_end_addr,
+            "platform_syscall not scanned\n");
+    chk(!g_unix_syscall_return_start_addr || !g_unix_syscall_return_end_addr,
+            "unix_syscall not scanned\n");
+    chk(!g_lck_grp_alloc_init_addr, "lck_grp_alloc_init not found\n");
+    chk(!g_lck_rw_alloc_init_addr, "lck_rw_alloc_init not found\n");
+
+    /* if we printed the error header, something is missing */
+    if(printed_err_hdr)
+        stalker_fatal_error();
+}
 
 /* create and initialize the stalker cache with what we've got now. The
  * stalker cache contains offsets found by svc_stalker's patchfinder, as well
@@ -1715,7 +1636,7 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     /* if there's not enough space between the end of exc_vectors_table
      * and _ExceptionVectorsBase, maybe there's enough space at the last
      * section of __TEXT_EXEC?
-     * 
+     *
      * I don't think this will ever happen but just in case
      */
     if(needed_sz > g_exec_scratch_space_size){
@@ -2057,28 +1978,19 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     STALKER_CACHE_WRITE(stalker_cache_cursor, 0);
     STALKER_CACHE_WRITE(stalker_cache_cursor, 0);
 
-#define IMPORTANT_MSG(x) \
-    putchar('*'); \
-    putchar(' '); \
-    puts(x); \
-
-    puts("***** IMPORTANT *****");
-    IMPORTANT_MSG("System call ");
-    /* printf doesn't print this correctly sometimes? */
-    print_register(patched_syscall_num);
-    IMPORTANT_MSG("has been patched.");
-    IMPORTANT_MSG("It is your way");
-    IMPORTANT_MSG("of controlling what");
-    IMPORTANT_MSG("processes you intercept");
-    IMPORTANT_MSG("system calls for.");
-    IMPORTANT_MSG("Please refer back to the");
-    IMPORTANT_MSG("README for info about");
-    IMPORTANT_MSG("this patched system call.");
-    IMPORTANT_MSG("You can also use");
-    IMPORTANT_MSG("sysctlbyname to query");
-    IMPORTANT_MSG("for the patched system");
-    IMPORTANT_MSG("call number.");
-    puts("*********************");
+    printf( "****** IMPORTANT *****\n"
+            "* System call #%d has\n"
+            "* been patched to\n"
+            "* svc_stalker_ctl.\n"
+            "* Please refer to the\n"
+            "* README for more info\n"
+            "* about this system call.\n"
+            "* You can also use\n"
+            "* sysctlbyname to retrieve\n"
+            "* svc_stalker_ctl's call\n"
+            "* number.\n"
+            "**********************\n",
+            patched_syscall_num);
 
     return true;
 }
@@ -2104,8 +2016,8 @@ static void stalker_prep(const char *cmd, char *args){
         0xff00001f,     /* ignore immediate */
     };
 
-    xnu_pf_maskmatch(patchset, proc_pid_finder_match, proc_pid_finder_masks,
-            num_proc_pid_matches, false, proc_pid_finder);
+    xnu_pf_maskmatch(patchset, "proc_pid finder", proc_pid_finder_match,
+            proc_pid_finder_masks, num_proc_pid_matches, false, proc_pid_finder);
 
     uint64_t sysent_finder_match[] = {
         0x1a803000,     /* CSEL Wn, Wn, Wn, CC */
@@ -2122,8 +2034,8 @@ static void stalker_prep(const char *cmd, char *args){
         0x1f000000,     /* ignore everything */
     };
 
-    xnu_pf_maskmatch(patchset, sysent_finder_match, sysent_finder_masks,
-            num_sysent_matches, false, sysent_finder);
+    xnu_pf_maskmatch(patchset, "sysent finder", sysent_finder_match,
+            sysent_finder_masks, num_sysent_matches, false, sysent_finder);
 
     uint64_t kalloc_canblock_match[] = {
         0xaa0003f3,     /* MOV X19, X0 */
@@ -2142,8 +2054,9 @@ static void stalker_prep(const char *cmd, char *args){
         0xfffffc1f,     /* ignore Rn */
     };
 
-    xnu_pf_maskmatch(patchset, kalloc_canblock_match, kalloc_canblock_masks,
-            num_kalloc_canblock_matches, false, kalloc_canblock_finder);
+    xnu_pf_maskmatch(patchset, "kalloc_canblock finder", kalloc_canblock_match,
+            kalloc_canblock_masks, num_kalloc_canblock_matches, false,
+            kalloc_canblock_finder);
 
     uint64_t kfree_addr_match[] = {
         0x10000009,     /* ADRP X9, n or ADR X9, n */
@@ -2164,8 +2077,8 @@ static void stalker_prep(const char *cmd, char *args){
         0x0,            /* ignore this instruction */
     };
 
-    xnu_pf_maskmatch(patchset, kfree_addr_match, kfree_addr_masks,
-            num_kfree_addr_matches, false, kfree_addr_finder);
+    xnu_pf_maskmatch(patchset, "kfree_addr finder", kfree_addr_match,
+            kfree_addr_masks, num_kfree_addr_matches, false, kfree_addr_finder);
 
     uint64_t mach_syscall_patcher_match[] = {
         0xb9400000,     /* LDR Wn, [X0] */
@@ -2184,8 +2097,9 @@ static void stalker_prep(const char *cmd, char *args){
         0xffffffe0,     /* ignore Wn */
     };
 
-    xnu_pf_maskmatch(patchset, mach_syscall_patcher_match, mach_syscall_patcher_masks,
-            num_mach_syscall_matches, false, mach_syscall_patcher);
+    xnu_pf_maskmatch(patchset, "mach_syscall finder", mach_syscall_patcher_match,
+            mach_syscall_patcher_masks, num_mach_syscall_matches, false,
+            mach_syscall_patcher);
 
     uint64_t ExceptionVectorsBase_finder_match[] = {
         0xd538d092,     /* MRS X18, TPIDR_EL1 */
@@ -2207,9 +2121,9 @@ static void stalker_prep(const char *cmd, char *args){
         0xffffffff,     /* match exactly */
     };
 
-    xnu_pf_maskmatch(patchset, ExceptionVectorsBase_finder_match,
-            ExceptionVectorsBase_finder_masks, num_ExceptionVectorsBase_matches,
-            false, ExceptionVectorsBase_finder);
+    xnu_pf_maskmatch(patchset, "ExceptionVectorsBase finder",
+            ExceptionVectorsBase_finder_match, ExceptionVectorsBase_finder_masks,
+            num_ExceptionVectorsBase_matches, false, ExceptionVectorsBase_finder);
 
     uint64_t sysctl__kern_children_finder_matches[] = {
         0x10000013,     /* ADRP X19, n or ADR X19, n */
@@ -2241,8 +2155,8 @@ static void stalker_prep(const char *cmd, char *args){
         0x0,            /* ignore this instruction */
     };
 
-    xnu_pf_maskmatch(patchset, sysctl__kern_children_finder_matches,
-            sysctl__kern_children_finder_masks,
+    xnu_pf_maskmatch(patchset, "sysctl__kern_children finder",
+            sysctl__kern_children_finder_matches, sysctl__kern_children_finder_masks,
             num_sysctl__kern_children_finder_matches, false,
             sysctl__kern_children_finder);
 
@@ -2268,8 +2182,8 @@ static void stalker_prep(const char *cmd, char *args){
         0xfc000000,     /* ignore immediate */
     };
 
-    xnu_pf_maskmatch(patchset, sysctl_register_oid_finder_matches,
-            sysctl_register_oid_finder_masks,
+    xnu_pf_maskmatch(patchset, "sysctl_register_oid",
+            sysctl_register_oid_finder_matches, sysctl_register_oid_finder_masks,
             num_sysctl_register_oid_finder_matches, false,
             sysctl_register_oid_finder);
 
@@ -2301,8 +2215,8 @@ static void stalker_prep(const char *cmd, char *args){
         0xffffffff,     /* match exactly */
     };
 
-    xnu_pf_maskmatch(patchset, sysctl_handle_long_finder_matches,
-            sysctl_handle_long_finder_masks,
+    xnu_pf_maskmatch(patchset, "sysctl_handle_long finder",
+            sysctl_handle_long_finder_matches, sysctl_handle_long_finder_masks,
             num_sysctl_handle_long_finder_matches, false,
             sysctl_handle_long_finder);
 
@@ -2336,7 +2250,8 @@ static void stalker_prep(const char *cmd, char *args){
         0xfc000000,     /* ignore immediate */
     };
 
-    xnu_pf_maskmatch(patchset, name2oid_and_its_dependencies_finder_matches,
+    xnu_pf_maskmatch(patchset, "name2oid and its dependencies finder",
+            name2oid_and_its_dependencies_finder_matches,
             name2oid_and_its_dependencies_finder_masks,
             num_name2oid_and_its_dependencies_finder_matches, false,
             name2oid_and_its_dependencies_finder);
@@ -2367,7 +2282,8 @@ static void stalker_prep(const char *cmd, char *args){
         0xff00001f,     /* ignore immediate */
     };
 
-    xnu_pf_maskmatch(patchset, hook_system_check_sysctlbyname_finder_matches,
+    xnu_pf_maskmatch(patchset, "hook_system_check_sysctlbyname finder",
+            hook_system_check_sysctlbyname_finder_matches,
             hook_system_check_sysctlbyname_finder_masks,
             num_hook_system_check_sysctlbyname_finder_matches, false,
             hook_system_check_sysctlbyname_finder);
@@ -2388,7 +2304,8 @@ static void stalker_prep(const char *cmd, char *args){
         0xffffffff,     /* match exactly */
     };
 
-    xnu_pf_maskmatch(patchset, thread_exception_return_finder_matches,
+    xnu_pf_maskmatch(patchset, "thread_exception_return finder",
+            thread_exception_return_finder_matches,
             thread_exception_return_finder_masks,
             num_thread_exception_return_finder_matches, false,
             thread_exception_return_finder);
@@ -2415,7 +2332,8 @@ static void stalker_prep(const char *cmd, char *args){
         0xffffffff,     /* match exactly */
     };
 
-    xnu_pf_maskmatch(patchset, thread_syscall_return_scanner_matches,
+    xnu_pf_maskmatch(patchset, "thread_syscall_return scanner",
+            thread_syscall_return_scanner_matches,
             thread_syscall_return_scanner_masks,
             num_thread_syscall_return_scanner_matches, false,
             thread_syscall_return_scanner);
@@ -2442,8 +2360,8 @@ static void stalker_prep(const char *cmd, char *args){
         0xffffffff,     /* match exactly */
     };
 
-    xnu_pf_maskmatch(patchset, platform_syscall_scanner_matches,
-            platform_syscall_scanner_masks,
+    xnu_pf_maskmatch(patchset, "platform_syscall scanner",
+            platform_syscall_scanner_matches, platform_syscall_scanner_masks,
             num_platform_syscall_scanner_matches, false,
             platform_syscall_scanner);
 
@@ -2467,8 +2385,8 @@ static void stalker_prep(const char *cmd, char *args){
         0xffc003ff,     /* ignore immediate */
     };
 
-    xnu_pf_maskmatch(patchset, unix_syscall_return_scanner_matches,
-            unix_syscall_return_scanner_masks,
+    xnu_pf_maskmatch(patchset, "unix_syscall_return scanner",
+            unix_syscall_return_scanner_matches, unix_syscall_return_scanner_masks,
             num_unix_syscall_return_scanner_matches, false,
             unix_syscall_return_scanner);
 
@@ -2488,8 +2406,8 @@ static void stalker_prep(const char *cmd, char *args){
         0xfc000000,     /* ignore immediate */
     };
 
-    xnu_pf_maskmatch(patchset, lck_grp_alloc_init_finder_matches,
-            lck_grp_alloc_init_finder_masks,
+    xnu_pf_maskmatch(patchset, "lck_grp_alloc_init finder",
+            lck_grp_alloc_init_finder_matches, lck_grp_alloc_init_finder_masks,
             num_lck_grp_alloc_init_finder_matches, false,
             lck_grp_alloc_init_finder);
 
@@ -2521,8 +2439,8 @@ static void stalker_prep(const char *cmd, char *args){
         0xff00001f,     /* ignore immediate */
     };
 
-    xnu_pf_maskmatch(patchset, lck_rw_alloc_init_finder_matches,
-            lck_rw_alloc_init_finder_masks,
+    xnu_pf_maskmatch(patchset, "lck_rw_alloc_init finder",
+            lck_rw_alloc_init_finder_matches, lck_rw_alloc_init_finder_masks,
             num_lck_rw_alloc_init_finder_matches, false,
             lck_rw_alloc_init_finder);
 
@@ -2542,8 +2460,8 @@ static void stalker_prep(const char *cmd, char *args){
         0xffffffff,     /* match exactly */
     };
 
-    xnu_pf_maskmatch(patchset, unix_syscall_patcher_matches,
-            unix_syscall_patcher_masks,
+    xnu_pf_maskmatch(patchset, "unix_syscall patcher",
+            unix_syscall_patcher_matches, unix_syscall_patcher_masks,
             num_unix_syscall_patcher_matches, false,
             unix_syscall_patcher);
 
@@ -2607,7 +2525,7 @@ static void stalker_preboot_hook(void){
     xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
 
     xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
-    xnu_pf_maskmatch(patchset, stalker_main_patcher_match,
+    xnu_pf_maskmatch(patchset, "stalker main patcher", stalker_main_patcher_match,
             stalker_main_patcher_masks, num_matches, false,
             stalker_main_patcher);
     xnu_pf_emit(patchset);
@@ -2638,7 +2556,7 @@ static void stalker_main_patcher_noboot(const char *cmd, char *args){
     xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
 
     xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
-    xnu_pf_maskmatch(patchset, stalker_main_patcher_match,
+    xnu_pf_maskmatch(patchset, "stalker main patcher", stalker_main_patcher_match,
             stalker_main_patcher_masks, num_matches, false,
             stalker_main_patcher);
     xnu_pf_emit(patchset);

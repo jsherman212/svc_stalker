@@ -250,7 +250,8 @@ static void describe_completed_call(mach_port_t task, struct xnu_call *call,
         arg6 = call->before_state->__x[6];
     }
 
-    printf("%d: ", call->caller);
+    printf("%d: [PC=%#llx, LR=%#llx]: ", call->caller, completed_state->__pc,
+            completed_state->__lr);
 
     if(call_num == 1)
         printf("exit(%d)\n", (uint32_t)arg0);
@@ -615,38 +616,43 @@ int main(int argc, char **argv){
 
     /* support indirect system calls */
     REGISTER_CALL(0);
+
+
+    /* ptrace */
+    REGISTER_CALL(26);
+
     /* write */
-    REGISTER_CALL(4);
-    /* read */
-    REGISTER_CALL(3);
-    /* exit */
-    REGISTER_CALL(1);
-    /* open */
-    REGISTER_CALL(5);
-    /* access */
-    REGISTER_CALL(33);
-    /* fork */
-    REGISTER_CALL(2);
-    /* getpid */
-    REGISTER_CALL(20);
-    /* symlink */
-    REGISTER_CALL(57);
-    /* lseek */
-    REGISTER_CALL(199);
+    /* REGISTER_CALL(4); */
+    /* /1* read *1/ */
+    /* REGISTER_CALL(3); */
+    /* /1* exit *1/ */
+    /* REGISTER_CALL(1); */
+    /* /1* open *1/ */
+    /* REGISTER_CALL(5); */
+    /* /1* access *1/ */
+    /* REGISTER_CALL(33); */
+    /* /1* fork *1/ */
+    /* REGISTER_CALL(2); */
+    /* /1* getpid *1/ */
+    /* REGISTER_CALL(20); */
+    /* /1* symlink *1/ */
+    /* REGISTER_CALL(57); */
+    /* /1* lseek *1/ */
+    /* REGISTER_CALL(199); */
     /* sysctl */
     REGISTER_CALL(202);
     /* sysctlbyname */
     REGISTER_CALL(274);
-    /* platform syscalls */
-    REGISTER_CALL(0x80000000);
-    /* mach_msg */
-    REGISTER_CALL(-31);
-    /* mach_absolute_time */
-    REGISTER_CALL(-3);
-    /* mach_continuous_time */
-    REGISTER_CALL(-4);
-    /* mach_port_allocate */
-    REGISTER_CALL(-16);
+    /* /1* platform syscalls *1/ */
+    /* REGISTER_CALL(0x80000000); */
+    /* /1* mach_msg *1/ */
+    /* REGISTER_CALL(-31); */
+    /* /1* mach_absolute_time *1/ */
+    /* REGISTER_CALL(-3); */
+    /* /1* mach_continuous_time *1/ */
+    /* REGISTER_CALL(-4); */
+    /* /1* mach_port_allocate *1/ */
+    /* REGISTER_CALL(-16); */
 
     pthread_t e_thread;
     pthread_create(&e_thread, NULL, e_thread_func, (void *)(uintptr_t)eport);

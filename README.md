@@ -5,9 +5,13 @@
 <sup>*Output from intercepting some calls for Call of Duty: Mobile from
 example/mini_strace.c*</sup>
 
+**Currently working on checkrain 11/iOS 14 support in this branch**
+
 svc_stalker is a pongoOS module which modifies XNU to call `exception_triage`
 during a supervisor call exception, sending a Mach exception message to userland
 exception ports.
+
+svc_stalker supports checkra1n 0.11.0 and up.
 
 When `catch_mach_exception_raise` is called, the PID of the process which made
 the call is placed in `code[0]`. `code[1]` will either be `BEFORE_CALL (0)`
@@ -46,8 +50,6 @@ In the same directory you built the loader and the module, do
 seconds your device will boot.
 
 ## Known Issues
-No iOS 14 support because pongoOS modules on checkra1n 11 are broken.
-
 Sometimes a couple of my phones would get stuck at "Booting" after checkra1n's KPF
 runs. I have yet to figure out what causes this, but if it happens, try again.
 Also, if the device hangs after `bootx`, try again.

@@ -212,7 +212,10 @@ extern struct section_64 *macho_get_section(struct segment_command_64 *seg, cons
 extern struct mach_header_64* xnu_pf_get_first_kext(struct mach_header_64* kheader);
 
 extern xnu_pf_patch_t* xnu_pf_ptr_to_data(xnu_pf_patchset_t* patchset, uint64_t slide, xnu_pf_range_t* range, void* data, size_t datasz, bool required, bool (*callback)(struct xnu_pf_patch* patch, void* cacheable_stream));
-extern xnu_pf_patch_t* xnu_pf_maskmatch(xnu_pf_patchset_t* patchset, uint64_t* matches, uint64_t* masks, uint32_t entryc, bool required, bool (*callback)(struct xnu_pf_patch* patch, void* cacheable_stream));
+/* extern xnu_pf_patch_t* xnu_pf_maskmatch(xnu_pf_patchset_t* patchset, uint64_t* matches, uint64_t* masks, uint32_t entryc, bool required, bool (*callback)(struct xnu_pf_patch* patch, void* cacheable_stream)); */
+/* XXX checkrain 11 */
+extern xnu_pf_patch_t* xnu_pf_maskmatch(xnu_pf_patchset_t *patchset, char *name, uint64_t *matches, uint64_t *masks, uint32_t entryc, bool required, bool (*callback)(struct xnu_pf_patch* patch, void* cacheable_stream));
+
 extern void xnu_pf_emit(xnu_pf_patchset_t* patchset); // converts a patchset to JIT
 extern void xnu_pf_apply(xnu_pf_range_t* range, xnu_pf_patchset_t* patchset);
 extern xnu_pf_patchset_t* xnu_pf_patchset_create(uint8_t pf_accesstype);

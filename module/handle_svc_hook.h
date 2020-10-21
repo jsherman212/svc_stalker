@@ -12,6 +12,8 @@
 #define CUR_PID                     (STACK-0x88)
 #define SYSCTL_OID_STRUCT           (STACK-0xe0)    /* XXX sizeof(sysctl_oid) == 0x50 */
 #define STALKER_LOCK_GROUP_NAME     (STACK-0xe8)
+#define KALLOC_SZ                   (STACK-0xf0)
+#define KALLOC_MEM                  (STACK-0xf8)
 
 /* sysctl stuff */
 #define OID_AUTO                    (-1)
@@ -27,5 +29,10 @@
 #define EXC_MACH_SYSCALL            (8)
 
 #define BEFORE_CALL                 (0)
+
+#define ARM64_REG_KTRR_LOWER_EL1 S3_4_c15_c2_3
+#define ARM64_REG_KTRR_UPPER_EL1 S3_4_c15_c2_4
+#define ARM64_REG_KTRR_LOCK_EL1  S3_4_c15_c2_2
+
 
 #endif
