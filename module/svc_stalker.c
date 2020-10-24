@@ -11,6 +11,10 @@
 
 #define PAGE_SIZE (0x4000)
 
+static int isdigit(char c){
+    return c >= '0' && c <= '9';
+}
+
 #undef strcpy
 #define strcpy strcpy_
 static char *strcpy(char *dest, const char *src){
@@ -285,6 +289,10 @@ static void scan_for_ter(uint32_t *opcode_stream, uint64_t fxn_len,
 }
 
 #define IS_B_NE(opcode) ((opcode & 0xff000001) == 0x54000001)
+
+static uint32_t g_xnu_version_major = 0;
+static uint32_t g_xnu_version_minor = 0;
+static uint32_t g_xnu_version_revision = 0;
 
 static uint64_t g_proc_pid_addr = 0;
 static uint64_t g_sysent_addr = 0;
@@ -1498,7 +1506,7 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     xnu_pf_disable_patch(patch);
 
     /* go to the beginning of the sanity checks */
-    uint32_t *opcode_stream = (uint32_t *)cacheable_stream - 6;
+    uint32_t *opcode_stream = cacheable_stream;
     uint32_t *temp = opcode_stream;
 
     /* get sleh_synchronous's addr
@@ -1522,46 +1530,6 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     uint64_t sleh_synchronous_addr = xnu_ptr_to_va(temp);
     uint64_t branch_from = (uint64_t)opcode_stream;
 
-    /* find platform_syscall, if we follow the first b.eq from this point
-     * on, we'll get it
-     */
-    instr_limit = 100;
-
-    for(;;){
-        if(instr_limit-- == 0){
-            puts("svc_stalker: didn't");
-            puts("      find branch to");
-            puts("      platform_syscall?");
-
-            stalker_fatal_error();
-        }
-
-        if((*opcode_stream & 0xff00001f) == 0x54000000)
-            break;
-
-        opcode_stream++;
-    }
-
-    int32_t imm19 = sign_extend(bits(*opcode_stream, 5, 23) << 2, 21);
-    uint32_t *branch_dst = (uint32_t *)((intptr_t)opcode_stream + imm19);
-
-    /* platform_syscall will be the first BL we see */
-    instr_limit = 10;
-
-    while((*branch_dst & 0xfc000000) != 0x94000000){
-        if(instr_limit-- == 0){
-            puts("svc_stalker: couldn't find");
-            puts("     platform_syscall?");
-
-            stalker_fatal_error();
-        }
-
-        branch_dst++;
-    }
-
-    int32_t imm26 = sign_extend(bits(*branch_dst, 0, 25) << 2, 28);
-    uint64_t platform_syscall_addr = imm26 + xnu_ptr_to_va(branch_dst);
-
     /* the first BL after the b.eq we followed will be branching to
      * current_proc
      */
@@ -1577,7 +1545,7 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
         opcode_stream++;
     }
 
-    imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28);
+    int32_t imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28);
     uint64_t current_proc_addr = imm26 + xnu_ptr_to_va(opcode_stream);
 
     puts("svc_stalker: found current_proc");
@@ -1777,7 +1745,7 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     /* allow handle_svc_hook access to stalker cache */
     WRITE_QWORD_TO_SCRATCH_SPACE(xnu_ptr_to_va(stalker_cache_base));
 
-    /* write handle_svc kva so sleh_synchronous_hijacker can call it */
+    /* write handle_svc_hook kva so sleh_synchronous_hijacker can call it */
     STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(scratch_space));
 
     /* Needs to be done before we patch the sysent entry so scratch_space lies
@@ -1914,7 +1882,7 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     /* TODO: assemble_bl */
     write_blr(8, branch_from, branch_to);
 
-    /* allow tail_call_init access to stalker cache */
+    /* allow sleh_synchronous_hijacker access to stalker cache */
     WRITE_QWORD_TO_SCRATCH_SPACE(xnu_ptr_to_va(stalker_cache_base));
 
     uint64_t sleh_synchronous_hijacker_addr = (uint64_t)scratch_space;
@@ -1932,7 +1900,7 @@ static bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
         stalker_fatal_error();
     }
 
-    puts("svc_stalker: patched sleh_synchronous (2)");
+    puts("svc_stalker: patched sleh_synchronous");
 
     /* so tail_call_init knows where to branch back to */
     STALKER_CACHE_WRITE(stalker_cache_cursor, sleh_synchronous_addr);
@@ -2472,6 +2440,10 @@ static void stalker_prep(const char *cmd, char *args){
 
     xnu_pf_range_t *AMFI___TEXT_EXEC = xnu_pf_segment(AMFI, "__TEXT_EXEC");
 
+    /* XXX XXX if ios14, also apply this to com.apple.kec.corecrypto
+     * segment for lck_grp_alloc_init
+     */
+
     /* sandbox for hook_system_check_sysctlbyname and lck_grp_alloc_init */
     struct mach_header_64 *sandbox = xnu_pf_get_kext_header(mh_execute_header,
             "com.apple.security.sandbox");
@@ -2559,6 +2531,56 @@ static void stalker_main_patcher_noboot(const char *cmd, char *args){
     xnu_pf_patchset_destroy(patchset);
 }
 
+static bool getxnuv_callback(xnu_pf_patch_t *patch, void *cacheable_stream){
+    xnu_pf_disable_patch(patch);
+
+    char *version = cacheable_stream;
+
+    printf("%s: version '%s'\n", __func__, version);
+
+    /* skip ahead until we get to a digit */
+    while(!isdigit(*version))
+        version++;
+    
+    printf("%s: now we're at '%s'\n", __func__, version);
+
+    return true;
+}
+
+static void stalker_getxnuv(const char *cmd, char *args){
+    xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_8BIT);
+
+    xnu_pf_range_t *__TEXT___const = xnu_pf_section(mh_execute_header, "__TEXT",
+            "__const");
+
+    if(!__TEXT___const){
+        puts("svc_stalker: xnu_pf_section");
+        puts("   returned NULL for");
+        puts("   __TEXT:__const?");
+
+        stalker_fatal_error();
+    }
+
+    const char *vers = "Darwin Kernel Version ";
+
+    /* hardcoded so clang does not generate ___chkstk_darwin calls */
+    uint64_t ver[21];
+    uint64_t masks[21];
+
+    for(int i=0; i<21; i++){
+        ver[i] = vers[i];
+        masks[i] = 0xff;
+    }
+
+    uint64_t count = sizeof(ver) / sizeof(*ver);
+
+    xnu_pf_maskmatch(patchset, "XNU version finder", ver, masks, count,
+            false, getxnuv_callback);
+    xnu_pf_emit(patchset);
+    xnu_pf_apply(__TEXT___const, patchset);
+    xnu_pf_patchset_destroy(patchset);
+}
+
 void module_entry(void){
     puts("svc_stalker: loaded!");
 
@@ -2572,9 +2594,11 @@ void module_entry(void){
     next_preboot_hook = preboot_hook;
     preboot_hook = stalker_preboot_hook;
 
+    command_register("stalker-getxnuv", "get XNU version", stalker_getxnuv);
     command_register("stalker-prep", "prep to patch sleh_synchronous", stalker_prep);
     command_register("stalker-mp-noboot", "patch sleh_synchronous without booting",
             stalker_main_patcher_noboot);
+    /* command_register("playground", "playground", playground); */
 }
 
 const char *module_name = "svc_stalker";

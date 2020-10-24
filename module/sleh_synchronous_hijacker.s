@@ -4,8 +4,8 @@
 #include "sleh_synchronous_hijacker.h"
 #include "stalker_cache.h"
 
-; This will back up the original stack frame and set LR to return_interceptor
-; if the current exception is ESR_EC_SVC_64.
+; This will back up the original stack frame, call handle_svc_hook, and set LR
+; to return_interceptor if the current exception is ESR_EC_SVC_64.
 ;
 ; We've come from sleh_synchronous, it has three arguments, second being ESR_EL1.
 ; (because of that we can clobber x3, x4, x5, x6, and x7)
