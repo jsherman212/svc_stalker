@@ -174,7 +174,7 @@ int main(int argc, char **argv, const char **envp){
 
     /* err = pongo_send_command(pongo_device, "stalker-prep\n"); */
     /* err = pongo_send_command(pongo_device, "playground\n"); */
-    err = pongo_send_command(pongo_device, "stalker-getxnuv\n");
+    err = pongo_send_command(pongo_device, "stalker-getkernelv\n");
 
     if(err < 0){
         printf("pongo_send_command: %s\n", libusb_error_name(err));

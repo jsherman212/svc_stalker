@@ -15,6 +15,20 @@ static int isdigit(char c){
     return c >= '0' && c <= '9';
 }
 
+/* no sign support */
+#undef atoi
+#define atoi atoi_
+static int atoi(char *s){
+    int res = 0;
+
+    while(*s){
+        res = res * 10 + (*s - '0');
+        s++;
+    }
+
+    return res;
+}
+
 #undef strcpy
 #define strcpy strcpy_
 static char *strcpy(char *dest, const char *src){
@@ -290,9 +304,9 @@ static void scan_for_ter(uint32_t *opcode_stream, uint64_t fxn_len,
 
 #define IS_B_NE(opcode) ((opcode & 0xff000001) == 0x54000001)
 
-static uint32_t g_xnu_version_major = 0;
-static uint32_t g_xnu_version_minor = 0;
-static uint32_t g_xnu_version_revision = 0;
+static uint32_t g_kern_version_major = 0;
+static uint32_t g_kern_version_minor = 0;
+static uint32_t g_kern_version_revision = 0;
 
 static uint64_t g_proc_pid_addr = 0;
 static uint64_t g_sysent_addr = 0;
@@ -2531,23 +2545,59 @@ static void stalker_main_patcher_noboot(const char *cmd, char *args){
     xnu_pf_patchset_destroy(patchset);
 }
 
-static bool getxnuv_callback(xnu_pf_patch_t *patch, void *cacheable_stream){
+static bool getkernelv_callback(xnu_pf_patch_t *patch, void *cacheable_stream){
     xnu_pf_disable_patch(patch);
-
     char *version = cacheable_stream;
 
-    printf("%s: version '%s'\n", __func__, version);
+    /* on all kernels, major, minor, and version are no larger than 2 chars */
+    char major_s[3] = {0};
+    char minor_s[3] = {0};
+    char revision_s[3] = {0};
 
-    /* skip ahead until we get to a digit */
+    /* skip ahead until we get a digit */
     while(!isdigit(*version))
         version++;
     
-    printf("%s: now we're at '%s'\n", __func__, version);
+    for(int i=0; *version != '.'; i++, version++)
+        major_s[i] = *version;
+
+    version++;
+
+    for(int i=0; *version != '.'; i++, version++)
+        minor_s[i] = *version;
+
+    version++;
+
+    for(int i=0; *version != ':'; i++, version++)
+        revision_s[i] = *version;
+
+    /* currently, I only use major, but I get the rest in case I need
+     * them in the future
+     */
+    g_kern_version_major = atoi(major_s);
+    g_kern_version_minor = atoi(minor_s);
+    g_kern_version_revision = atoi(revision_s);
+
+    if(g_kern_version_major == 19)
+        printf("svc_stalker: iOS 13 detected\n");
+    else if(g_kern_version_major == 20)
+        printf("svc_stalker: iOS 14 detected\n");
+    else{
+        printf("svc_stalker: error: unknown\n"
+                "  major %d\n",
+                g_kern_version_major);
+
+        stalker_fatal_error();
+    }
+
+    /* XXX if I decide to go the array of function pointers route, subract
+     * 19 from major for index
+     */
 
     return true;
 }
 
-static void stalker_getxnuv(const char *cmd, char *args){
+static void stalker_getkernelv(const char *cmd, char *args){
     xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_8BIT);
 
     xnu_pf_range_t *__TEXT___const = xnu_pf_section(mh_execute_header, "__TEXT",
@@ -2574,8 +2624,8 @@ static void stalker_getxnuv(const char *cmd, char *args){
 
     uint64_t count = sizeof(ver) / sizeof(*ver);
 
-    xnu_pf_maskmatch(patchset, "XNU version finder", ver, masks, count,
-            false, getxnuv_callback);
+    xnu_pf_maskmatch(patchset, "kernel version finder", ver, masks, count,
+            false, getkernelv_callback);
     xnu_pf_emit(patchset);
     xnu_pf_apply(__TEXT___const, patchset);
     xnu_pf_patchset_destroy(patchset);
@@ -2594,7 +2644,7 @@ void module_entry(void){
     next_preboot_hook = preboot_hook;
     preboot_hook = stalker_preboot_hook;
 
-    command_register("stalker-getxnuv", "get XNU version", stalker_getxnuv);
+    command_register("stalker-getkernelv", "get kernel version", stalker_getkernelv);
     command_register("stalker-prep", "prep to patch sleh_synchronous", stalker_prep);
     command_register("stalker-mp-noboot", "patch sleh_synchronous without booting",
             stalker_main_patcher_noboot);
