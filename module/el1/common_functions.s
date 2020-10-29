@@ -1,9 +1,10 @@
     .globl _main
     .align 4
 
+#include "../common/stalker_cache.h"
+#include "../common/stalker_table.h"
+
 #include "common_functions.h"
-#include "stalker_cache.h"
-#include "stalker_table.h"
 
 ; Common functions shared across all parts of this project.
 ;

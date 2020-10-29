@@ -1,9 +1,10 @@
     .align 4
     .globl _main
 
+#include "../common/stalker_cache.h"
+#include "../common/stalker_table.h"
+
 #include "hook_system_check_sysctlbyname_hook.h"
-#include "stalker_cache.h"
-#include "stalker_table.h"
 
 _main:
     sub sp, sp, STACK

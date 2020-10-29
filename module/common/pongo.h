@@ -20,17 +20,15 @@
 //  Copyright (c) 2019-2020 checkra1n team
 //  This file is part of pongoOS.
 //
-
 #ifndef PONGOH
 #define PONGOH
 #include <mach-o/loader.h>
-#include <stdbool.h>
 #include <stddef.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
-#include <stdint.h>
+#include <strings.h>
 
 #define DT_KEY_LEN 0x20
 
@@ -99,7 +97,7 @@ extern volatile char gBootFlag;
 typedef uint64_t lock;
 extern void lock_take(lock* lock); // takes a lock spinning initially but after being pre-empted once it will start yielding until it acquires it
 extern void lock_take_spin(lock* lock); // takes a lock spinning until it acquires it
-/* extern void lock_release(lock* lock); // releases ownership on a lock */
+extern void lock_release(lock* lock); // releases ownership on a lock
 
 extern int dt_check(void* mem, uint32_t size, uint32_t* offp);
 extern int dt_parse(dt_node_t* node, int depth, uint32_t* offp, int (*cb_node)(void*, dt_node_t*), void* cbn_arg, int (*cb_prop)(void*, dt_node_t*, int, const char*, void*, uint32_t), void* cbp_arg);
@@ -158,6 +156,8 @@ extern uint64_t gPMGRBase;
 extern char* gDevType;
 extern void* ramdisk_buf;
 extern uint32_t ramdisk_size;
+extern char soc_name[9];
+extern uint32_t socnum;
 
 typedef struct xnu_pf_range {
     uint64_t va;
@@ -181,6 +181,7 @@ typedef struct xnu_pf_patch {
     uint32_t* pfjit_entry;
     uint32_t* pfjit_exit;
     uint8_t pf_data[0];
+    char * name;
 
     //            patch->pf_match(XNU_PF_ACCESS_32BIT, reads, &stream[index], &dstream[index]);
 
@@ -189,8 +190,9 @@ typedef struct xnu_pf_patch {
 typedef struct xnu_pf_patchset {
     xnu_pf_patch_t* patch_head;
     void* jit_matcher;
-    uint8_t accesstype;
     uint64_t p0;
+    uint8_t accesstype;
+    bool is_required;
 } xnu_pf_patchset_t;
 
 #define XNU_PF_ACCESS_8BIT 0x8
@@ -198,6 +200,7 @@ typedef struct xnu_pf_patchset {
 #define XNU_PF_ACCESS_32BIT 0x20
 #define XNU_PF_ACCESS_64BIT 0x40
 #define TICKS_IN_1MS 24000
+extern uint64_t xnu_slide_hdr_va(struct mach_header_64* header, uint64_t hdr_va);
 extern uint64_t xnu_slide_value(struct mach_header_64* header);
 extern struct mach_header_64* xnu_header();
 extern xnu_pf_range_t* xnu_pf_range_from_va(uint64_t va, uint64_t size);
@@ -212,27 +215,30 @@ extern struct section_64 *macho_get_section(struct segment_command_64 *seg, cons
 extern struct mach_header_64* xnu_pf_get_first_kext(struct mach_header_64* kheader);
 
 extern xnu_pf_patch_t* xnu_pf_ptr_to_data(xnu_pf_patchset_t* patchset, uint64_t slide, xnu_pf_range_t* range, void* data, size_t datasz, bool required, bool (*callback)(struct xnu_pf_patch* patch, void* cacheable_stream));
-/* extern xnu_pf_patch_t* xnu_pf_maskmatch(xnu_pf_patchset_t* patchset, uint64_t* matches, uint64_t* masks, uint32_t entryc, bool required, bool (*callback)(struct xnu_pf_patch* patch, void* cacheable_stream)); */
-/* XXX checkrain 11 */
-extern xnu_pf_patch_t* xnu_pf_maskmatch(xnu_pf_patchset_t *patchset, char *name, uint64_t *matches, uint64_t *masks, uint32_t entryc, bool required, bool (*callback)(struct xnu_pf_patch* patch, void* cacheable_stream));
-
+extern xnu_pf_patch_t* xnu_pf_maskmatch(xnu_pf_patchset_t* patchset, char * name, uint64_t* matches, uint64_t* masks, uint32_t entryc, bool required, bool (*callback)(struct xnu_pf_patch* patch, void* cacheable_stream));
 extern void xnu_pf_emit(xnu_pf_patchset_t* patchset); // converts a patchset to JIT
 extern void xnu_pf_apply(xnu_pf_range_t* range, xnu_pf_patchset_t* patchset);
 extern xnu_pf_patchset_t* xnu_pf_patchset_create(uint8_t pf_accesstype);
 extern void xnu_pf_patchset_destroy(xnu_pf_patchset_t* patchset);
 extern void* xnu_va_to_ptr(uint64_t va);
 extern uint64_t xnu_ptr_to_va(void* ptr);
+extern uint64_t xnu_rebase_va(uint64_t va);
+extern uint64_t kext_rebase_va(uint64_t va);
 extern struct mach_header_64* xnu_pf_get_kext_header(struct mach_header_64* kheader, const char* kext_bundle_id);
 extern void xnu_pf_apply_each_kext(struct mach_header_64* kheader, xnu_pf_patchset_t* patchset);
 
-#define kCacheableView 0x400000000ULL
+#ifdef OVERRIDE_CACHEABLE_VIEW
+#   define kCacheableView OVERRIDE_CACHEABLE_VIEW
+#else
+#   define kCacheableView 0x400000000ULL
+#endif
 #define MAGIC_BASE 0x818000000ULL
 struct pongo_exports {
     const char* name;
     void * value;
 };
-#define EXPORT_SYMBOL(x) {.name = ""#x, .value = x}
-#define EXPORT_SYMBOL_P(x) {.name = ""#x, .value = (void*)&x}
+#define EXPORT_SYMBOL(x) {.name = "_"#x, .value = x}
+#define EXPORT_SYMBOL_P(x) {.name = "_"#x, .value = (void*)&x}
 
 void pongo_entry(uint64_t* kernel_args, void* entryp, void (*exit_to_el1_image)(void* boot_args, void* boot_entry_point));
 int pongo_fiq_handler();
@@ -252,14 +258,18 @@ extern void* alloc_static(uint32_t size); // memory returned by this will be add
 
 extern struct event command_handler_iter;
 
+#ifdef memset
+#   undef memset
+#endif
+extern void* memset(void *b, int c, size_t len);
 extern void* memmem(const void* big, unsigned long blength, const void* little, unsigned long llength);
 extern void* memstr(const void* big, unsigned long blength, const char* little);
 extern void* memstr_partial(const void* big, unsigned long blength, const char* little);
 
 extern uint64_t scheduler_ticks;
 extern void print_register(uint64_t value);
-extern int printf(const char *fmt, ...);
-extern volatile void invalidate_icache();
+void print_hex_number(uint64_t value);
+extern void invalidate_icache(void);
 extern struct task* task_current();
 extern char preemption_should_skip_beat();
 extern void task_switch_irq(struct task* to_task);
@@ -271,7 +281,7 @@ extern void task_irq_dispatch(uint32_t intr);
 extern void task_yield_asserted();
 extern void task_register_unlinked(struct task* task, void (*entry)());
 extern void task_suspend_self();
-extern _Noreturn void panic(const char* string);
+extern _Noreturn void panic(const char* string, ...);
 extern void pmgr_reset();
 extern void spin(uint32_t usec);
 extern void task_set_sched_head(struct task* task);
@@ -297,7 +307,7 @@ extern void command_puts(const char* val);
 extern void command_print(const char* val);
 extern void command_register(const char* name, const char* desc, void (*cb)(const char* cmd, char* args));
 extern char* command_tokenize(char* str, uint32_t strbufsz);
-extern volatile uint8_t get_el(void);
+extern uint8_t get_el(void);
 #define STDOUT_BUFLEN 512
 extern void fetch_stdoutbuf(char* to, int* len);
 extern uint64_t vatophys(uint64_t kvaddr);
@@ -313,4 +323,30 @@ extern void task_suspend_self_asserted();
 extern void command_execute(char* cmd);
 extern void queue_rx_string(char* string);
 extern void command_unregister(const char* name);
+#ifdef LL_KTRW_INTERNAL
+extern void usbloader_init();
+extern void pmgr_init();
+extern void command_init();
+extern void task_init();
+extern void serial_init();
+extern void interrupt_init();
+extern void interrupt_teardown();
+extern void task_irq_teardown();
+extern uint32_t exception_vector[];
+extern void set_vbar_el3(uint64_t vec);
+extern void set_vbar_el1(uint64_t vec);
+extern void rebase_pc(uint64_t vec);
+extern void rebase_sp(uint64_t vec);
+extern uint64_t get_mmfr0(void);
+extern uint64_t get_migsts(void);
+extern uint64_t get_mpidr(void);
+extern void set_migsts(uint64_t val);
+extern void enable_mmu_el1(uint64_t ttbr, uint64_t tcr, uint64_t mair, uint64_t sctlr);
+extern void disable_mmu_el1();
+extern void enable_mmu_el3(uint64_t ttbr, uint64_t tcr, uint64_t mair);
+extern void disable_mmu_el3();
+extern void lowlevel_cleanup(void);
+extern void lowlevel_setup(uint64_t phys_off, uint64_t phys_size);
+extern void map_full_ram(uint64_t phys_off, uint64_t phys_size);
+#endif
 #endif

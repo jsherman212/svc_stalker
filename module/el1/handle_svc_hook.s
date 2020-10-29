@@ -1,9 +1,10 @@
     .globl _main
     .align 4
 
+#include "../common/stalker_cache.h"
+#include "../common/stalker_table.h"
+
 #include "handle_svc_hook.h"
-#include "stalker_cache.h"
-#include "stalker_table.h"
 
 ; I guess this no longer "literally" an inlined handle_svc hook since we're
 ; called from sleh_synchronous_hijacker... but we would have reached

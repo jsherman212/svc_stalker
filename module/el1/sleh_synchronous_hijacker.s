@@ -1,8 +1,9 @@
     .globl _main
     .align 4
 
+#include "../common/stalker_cache.h"
+
 #include "sleh_synchronous_hijacker.h"
-#include "stalker_cache.h"
 
 ; This will back up the original stack frame, call handle_svc_hook, and set LR
 ; to return_interceptor if the current exception is ESR_EC_SVC_64.

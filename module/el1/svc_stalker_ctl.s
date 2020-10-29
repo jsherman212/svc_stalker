@@ -1,8 +1,9 @@
     .globl _main
     .align 4
 
-#include "stalker_cache.h"
-#include "stalker_table.h"
+#include "../common/stalker_cache.h"
+#include "../common/stalker_table.h"
+
 #include "svc_stalker_ctl.h"
 
 ; This is the system call we replaced the first enosys sysent entry

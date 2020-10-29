@@ -172,8 +172,6 @@ int main(int argc, char **argv, const char **envp){
 
     usleep(200 * 1000);
 
-    /* err = pongo_send_command(pongo_device, "stalker-prep\n"); */
-    /* err = pongo_send_command(pongo_device, "playground\n"); */
     err = pongo_send_command(pongo_device, "stalker-getkernelv\n");
 
     if(err < 0){
@@ -186,7 +184,30 @@ int main(int argc, char **argv, const char **envp){
 
     usleep(800 * 1000);
 
+    /* err = pongo_send_command(pongo_device, "stalker-prep\n"); */
+    err = pongo_send_command(pongo_device, "stalker-prep2\n");
 
+    if(err < 0){
+        printf("pongo_send_command: %s\n", libusb_error_name(err));
+        libusb_release_interface(pongo_device, 0);
+        libusb_close(pongo_device);
+        libusb_exit(NULL);
+        return 1;
+    }
+
+    usleep(800 * 1000);
+
+    /* err = pongo_send_command(pongo_device, "stalker-patch-ss\n"); */
+
+    /* if(err < 0){ */
+    /*     printf("pongo_send_command: %s\n", libusb_error_name(err)); */
+    /*     libusb_release_interface(pongo_device, 0); */
+    /*     libusb_close(pongo_device); */
+    /*     libusb_exit(NULL); */
+    /*     return 1; */
+    /* } */
+
+    /* usleep(800 * 1000); */
 
     /* err = pongo_send_command(pongo_device, "bootx\n"); */
 

@@ -1,23 +1,25 @@
-CC=clang
-SDK=$(shell xcrun --sdk iphoneos --show-sdk-path)
-CFLAGS=-isysroot $(SDK) -arch arm64 -Xlinker -kext -nostdlib
-CFLAGS+=-Wno-string-plus-int -fno-stack-protector
+CC = clang
+SDK = $(shell xcrun --sdk iphoneos --show-sdk-path)
+CFLAGS = -isysroot $(SDK) -arch arm64 -Wno-string-plus-int -fno-stack-protector
+CFLAGS += -D_FORTIFY_SOURCE=0 -nostdlib
+LDFLAGS = -Xlinker -kext
 
-TARGET=svc_stalker
+export CC
+export CFLAGS
 
-SOURCES=svc_stalker.c
+TARGET_DIRS = common el1 pf
 
-$(TARGET) : $(SOURCES) handle_svc_hook.s handle_svc_hook.h \
-	svc_stalker_ctl.s svc_stalker_ctl.h \
-	hook_system_check_sysctlbyname_hook.s hook_system_check_sysctlbyname_hook.h \
-	common_functions.s \
-	sleh_synchronous_hijacker.s sleh_synchronous_hijacker.h \
-	return_interceptor.s return_interceptor.h
-	chmod +x ./hookgen.pl	# just in case
-	./hookgen.pl handle_svc_hook
-	./hookgen.pl svc_stalker_ctl
-	./hookgen.pl hook_system_check_sysctlbyname_hook
-	./hookgen.pl common_functions
-	./hookgen.pl sleh_synchronous_hijacker
-	./hookgen.pl return_interceptor
-	$(CC) $(CFLAGS) $(SOURCES) -o $(TARGET)
+all : $(TARGET_DIRS) svc_stalker
+
+.PHONY : target_dirs $(TARGET_DIRS)
+
+target_dirs : $(TARGET_DIRS)
+
+$(TARGET_DIRS) :
+	$(MAKE) -C $@
+
+OBJECT_FILES = $(shell find ./common ./pf -type f -name "*.o")
+
+svc_stalker : $(OBJECT_FILES) svc_stalker.c common/common.h \
+	pf/offsets.h pf/pfs.h
+	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJECT_FILES) svc_stalker.c -o svc_stalker

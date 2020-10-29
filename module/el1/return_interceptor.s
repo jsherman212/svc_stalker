@@ -1,8 +1,9 @@
     .globl _main
     .align 4
 
+#include "../common/stalker_cache.h"
+
 #include "return_interceptor.h"
-#include "stalker_cache.h"
 
 ; Intercept calls upon return
 

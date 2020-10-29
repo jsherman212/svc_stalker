@@ -76,5 +76,5 @@ if($function_starts_length > 0){
 printf(HEADER "#endif\n");
 
 # clean up
-# system("rm ./dis");
-# system("rm ./$ARGV[0]");
+system("rm ./dis");
+system("rm ./$ARGV[0]");
