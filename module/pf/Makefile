@@ -1,4 +1,4 @@
-TARGET_DIRS = 13 #14
+TARGET_DIRS = 13 14
 
 all : disas.o macho.o $(TARGET_DIRS)
 

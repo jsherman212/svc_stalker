@@ -118,9 +118,6 @@ bool proc_pid_finder_13(xnu_pf_patch_t *patch, void *cacheable_stream){
         opcode_stream++;
     }
 
-    /* int32_t imm26 = sign_extend((*opcode_stream & 0x3ffffff) << 2, 26); */
-    /* uint32_t *proc_pid = (uint32_t *)((intptr_t)opcode_stream + imm26); */
-
     uint32_t *proc_pid = get_branch_dst_ptr(*opcode_stream, opcode_stream);
 
     g_proc_pid_addr = xnu_ptr_to_va(proc_pid);
@@ -170,6 +167,8 @@ bool sysent_finder_13(xnu_pf_patch_t *patch, void *cacheable_stream){
         g_sysent_addr = addr_va;
 
         puts("svc_stalker: found sysent");
+        printf("%s: sysent @ %#llx, unslid=%#llx\n", __func__, g_sysent_addr,
+                g_sysent_addr - kernel_slide);
 
         return true;
     }

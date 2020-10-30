@@ -11,9 +11,9 @@ uint32_t bits(uint64_t, uint64_t, uint64_t);
 
 uint64_t get_add_imm(uint32_t);
 
-uint32_t get_adr_va_target(uint32_t *);
-uint32_t get_adrp_add_va_target(uint32_t *);
-uint32_t get_adrp_ldr_va_target(uint32_t *);
+uint64_t get_adr_va_target(uint32_t *);
+uint64_t get_adrp_add_va_target(uint32_t *);
+uint64_t get_adrp_ldr_va_target(uint32_t *);
 
 uint32_t *get_branch_dst_ptr(uint32_t, uint32_t *);
 
