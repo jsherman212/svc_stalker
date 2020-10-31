@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <sys/sysctl.h>
@@ -68,25 +69,25 @@ uint64_t g_unix_syscall_return_start_addr = 0;
 uint64_t g_unix_syscall_return_end_addr = 0;
 uint64_t g_lck_grp_alloc_init_addr = 0;
 uint64_t g_lck_rw_alloc_init_addr = 0;
-uint64_t g_current_proc_addr;
-uint64_t g_exception_triage_addr;
-uint64_t g_common_fxns_get_stalker_cache_addr;
-uint64_t g_stalker_ctl_from_table_addr;
-uint64_t g_should_intercept_call_addr;
-uint64_t g_get_next_free_stalker_ctl_addr;
-uint64_t g_is_sysctl_registered_addr;
-uint64_t g_send_exception_msg_addr;
-uint64_t g_get_flag_ptr_for_call_num_addr;
-uint64_t g_stalker_table_ptr;
-uint64_t g_svc_stalker_sysctl_name_ptr;
-uint64_t g_svc_stalker_sysctl_descr_ptr;
-uint64_t g_svc_stalker_sysctl_fmt_ptr;
-uint64_t g_svc_stalker_sysctl_mib_ptr;
-uint64_t g_svc_stalker_sysctl_mib_count_ptr;
-uint64_t g_handle_svc_hook_addr;
-uint64_t g_svc_stalker_ctl_callnum;
-uint64_t g_sleh_synchronous_addr;
-uint64_t g_return_interceptor_addr;
+uint64_t g_current_proc_addr = 0;
+uint64_t g_exception_triage_addr = 0;
+uint64_t g_common_fxns_get_stalker_cache_addr = 0;
+uint64_t g_stalker_ctl_from_table_addr = 0;
+uint64_t g_should_intercept_call_addr = 0;
+uint64_t g_get_next_free_stalker_ctl_addr = 0;
+uint64_t g_is_sysctl_registered_addr = 0;
+uint64_t g_send_exception_msg_addr = 0;
+uint64_t g_get_flag_ptr_for_call_num_addr = 0;
+uint64_t g_stalker_table_ptr = 0;
+uint64_t g_svc_stalker_sysctl_name_ptr = 0;
+uint64_t g_svc_stalker_sysctl_descr_ptr = 0;
+uint64_t g_svc_stalker_sysctl_fmt_ptr = 0;
+uint64_t g_svc_stalker_sysctl_mib_ptr = 0;
+uint64_t g_svc_stalker_sysctl_mib_count_ptr = 0;
+uint64_t g_handle_svc_hook_addr = 0;
+uint64_t g_svc_stalker_ctl_callnum = 0;
+uint64_t g_sleh_synchronous_addr = 0;
+uint64_t g_return_interceptor_addr = 0;
 
 /* this limit is safe */
 enum { g_max_ter_calls = 50 };
@@ -123,8 +124,6 @@ bool proc_pid_finder_13(xnu_pf_patch_t *patch, void *cacheable_stream){
     g_proc_pid_addr = xnu_ptr_to_va(proc_pid);
 
     puts("svc_stalker: found proc_pid");
-    printf("%s: proc_pid @ %#llx, unslid=%#llx\n", __func__, g_proc_pid_addr,
-            g_proc_pid_addr - kernel_slide);
 
     return true;
 }
@@ -167,8 +166,6 @@ bool sysent_finder_13(xnu_pf_patch_t *patch, void *cacheable_stream){
         g_sysent_addr = addr_va;
 
         puts("svc_stalker: found sysent");
-        printf("%s: sysent @ %#llx, unslid=%#llx\n", __func__, g_sysent_addr,
-                g_sysent_addr - kernel_slide);
 
         return true;
     }
@@ -199,6 +196,8 @@ bool kalloc_canblock_finder_13(xnu_pf_patch_t *patch, void *cacheable_stream){
     g_kalloc_canblock_addr = xnu_ptr_to_va(opcode_stream);
 
     puts("svc_stalker: found kalloc_canblock");
+    printf("%s: kalloc_canblock @ %#llx, unslid=%#llx\n", __func__,
+            g_kalloc_canblock_addr, g_kalloc_canblock_addr - kernel_slide);
 
     return true;
 }

@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stdlib.h>
 #include <stdbool.h>
 
 #include "common/common.h"
@@ -100,16 +101,114 @@ static void stalker_getkernelv(const char *cmd, char *args){
     xnu_pf_patchset_destroy(patchset);
 }
 
+#define MAXKEXTRANGE MAXPF
+
+struct kextrange {
+    xnu_pf_range_t *range;
+    char *kext;
+    char *seg;
+    char *sect;
+};
+
+/* static bool xnu_pf_range_eq(xnu_pf_range_t *left, xnu_pf_range_t *right){ */
+/*     return left->va == right->va && left->size == right->size; */
+/* } */
+
+/* purpose of this function is to add patchfinder ranges for kexts in such
+ * a way that there are no duplicates in `*ranges`
+ */
+static void add_kext_range(struct kextrange **ranges, const char *kext,
+        const char *seg, const char *sect, size_t *nkextranges_out){
+    size_t nkextranges = *nkextranges_out;
+
+    /* printf("kext %p seg %p sect %p nkextranges %zu\n", kext, seg, sect, nkextranges); */
+
+    if(nkextranges == MAXKEXTRANGE)
+        return;
+
+    /* first, check if this kext is already present */
+    for(size_t i=0; i<nkextranges; i++){
+        struct kextrange *kr = ranges[i];
+
+        /* printf("Looking at kextrange %zu\n", i); */
+
+        /* kext will never be NULL, otherwise, this function would have
+         * no point
+         */
+
+        if(strcmp(kr->kext, kext) == 0)
+            return;
+
+        if(seg && strcmp(kr->seg, seg) == 0)
+            return;
+
+        if(sect && strcmp(kr->sect, sect) == 0)
+            return;
+    }
+
+    /* new kext, make its range */
+    struct mach_header_64 *mh = xnu_pf_get_kext_header(mh_execute_header, kext);
+
+    if(!mh){
+        printf( "svc_stalker: could not\n"
+                "   get Mach header for\n"
+                "   %s\n", kext);
+
+        stalker_fatal_error();
+    }
+
+    struct kextrange *kr = malloc(sizeof(struct kextrange));
+    memset(kr, 0, sizeof(*kr));
+
+    if(sect)
+        kr->range = xnu_pf_section(mh, (void *)seg, (char *)sect);
+    else
+        kr->range = xnu_pf_segment(mh, (void *)seg);
+
+    size_t kextl = 0, segl = 0, sectl = 0;
+    
+    kextl = strlen(kext);
+
+    char *kn = malloc(kextl + 1);
+    strcpy(kn, kext);
+    kn[kextl] = '\0';
+    kr->kext = kn;
+
+    if(seg){
+        segl = strlen(seg);
+        char *segn = malloc(segl + 1);
+        strcpy(segn, seg);
+        segn[segl] = '\0';
+        kr->seg = segn;
+    }
+
+    if(sect){
+        sectl = strlen(sect);
+        char *sectn = malloc(sectl + 1);
+        strcpy(sectn, sect);
+        sectn[sectl] = '\0';
+        kr->sect = sectn;
+    }
+
+    /* printf("%s: ranges[%zu] = %p\n", __func__, nkextranges, kr); */
+    ranges[nkextranges] = kr;
+    
+    *nkextranges_out = nkextranges + 1;
+}
+
 static void stalker_prep2(const char *cmd, char *args){
     /* all the patchfinders in pf/pfs.h currently do 32 bit */
     xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
+
+    size_t nkextranges = 0;
+    struct kextrange **kextranges = malloc(sizeof(struct kextrange *) * MAXKEXTRANGE);
 
     for(int i=0; !PFS_END(g_all_pfs[i]); i++){
         struct pf *pf = &g_all_pfs[i][g_kern_version_major];
 
         printf("%s: chose '%s'\n", __func__, pf->pf_name);
 
-        xnu_pf_range_t *pf_range = NULL;
+        /* xnu_pf_range_t *pf_range = NULL; */
 
         const char *pf_kext = pf->pf_kext;
         const char *pf_segment = pf->pf_segment;
@@ -123,32 +222,27 @@ static void stalker_prep2(const char *cmd, char *args){
         /* if(pf_section) */
         /*     printf("section '%s'\n", pf_section); */
 
-        struct mach_header_64 *mh;
-
-        /* if no kext, we're dealing with the main kernel binary */
-        if(!pf_kext)
-            mh = mh_execute_header;
-        else
-            mh = xnu_pf_get_kext_header(mh_execute_header, pf_kext);
-
-        if(!mh){
-            printf( "svc_stalker: could not\n"
-                    "   get Mach header for\n"
-                    "   %s\n",
-                    pf_kext);
-
-            stalker_fatal_error();
+        if(pf_kext){
+            add_kext_range(kextranges, pf_kext, pf_segment, pf_section,
+                    &nkextranges);
         }
-
-        if(pf_section)
-            pf_range = xnu_pf_section(mh, (void *)pf_segment, (char *)pf_section);
-        else
-            pf_range = xnu_pf_segment(mh, (void *)pf_segment);
 
         xnu_pf_maskmatch(patchset, (char *)pf->pf_name, pf->pf_matches,
                 pf->pf_masks, pf->pf_mmcount, false, pf->pf_callback);
-        xnu_pf_emit(patchset);
-        xnu_pf_apply(pf_range, patchset);
+    }
+
+    /* printf("%s: nkextranges %zu\n", __func__, nkextranges); */
+
+    xnu_pf_emit(patchset);
+
+    xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
+    xnu_pf_apply(__TEXT_EXEC, patchset);
+
+    for(size_t i=0; i<nkextranges; i++){
+        /* printf("%s: kextrange %zu: '%s'\n", __func__, i, kextranges[i]->kext); */
+
+        xnu_pf_range_t *range = kextranges[i]->range;
+        xnu_pf_apply(range, patchset);
     }
 
     xnu_pf_patchset_destroy(patchset);

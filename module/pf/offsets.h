@@ -26,8 +26,6 @@ extern uint64_t g_kalloc_external_addr;
 extern uint64_t g_kfree_addr_addr;
 extern uint64_t g_kfree_ext_addr;
 
-/* extern uint64_t g_exec_scratch_space_addr; */
-/* extern uint64_t g_exec_scratch_space_size; */
 extern uint64_t g_sysctl__kern_children_addr;
 extern uint64_t g_sysctl_register_oid_addr;
 extern uint64_t g_sysctl_handle_long_addr;

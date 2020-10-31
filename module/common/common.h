@@ -3,7 +3,7 @@
 
 #include <mach-o/loader.h>
 
-int atoi(char *);
+int atoi(const char *);
 int isdigit(int);
 
 char *strcpy(char *, const char *);
