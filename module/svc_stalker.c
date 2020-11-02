@@ -206,7 +206,10 @@ static void stalker_prep2(const char *cmd, char *args){
     for(int i=0; !PFS_END(g_all_pfs[i]); i++){
         struct pf *pf = &g_all_pfs[i][g_kern_version_major];
 
-        printf("%s: chose '%s'\n", __func__, pf->pf_name);
+        if(IS_PF_UNUSED(pf))
+            continue;
+
+        /* printf("%s: chose '%s'\n", __func__, pf->pf_name); */
 
         /* xnu_pf_range_t *pf_range = NULL; */
 

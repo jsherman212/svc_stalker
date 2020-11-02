@@ -10,6 +10,7 @@
 #define NUM_SUPPORTED_VERSIONS      (2)
 
 #define PFS_END(x) (x[0].pf_unused == 0x41 && x[1].pf_unused == 0x41)
+#define IS_PF_UNUSED(x) (x->pf_unused == 1)
 
 /* Format:
  *
@@ -134,6 +135,159 @@ struct pf g_all_pfs[MAXPF][NUM_SUPPORTED_VERSIONS] = {
                 0xff00001f,     /* ignore immediate */
             }),
             4, kfree_ext_finder_14, "__TEXT_EXEC"),
+    },
+    {
+        /* iOS 13 patchfinder works fine on iOS 14 */
+        PF_DECL32("mach_syscall patcher iOS 13",
+            LISTIZE({
+                0xb9400000,     /* ldr Wn, [x0] */
+                0x7100501f,     /* cmp Wn, 0x14 */
+                0x54000001,     /* b.ne n */
+                0xb9403a60,     /* ldr Wn, [x19, 0x38] */
+            }),
+            LISTIZE({
+                0xffffffe0,     /* ignore Wn */
+                0xfffffc1f,     /* ignore Wn */
+                0xff00001f,     /* ignore immediate */
+                0xffffffe0,     /* ignore Wn */
+            }),
+            4, mach_syscall_patcher_13, "__TEXT_EXEC"),
+        PF_DECL32("mach_syscall patcher iOS 14",
+            LISTIZE({
+                0xb9400000,     /* ldr Wn, [x0] */
+                0x7100501f,     /* cmp Wn, 0x14 */
+                0x54000001,     /* b.ne n */
+                0xb9403a60,     /* ldr Wn, [x19, 0x38] */
+            }),
+            LISTIZE({
+                0xffffffe0,     /* ignore Wn */
+                0xfffffc1f,     /* ignore Wn */
+                0xff00001f,     /* ignore immediate */
+                0xffffffe0,     /* ignore Wn */
+            }),
+            4, mach_syscall_patcher_13, "__TEXT_EXEC"),
+    },
+    {
+        PF_DECL32("Unused executable code finder iOS 13",
+            LISTIZE({
+                0xd538d092,     /* mrs x18, tpidr_el1 */
+                0xf9400252,     /* ldr x18, [x18, n] */
+                0xf9400252,     /* ldr x18, [x18, n] */
+                0xf9400252,     /* ldr x18, [x18] */
+                0xd61f0240,     /* br x18 */
+            }),
+            LISTIZE({
+                0xffffffff,     /* match exactly */
+                0xffc003ff,     /* match all but immediate */
+                0xffc003ff,     /* match all but immediate */
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+            }),
+            5, ExceptionVectorsBase_finder_13, "__TEXT_EXEC"),
+        PF_DECL32("Unused executable code finder iOS 14",
+            LISTIZE({
+                0xd538d092,     /* mrs x18, tpidr_el1 */
+                0xf9400252,     /* ldr x18, [x18, n] */
+                0xf9400252,     /* ldr x18, [x18, n] */
+                0xf9400252,     /* ldr x18, [x18] */
+                0xd61f0240,     /* br x18 */
+            }),
+            LISTIZE({
+                0xffffffff,     /* match exactly */
+                0xffc003ff,     /* match all but immediate */
+                0xffc003ff,     /* match all but immediate */
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+            }),
+            5, ExceptionVectorsBase_finder_14, "__TEXT_EXEC"),
+    },
+    {
+        PF_DECL32("sysctl__kern_children finder iOS 13",
+            LISTIZE({
+                0x10000013,     /* ADRP X19, n or ADR X19, n */
+                0x0,            /* ignore this instruction */
+                0x10000014,     /* ADRP X20, n or ADR X20, n */
+                0x0,            /* ignore this instruction */
+                0x10000015,     /* ADRP X21, n or ADR X21, n */
+                0x0,            /* ignore this instruction */
+                0x10000016,     /* ADRP X22, n or ADR X22, n */
+                0x0,            /* ignore this instruction */
+            }),
+            LISTIZE({
+                0x1f00001f,     /* ignore immediate */
+                0x0,            /* ignore this instruction */
+                0x1f00001f,     /* ignore immediate */
+                0x0,            /* ignore this instruction */
+                0x1f00001f,     /* ignore immediate */
+                0x0,            /* ignore this instruction */
+                0x1f00001f,     /* ignore immediate */
+                0x0,            /* ignore this instruction */
+            }),
+            8, sysctl__kern_children_finder_13, "__TEXT_EXEC"),
+        PF_DECL32("sysctl__kern_children & sysctl_register_oid finder iOS 14",
+            LISTIZE({
+                0x9e670260,     /* fmov d0, x19 */
+                0x0e205800,     /* cnt v0.8b, v0.8b */
+                0x2e303800,     /* uaddlv h0, v0.8b */
+                0x1e260008,     /* fmov w8, s0 */
+                0x7100827f,     /* cmp w19, 0x20 */
+            }),
+            LISTIZE({
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+            }),
+            5, sysctl__kern_children_and_register_oid_finder_14, "__TEXT_EXEC"),
+    },
+    {
+        PF_DECL_FULL("hook_system_check_sysctlbyname finder iOS 13",
+            LISTIZE({
+                0x7100101f,     /* cmp wn, 4 */
+                0x54000003,     /* b.cc n */
+                0xb9400000,     /* ldr wn, [xn] */
+                0x7100041f,     /* cmp wn, 1 */
+                0x54000001,     /* b.ne n */
+                0xb9400400,     /* ldr wn, [xn, 4] */
+                0x7100381f,     /* cmp wn, 0xe */
+                0x54000001,     /* b.ne n */
+            }),
+            LISTIZE({
+                0xfffffc1f,     /* ignore Rn */
+                0xff00001f,     /* ignore immediate */
+                0xfffffc00,     /* ignore Rn and Rt */
+                0xfffffc1f,     /* ignore Rn */
+                0xff00001f,     /* ignore immediate */
+                0xfffffc00,     /* ignore Rn and Rt */
+                0xfffffc1f,     /* ignore Rn */
+                0xff00001f,     /* ignore immediate */
+            }),
+            8, XNU_PF_ACCESS_32BIT, hook_system_check_sysctlbyname_finder_13,
+            "com.apple.security.sandbox", "__TEXT_EXEC", NULL),
+        PF_DECL_FULL("hook_system_check_sysctlbyname finder iOS 14",
+            LISTIZE({
+                0xf100101f,     /* cmp xn, 4 */
+                0x54000003,     /* b.cc n */
+                0xb9400000,     /* ldr wn, [xn] */
+                0x7100041f,     /* cmp wn, 1 */
+                0x54000001,     /* b.ne n */
+                0xb9400400,     /* ldr wn, [xn, 4] */
+                0x7100381f,     /* cmp wn, 0xe */
+                0x54000001,     /* b.ne n */
+            }),
+            LISTIZE({
+                0xfffffc1f,     /* ignore Rn */
+                0xff00001f,     /* ignore immediate */
+                0xfffffc00,     /* ignore Rn and Rt */
+                0xfffffc1f,     /* ignore Rn */
+                0xff00001f,     /* ignore immediate */
+                0xfffffc00,     /* ignore Rn and Rt */
+                0xfffffc1f,     /* ignore Rn */
+                0xff00001f,     /* ignore immediate */
+            }),
+            8, XNU_PF_ACCESS_32BIT, hook_system_check_sysctlbyname_finder_13,
+            "com.apple.security.sandbox", "__TEXT_EXEC", NULL),
     },
     { PF_END, PF_END },
 };

@@ -97,9 +97,9 @@ static uint32_t *g_unix_syscall_return_ter_calls[g_max_ter_calls];
 
 static bool g_patched_mach_syscall = false;
 
-static uint64_t g_exec_scratch_space_addr = 0;
+uint64_t g_exec_scratch_space_addr = 0;
 /* don't count the first opcode */
-static uint64_t g_exec_scratch_space_size = -sizeof(uint32_t);
+uint64_t g_exec_scratch_space_size = -sizeof(uint32_t);
 
 /* confirmed working on all kernels 13.0-13.7 */
 bool proc_pid_finder_13(xnu_pf_patch_t *patch, void *cacheable_stream){
@@ -196,8 +196,6 @@ bool kalloc_canblock_finder_13(xnu_pf_patch_t *patch, void *cacheable_stream){
     g_kalloc_canblock_addr = xnu_ptr_to_va(opcode_stream);
 
     puts("svc_stalker: found kalloc_canblock");
-    printf("%s: kalloc_canblock @ %#llx, unslid=%#llx\n", __func__,
-            g_kalloc_canblock_addr, g_kalloc_canblock_addr - kernel_slide);
 
     return true;
 }
@@ -560,6 +558,9 @@ bool hook_system_check_sysctlbyname_finder_13(xnu_pf_patch_t *patch,
 
     xnu_pf_disable_patch(patch);
 
+    printf("%s: here! @ %#llx\n", __func__,
+            xnu_ptr_to_va(opcode_stream) - kernel_slide);
+
     /* we've landed inside hook_system_check_sysctlbyname, find the first
      * instruction after its prologue and the beginning of its epilogue
      *
@@ -599,6 +600,10 @@ bool hook_system_check_sysctlbyname_finder_13(xnu_pf_patch_t *patch,
     g_h_s_c_sbn_epilogue_addr = xnu_ptr_to_va(opcode_stream);
 
     puts("svc_stalker: found h_s_c_sbn epilogue");
+
+    printf("%s: branch @ %#llx epilogue @ %#llx\n", __func__,
+            g_h_s_c_sbn_branch_addr - kernel_slide,
+            g_h_s_c_sbn_epilogue_addr - kernel_slide);
 
     return true;
 }

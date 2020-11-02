@@ -4,8 +4,8 @@
 extern uint64_t *stalker_cache_base;
 extern uint64_t *stalker_cache_cursor;
 
-/* This file contains everything which will be written to the stalker
- * cache. Order in the stalker cache is the order in this file.
+/* This file contains offsets which will be written to the stalker cache
+ * as well as offsets needed before XNU boots.
  *
  * Offsets that are not present for a given iOS version are not written
  * to the stalker cache.
@@ -71,5 +71,9 @@ extern uint64_t g_sleh_synchronous_addr;
 extern uint64_t g_return_interceptor_addr;
 
 /* stalker lock and current call ID are initialized inside of module/el1/ */
+
+/* START offsets not added to stalker cache */
+extern uint64_t g_exec_scratch_space_addr;
+extern uint64_t g_exec_scratch_space_size;
 
 #endif
