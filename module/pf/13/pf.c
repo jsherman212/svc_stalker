@@ -501,6 +501,9 @@ bool sysctl_handle_long_finder_13(xnu_pf_patch_t *patch,
 
     puts("svc_stalker: found sysctl_handle_long");
 
+    printf("%s: sysctl_handle_long @ %#llx\n", __func__,
+            g_sysctl_handle_long_addr - kernel_slide);
+
     return true;
 }
 
@@ -509,15 +512,25 @@ bool name2oid_and_its_dependencies_finder_13(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
 
-    xnu_pf_disable_patch(patch);
 
     /* This finds name2oid and three other things:
      *      sysctl_geometry_lock (needs to be held when we call name2oid)
      *      lck_rw_lock_shared
      *      lck_rw_done
      *
-     * We're guarenteed to have landed in sysctl_sysctl_name2oid.
+     * I can only do a maskmatch with 8 matches/masks, but I need 10.
+     * Those last two matches differentiate the right/wrong place because
+     * the first 8 matches/masks match two places in the kernel. I'll just
+     * manually check if the two instrs after the 8 we just matched are LDR/BL
      */
+    uint32_t eigth = opcode_stream[8];
+    uint32_t ninth = opcode_stream[9];
+
+    if((eigth & 0xffc0001f) != 0xf9400000 && (ninth & 0xfc000000) != 0x94000000)
+        return false;
+
+    xnu_pf_disable_patch(patch);
+
     g_sysctl_geometry_lock_addr = get_adrp_ldr_va_target(opcode_stream);
 
     /* int32_t imm26 = sign_extend((opcode_stream[2] & 0x3ffffff) << 2, 26); */
@@ -547,6 +560,13 @@ bool name2oid_and_its_dependencies_finder_13(xnu_pf_patch_t *patch,
     puts("svc_stalker: found lck_rw_lock_shared");
     puts("svc_stalker: found name2oid");
     puts("svc_stalker: found lck_rw_done");
+
+    printf("%s: geometry lock @ %#llx lck_rw_lock_shared @ %#llx"
+            " name2oid @ %#llx lck_rw_done @ %#llx\n", __func__,
+            g_sysctl_geometry_lock_addr - kernel_slide,
+            g_lck_rw_lock_shared_addr - kernel_slide,
+            g_name2oid_addr - kernel_slide,
+            g_lck_rw_done_addr - kernel_slide);
 
     return true;
 }

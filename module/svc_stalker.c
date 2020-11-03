@@ -135,10 +135,13 @@ static void add_kext_range(struct kextrange **ranges, const char *kext,
         /* kext will never be NULL, otherwise, this function would have
          * no point
          */
+        if(strcmp(kr->kext, kext) == 0){
+            /* same segment? It will be the same range even if the section differs */
+            if(seg && strcmp(kr->seg, seg) == 0)
+                return;
 
-        if(strcmp(kr->kext, kext) == 0 && (seg && strcmp(kr->seg, seg) == 0) &&
-                (sect && strcmp(kr->sect, sect) == 0)){
-            return;
+            if(sect && strcmp(kr->sect, sect) == 0)
+                return;
         }
     }
 

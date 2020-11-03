@@ -144,8 +144,24 @@ bool lck_grp_alloc_init_finder_14(xnu_pf_patch_t *patch,
 
     puts("svc_stalker: found lck_grp_alloc_init");
 
-    printf("%s: lck_grp_alloc_init @ %#llx\n", __func__,
-            g_lck_grp_alloc_init_addr - kernel_slide);
+    return true;
+}
+
+bool lck_rw_alloc_init_finder_14(xnu_pf_patch_t *patch,
+        void *cacheable_stream){
+    xnu_pf_disable_patch(patch);
+    
+    uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
+
+    uint32_t *lck_rw_alloc_init = get_branch_dst_ptr(*opcode_stream,
+            opcode_stream);
+
+    g_lck_rw_alloc_init_addr = xnu_ptr_to_va(lck_rw_alloc_init);
+
+    puts("svc_stalker: found lck_rw_alloc_init");
+
+    printf("%s: lck_rw_alloc_init @ %#llx\n", __func__,
+            g_lck_rw_alloc_init_addr - kernel_slide);
 
     return true;
 }
