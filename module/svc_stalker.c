@@ -136,14 +136,10 @@ static void add_kext_range(struct kextrange **ranges, const char *kext,
          * no point
          */
 
-        if(strcmp(kr->kext, kext) == 0)
+        if(strcmp(kr->kext, kext) == 0 && (seg && strcmp(kr->seg, seg) == 0) &&
+                (sect && strcmp(kr->sect, sect) == 0)){
             return;
-
-        if(seg && strcmp(kr->seg, seg) == 0)
-            return;
-
-        if(sect && strcmp(kr->sect, sect) == 0)
-            return;
+        }
     }
 
     /* new kext, make its range */
@@ -242,7 +238,7 @@ static void stalker_prep2(const char *cmd, char *args){
     xnu_pf_apply(__TEXT_EXEC, patchset);
 
     for(size_t i=0; i<nkextranges; i++){
-        /* printf("%s: kextrange %zu: '%s'\n", __func__, i, kextranges[i]->kext); */
+        printf("%s: kextrange %zu: '%s'\n", __func__, i, kextranges[i]->kext);
 
         xnu_pf_range_t *range = kextranges[i]->range;
         xnu_pf_apply(range, patchset);

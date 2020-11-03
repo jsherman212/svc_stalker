@@ -558,9 +558,6 @@ bool hook_system_check_sysctlbyname_finder_13(xnu_pf_patch_t *patch,
 
     xnu_pf_disable_patch(patch);
 
-    printf("%s: here! @ %#llx\n", __func__,
-            xnu_ptr_to_va(opcode_stream) - kernel_slide);
-
     /* we've landed inside hook_system_check_sysctlbyname, find the first
      * instruction after its prologue and the beginning of its epilogue
      *
@@ -600,10 +597,6 @@ bool hook_system_check_sysctlbyname_finder_13(xnu_pf_patch_t *patch,
     g_h_s_c_sbn_epilogue_addr = xnu_ptr_to_va(opcode_stream);
 
     puts("svc_stalker: found h_s_c_sbn epilogue");
-
-    printf("%s: branch @ %#llx epilogue @ %#llx\n", __func__,
-            g_h_s_c_sbn_branch_addr - kernel_slide,
-            g_h_s_c_sbn_epilogue_addr - kernel_slide);
 
     return true;
 }

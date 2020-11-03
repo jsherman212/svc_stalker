@@ -289,6 +289,42 @@ struct pf g_all_pfs[MAXPF][NUM_SUPPORTED_VERSIONS] = {
             8, XNU_PF_ACCESS_32BIT, hook_system_check_sysctlbyname_finder_13,
             "com.apple.security.sandbox", "__TEXT_EXEC", NULL),
     },
+    {
+        PF_DECL_FULL("lck_grp_alloc_init finder iOS 13",
+            LISTIZE({
+                0xf9400260,     /* ldr x0, [x19] */
+                0xf9400281,     /* ldr x1, [x20, n] */
+                0x94000000,     /* bl n */
+            }),
+            LISTIZE({
+                0xffffffff,     /* match exactly */
+                0xffc003ff,     /* ignore immediate */
+                0xfc000000,     /* ignore immediate */
+            }),
+            3, XNU_PF_ACCESS_32BIT, lck_grp_alloc_init_finder_13,
+            "com.apple.security.sandbox", "__TEXT_EXEC", NULL),
+        PF_DECL_FULL("hook_system_check_sysctlbyname finder iOS 14",
+            LISTIZE({
+                0x910063e3,     /* add x3, sp, 0x18 */
+                0x910023e5,     /* add x5, sp, 0x8 */
+                0xaa1303e0,     /* mov x0, x19 */
+                0x52800802,     /* mov w2, 0x40 */
+                0x52800104,     /* mov w4, 0x8 */
+                0xd2800006,     /* mov x6, 0 */
+                0xd2800007,     /* mov x7, 0 */
+            }),
+            LISTIZE({
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+            }),
+            7, XNU_PF_ACCESS_32BIT, lck_grp_alloc_init_finder_14,
+            "com.apple.kec.corecrypto", "__TEXT_EXEC", NULL),
+    },
     { PF_END, PF_END },
 };
 

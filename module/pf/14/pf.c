@@ -12,6 +12,8 @@ uint64_t g_kalloc_external_addr = 0;
 uint64_t g_kfree_ext_addr = 0;
 
 bool kalloc_external_finder_14(xnu_pf_patch_t *patch, void *cacheable_stream){
+    xnu_pf_disable_patch(patch);
+
     uint32_t *opcode_stream = cacheable_stream;
 
     /* we've landed inside kalloc_external, find its prologue
@@ -35,6 +37,8 @@ bool kalloc_external_finder_14(xnu_pf_patch_t *patch, void *cacheable_stream){
 }
 
 bool kfree_ext_finder_14(xnu_pf_patch_t *patch, void *cacheable_stream){
+    xnu_pf_disable_patch(patch);
+
     uint32_t *opcode_stream = cacheable_stream;
 
     /* we've landed inside kfree_ext, find its prologue
@@ -59,6 +63,8 @@ bool kfree_ext_finder_14(xnu_pf_patch_t *patch, void *cacheable_stream){
 
 bool ExceptionVectorsBase_finder_14(xnu_pf_patch_t *patch,
         void *cacheable_stream){
+    xnu_pf_disable_patch(patch);
+
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
     uint32_t limit = PAGE_SIZE / sizeof(uint32_t);
 
@@ -95,6 +101,8 @@ bool ExceptionVectorsBase_finder_14(xnu_pf_patch_t *patch,
 
 bool sysctl__kern_children_and_register_oid_finder_14(xnu_pf_patch_t *patch,
         void *cacheable_stream){
+    xnu_pf_disable_patch(patch);
+
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
 
     /* we've landed in entropy_buffer_init
@@ -117,12 +125,27 @@ bool sysctl__kern_children_and_register_oid_finder_14(xnu_pf_patch_t *patch,
 
     g_sysctl_register_oid_addr = xnu_ptr_to_va(sysctl_register_oid);
 
-    printf("%s: sysctl__kern_children @ %#llx sysctl_register_oid @ %#llx\n",
-            __func__, g_sysctl__kern_children_addr - kernel_slide,
-            g_sysctl_register_oid_addr - kernel_slide);
-
     puts("svc_stalker: found sysctl__kern_children");
     puts("svc_stalker: found sysctl_register_oid");
+
+    return true;
+}
+
+bool lck_grp_alloc_init_finder_14(xnu_pf_patch_t *patch,
+        void *cacheable_stream){
+    xnu_pf_disable_patch(patch);
+
+    uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
+
+    uint32_t *lck_grp_alloc_init = get_branch_dst_ptr(opcode_stream[15],
+            opcode_stream + 15);
+
+    g_lck_grp_alloc_init_addr = xnu_ptr_to_va(lck_grp_alloc_init);
+
+    puts("svc_stalker: found lck_grp_alloc_init");
+
+    printf("%s: lck_grp_alloc_init @ %#llx\n", __func__,
+            g_lck_grp_alloc_init_addr - kernel_slide);
 
     return true;
 }
