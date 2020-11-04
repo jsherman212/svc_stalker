@@ -160,8 +160,5 @@ bool lck_rw_alloc_init_finder_14(xnu_pf_patch_t *patch,
 
     puts("svc_stalker: found lck_rw_alloc_init");
 
-    printf("%s: lck_rw_alloc_init @ %#llx\n", __func__,
-            g_lck_rw_alloc_init_addr - kernel_slide);
-
     return true;
 }

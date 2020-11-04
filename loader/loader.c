@@ -184,8 +184,7 @@ int main(int argc, char **argv, const char **envp){
 
     usleep(800 * 1000);
 
-    /* err = pongo_send_command(pongo_device, "stalker-prep\n"); */
-    err = pongo_send_command(pongo_device, "stalker-prep2\n");
+    err = pongo_send_command(pongo_device, "stalker-prep\n");
 
     if(err < 0){
         printf("pongo_send_command: %s\n", libusb_error_name(err));

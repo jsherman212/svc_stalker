@@ -501,9 +501,6 @@ bool sysctl_handle_long_finder_13(xnu_pf_patch_t *patch,
 
     puts("svc_stalker: found sysctl_handle_long");
 
-    printf("%s: sysctl_handle_long @ %#llx\n", __func__,
-            g_sysctl_handle_long_addr - kernel_slide);
-
     return true;
 }
 
@@ -560,13 +557,6 @@ bool name2oid_and_its_dependencies_finder_13(xnu_pf_patch_t *patch,
     puts("svc_stalker: found lck_rw_lock_shared");
     puts("svc_stalker: found name2oid");
     puts("svc_stalker: found lck_rw_done");
-
-    printf("%s: geometry lock @ %#llx lck_rw_lock_shared @ %#llx"
-            " name2oid @ %#llx lck_rw_done @ %#llx\n", __func__,
-            g_sysctl_geometry_lock_addr - kernel_slide,
-            g_lck_rw_lock_shared_addr - kernel_slide,
-            g_name2oid_addr - kernel_slide,
-            g_lck_rw_done_addr - kernel_slide);
 
     return true;
 }
@@ -633,7 +623,11 @@ bool thread_exception_return_finder_13(xnu_pf_patch_t *patch,
 
     g_offsetof_act_context = get_add_imm(add_x21_x0_n);
 
-    puts("svc_stalker: found thread_exception_return");
+    if(g_kern_version_major == iOS_13)
+        puts("svc_stalker: found thread_exception_return");
+    else
+        puts("svc_stalker: found arm64_thread_exception_return");
+
     puts("svc_stalker: found offsetof ACT_CONTEXT");
 
     return true;

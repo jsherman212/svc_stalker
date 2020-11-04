@@ -242,6 +242,27 @@ struct pf g_all_pfs[MAXPF][NUM_SUPPORTED_VERSIONS] = {
             5, sysctl__kern_children_and_register_oid_finder_14, "__TEXT_EXEC"),
     },
     {
+        PF_DECL32("sysctl_register_oid finder iOS 13",
+            LISTIZE({
+                0xb4000013,     /* cbz x19, n */
+                0xf9000013,     /* str x19, [xn, n] */
+                0x91002000,     /* add xn, xn, 8 */
+                0xf9000260,     /* str xn, [x19, n] */
+                0xf9400000,     /* ldr x0, [xn, n] */
+                0x94000000,     /* bl n (_sysctl_register_oid) */
+            }),
+            LISTIZE({
+                0xff00001f,     /* ignore immediate */
+                0xffc0001f,     /* ignore all but Rt */
+                0xfffffc00,     /* only match immediate */
+                0xffc003e0,     /* ignore immediate and Rt */
+                0xffc0001f,     /* ignore all but Rt */
+                0xfc000000,     /* ignore immediate */
+            }),
+            6, sysctl_register_oid_finder_13, "__TEXT_EXEC"),
+        PF_UNUSED,
+    },
+    {
         PF_DECL_FULL("hook_system_check_sysctlbyname finder iOS 13",
             LISTIZE({
                 0x7100101f,     /* cmp wn, 4 */
@@ -486,6 +507,142 @@ struct pf g_all_pfs[MAXPF][NUM_SUPPORTED_VERSIONS] = {
                 0x0,            /* ignore this instruction */
             }),
             8, name2oid_and_its_dependencies_finder_13, "__TEXT_EXEC"),
+    },
+    {
+        PF_DECL32("thread_exception_return finder iOS 13",
+            LISTIZE({
+                0xd538d080,     /* mrs x0, tpidr_el1 */
+                0x91000015,     /* add x21, x0, n */
+                0xf94002b5,     /* ldr x21, [x21] */
+            }),
+            LISTIZE({
+                0xffffffff,     /* match exactly */
+                0xffc003ff,     /* ignore immediate */
+                0xffffffff,     /* match exactly */
+            }),
+            3, thread_exception_return_finder_13, "__TEXT_EXEC"),
+        PF_DECL32("sysent finder iOS 14",
+            LISTIZE({
+                0xd538d080,     /* mrs x0, tpidr_el1 */
+                0x91000015,     /* add x21, x0, n */
+                0xf94002b5,     /* ldr x21, [x21] */
+            }),
+            LISTIZE({
+                0xffffffff,     /* match exactly */
+                0xffc003ff,     /* ignore immediate */
+                0xffffffff,     /* match exactly */
+            }),
+            3, thread_exception_return_finder_13, "__TEXT_EXEC"),
+    },
+    {
+        PF_DECL32("unix_syscall_return scanner iOS 13",
+            LISTIZE({
+                0xd538d096,     /* mrs x22, TPIDR_EL1 */
+                0x94000000,     /* bl n */
+                0xaa0003f4,     /* mov x20, x0 */
+                0xf94002d5,     /* ldr x21, [x22, n] */
+                0xf94002c1,     /* ldr x1, [x22, n] */
+            }),
+            LISTIZE({
+                0xffffffff,     /* match exactly */
+                0xfc000000,     /* ignore immediate */
+                0xffffffff,     /* match exactly */
+                0xffc003ff,     /* ignore immediate */
+                0xffc003ff,     /* ignore immediate */
+            }),
+            5, unix_syscall_return_scanner_13, "__TEXT_EXEC"),
+        PF_DECL32("unix_syscall_return scanner iOS 14",
+            LISTIZE({
+                0xd538d096,     /* mrs x22, TPIDR_EL1 */
+                0x94000000,     /* bl n */
+                0xaa0003f4,     /* mov x20, x0 */
+                0xf94002d5,     /* ldr x21, [x22, n] */
+                0xf94002c1,     /* ldr x1, [x22, n] */
+            }),
+            LISTIZE({
+                0xffffffff,     /* match exactly */
+                0xfc000000,     /* ignore immediate */
+                0xffffffff,     /* match exactly */
+                0xffc003ff,     /* ignore immediate */
+                0xffc003ff,     /* ignore immediate */
+            }),
+            5, unix_syscall_return_scanner_13, "__TEXT_EXEC"),
+    },
+    {
+        PF_DECL32("thread_syscall_return scanner iOS 13",
+            LISTIZE({
+                0xa9bf7bfd,     /* stp x29, x30, [sp, -0x10]! */
+                0x910003fd,     /* mov x29, sp */
+                0xd538d088,     /* mrs x8, TPIDR_EL1 */
+                0xf9400109,     /* ldr x9, [x8, n] */
+                0x93407c08,     /* sxtw x8, w0 */
+                0xf9000528,     /* str x8, [x9, #0x8] */
+            }),
+            LISTIZE({
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+                0xffc003ff,     /* ignore immediate */
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+            }),
+            6, thread_syscall_return_scanner_13, "__TEXT_EXEC"),
+        PF_DECL32("thread_syscall_return scanner iOS 14",
+            LISTIZE({
+                0xa9bf7bfd,     /* stp x29, x30, [sp, -0x10]! */
+                0x910003fd,     /* mov x29, sp */
+                0xd538d088,     /* mrs x8, TPIDR_EL1 */
+                0xf9400109,     /* ldr x9, [x8, n] */
+                0x93407c08,     /* sxtw x8, w0 */
+                0xf9000528,     /* str x8, [x9, #0x8] */
+            }),
+            LISTIZE({
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+                0xffc003ff,     /* ignore immediate */
+                0xffffffff,     /* match exactly */
+                0xffffffff,     /* match exactly */
+            }),
+            6, thread_syscall_return_scanner_13, "__TEXT_EXEC"),
+    },
+    {
+        PF_DECL32("platform_syscall scanner iOS 13",
+            LISTIZE({
+                0xd538d080,     /* mrs x0, TPIDR_EL1 */
+                0x94000000,     /* bl n */
+                0x94000000,     /* bl n */
+                0xf9000408,     /* str x8, [x0, #8] */
+                0x94000000,     /* bl n */
+                0xa940d013,     /* ldp x19, x20, [x0, #8] */
+            }),
+            LISTIZE({
+                0xffffffff,     /* match exactly */
+                0xfc000000,     /* ignore immediate */
+                0xfc000000,     /* ignore immediate */
+                0xffffffff,     /* match exactly */
+                0xfc000000,     /* ignore immediate */
+                0xffffffff,     /* match exactly */
+            }),
+            6, platform_syscall_scanner_13, "__TEXT_EXEC"),
+        PF_DECL32("platform_syscall scanner iOS 13",
+            LISTIZE({
+                0xd538d080,     /* mrs x0, TPIDR_EL1 */
+                0x94000000,     /* bl n */
+                0x94000000,     /* bl n */
+                0xf9000408,     /* str x8, [x0, #8] */
+                0x94000000,     /* bl n */
+                0xa940d013,     /* ldp x19, x20, [x0, #8] */
+            }),
+            LISTIZE({
+                0xffffffff,     /* match exactly */
+                0xfc000000,     /* ignore immediate */
+                0xfc000000,     /* ignore immediate */
+                0xffffffff,     /* match exactly */
+                0xfc000000,     /* ignore immediate */
+                0xffffffff,     /* match exactly */
+            }),
+            6, platform_syscall_scanner_13, "__TEXT_EXEC"),
     },
     { PF_END, PF_END },
 };
