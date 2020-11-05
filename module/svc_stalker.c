@@ -49,9 +49,9 @@ static bool getkernelv_callback(xnu_pf_patch_t *patch, void *cacheable_stream){
     g_kern_version_minor = atoi(minor_s);
     g_kern_version_revision = atoi(revision_s);
 
-    if(g_kern_version_major == 19)
+    if(g_kern_version_major == iOS_13_x)
         printf("svc_stalker: iOS 13.x detected\n");
-    else if(g_kern_version_major == 20)
+    else if(g_kern_version_major == iOS_14_x)
         printf("svc_stalker: iOS 14.x detected\n");
     else{
         printf("svc_stalker: error: unknown\n"
@@ -60,9 +60,6 @@ static bool getkernelv_callback(xnu_pf_patch_t *patch, void *cacheable_stream){
 
         stalker_fatal_error();
     }
-
-    /* so we can use this to index into g_all_pfs */
-    g_kern_version_major -= 19;
 
     return true;
 }
@@ -193,7 +190,7 @@ static void stalker_prep(const char *cmd, char *args){
     struct kextrange **kextranges = malloc(sizeof(struct kextrange *) * MAXKEXTRANGE);
 
     for(int i=0; !PFS_END(g_all_pfs[i]); i++){
-        struct pf *pf = &g_all_pfs[i][g_kern_version_major];
+        struct pf *pf = &g_all_pfs[i][g_kern_version_major - VERSION_BIAS];
 
         if(IS_PF_UNUSED(pf))
             continue;
@@ -230,7 +227,8 @@ static void stalker_patch_ss(const char *cmd, char *args){
     /* get the last patchfinder, which will be the one which
      * patches sleh_synchronous
      */
-    struct pf *stalker_main_patcher = &stalker_main_patcher_pf[g_kern_version_major];
+    struct pf *stalker_main_patcher =
+        &stalker_main_patcher_pf[g_kern_version_major - VERSION_BIAS];
 
     xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
 
@@ -247,14 +245,11 @@ static void (*next_preboot_hook)(void);
 static void stalker_preboot_hook(void){
     /* write all offsets to stalker cache and boot */
 
-    printf("%s: stalker cache = %p va %#llx\n", __func__, stalker_cache_base,
-            xnu_ptr_to_va(stalker_cache_base));
-
     uint64_t *cursor = stalker_cache_base;
 
     STALKER_CACHE_WRITE(cursor, g_proc_pid_addr);
 
-    if(g_kern_version_major == iOS_13){
+    if(g_kern_version_major == iOS_13_x){
         STALKER_CACHE_WRITE(cursor, g_kalloc_canblock_addr);
         STALKER_CACHE_WRITE(cursor, g_kfree_addr_addr);
     }
@@ -301,6 +296,7 @@ static void stalker_preboot_hook(void){
     STALKER_CACHE_WRITE(cursor, g_handle_svc_hook_addr);
     STALKER_CACHE_WRITE(cursor, g_svc_stalker_ctl_callnum);
     STALKER_CACHE_WRITE(cursor, g_return_interceptor_addr);
+    STALKER_CACHE_WRITE(cursor, g_kern_version_major);
 
     /* reserve stalker cache space for stalker lock and current call ID
      *
@@ -317,14 +313,11 @@ static void stalker_preboot_hook(void){
 }
 
 static void mock_stalker_preboot_hook(const char *cmd, char *args){
-    printf("%s: stalker cache = %p va %#llx\n", __func__, stalker_cache_base,
-            xnu_ptr_to_va(stalker_cache_base));
-
     uint64_t *cursor = stalker_cache_base;
 
     STALKER_CACHE_WRITE(cursor, g_proc_pid_addr);
 
-    if(g_kern_version_major == iOS_13){
+    if(g_kern_version_major == iOS_13_x){
         STALKER_CACHE_WRITE(cursor, g_kalloc_canblock_addr);
         STALKER_CACHE_WRITE(cursor, g_kfree_addr_addr);
     }
@@ -371,6 +364,7 @@ static void mock_stalker_preboot_hook(const char *cmd, char *args){
     STALKER_CACHE_WRITE(cursor, g_handle_svc_hook_addr);
     STALKER_CACHE_WRITE(cursor, g_svc_stalker_ctl_callnum);
     STALKER_CACHE_WRITE(cursor, g_return_interceptor_addr);
+    STALKER_CACHE_WRITE(cursor, g_kern_version_major);
 
     /* reserve stalker cache space for stalker lock and current call ID
      *

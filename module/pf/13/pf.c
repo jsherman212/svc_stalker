@@ -97,7 +97,7 @@ static void scan_for_ter_14(uint32_t *opcode_stream, uint64_t fxn_len,
 
 static void scan_for_ter(uint32_t *opcode_stream, uint64_t fxn_len,
         uint32_t **ter_calls_out){
-    if(g_kern_version_major == iOS_13)
+    if(g_kern_version_major == iOS_13_x)
         scan_for_ter_13(opcode_stream, fxn_len, ter_calls_out);
     else
         scan_for_ter_14(opcode_stream, fxn_len, ter_calls_out);
@@ -664,7 +664,7 @@ bool thread_exception_return_finder_13(xnu_pf_patch_t *patch,
 
     g_offsetof_act_context = get_add_imm(add_x21_x0_n);
 
-    if(g_kern_version_major == iOS_13)
+    if(g_kern_version_major == iOS_13_x)
         puts("svc_stalker: found thread_exception_return");
     else
         puts("svc_stalker: found arm64_thread_exception_return");

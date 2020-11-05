@@ -60,8 +60,10 @@ struct pf {
 
 #define PF_END { .pf_unused = 0x41 }
 
-#define iOS_13 (0)
-#define iOS_14 (1)
+#define iOS_13_x    (19)
+#define iOS_14_x    (20)
+
+#define VERSION_BIAS iOS_13_x
 
 #define WRITE_INSTR_TO_SCRATCH_SPACE(opcode) \
     do { \

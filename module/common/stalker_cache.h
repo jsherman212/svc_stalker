@@ -54,8 +54,9 @@
 #define HANDLE_SVC_HOOK                                 (0x130)
 #define SVC_STALKER_CTL_CALLNUM                         (0x138)
 #define RETURN_INTERCEPTOR                              (0x140)
-#define STALKER_LOCK                                    (0x148)
-#define CUR_CALL_ID                                     (0x150)
+#define IOS_VERSION                                     (0x148)
+#define STALKER_LOCK                                    (0x150)
+#define CUR_CALL_ID                                     (0x158)
 
 /* $0: stalker cache pointer
  * $1: register to store function pointer
@@ -90,5 +91,8 @@ ldr x0, [$0, STALKER_LOCK]
 ldr $1, [$0, LCK_RW_DONE]
 blr $1
 .endmacro
+
+#define iOS_13_x        (19)
+#define iOS_14_x        (20)
 
 #endif

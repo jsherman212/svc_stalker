@@ -45,7 +45,7 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
      * On iOS 14.x, the unconditional branch to exception_triage_thread will
      * be right after the only occurence of add sp, sp, n
      */
-    if(g_kern_version_major == iOS_13){
+    if(g_kern_version_major == iOS_13_x){
         uint32_t instr_limit = 5;
 
         while((*opcode_stream & 0xfc000000) != 0x14000000){
@@ -113,7 +113,7 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
             }
         }
 
-        if(g_kern_version_major == iOS_13){
+        if(g_kern_version_major == iOS_13_x){
             if(cmp_wn_4_first && cmp_wn_4_second && b_cs && b_cc)
                 break;
         }
@@ -125,7 +125,7 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
         opcode_stream++;
     }
 
-    if(g_kern_version_major == iOS_13){
+    if(g_kern_version_major == iOS_13_x){
         if(!cmp_wn_4_first || !cmp_wn_4_second || !b_cs || !b_cc){
             if(!cmp_wn_4_first)
                 puts("cmp_wn_4_first not found");
@@ -263,7 +263,7 @@ static void anything_missing(void){
     chk(!g_proc_pid_addr, "proc_pid not found\n");
     chk(!g_sysent_addr, "sysent not found\n");
 
-    if(g_kern_version_major == iOS_13){
+    if(g_kern_version_major == iOS_13_x){
         chk(!g_kalloc_canblock_addr, "kalloc_canblock not found\n");
         chk(!g_kfree_addr_addr, "kfree_addr not found\n");
     }
@@ -272,10 +272,7 @@ static void anything_missing(void){
         chk(!g_kfree_ext_addr, "kfree_ext not found\n");
     }
 
-    /* XXX XXX XXX ONLY WHEN TESTING */
-    /* chk(!g_patched_mach_syscall, "did not patch mach_syscall\n"); */
-    /* XXX XXX XXX */
-
+    chk(!g_patched_mach_syscall, "did not patch mach_syscall\n");
     chk(!g_sysctl__kern_children_addr, "sysctl__kern_children\n"
                                         "  not found\n");
     chk(!g_sysctl_register_oid_addr, "sysctl_register_oid not found\n");
