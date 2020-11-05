@@ -37,7 +37,6 @@ static void scan_for_ter_14(uint32_t *opcode_stream, uint64_t fxn_len,
         uint32_t **ter_calls_out){
     uint32_t cur_ter_calls_idx = 0;
 
-    /* 1000 == fxn_len in svc_stalker.c */
     for(int i=0; i<fxn_len; i++){
         uint32_t instr = opcode_stream[i];
 

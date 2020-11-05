@@ -66,6 +66,9 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
 
             opcode_stream++;
         }
+
+        /* get off of add sp, sp, n */
+        opcode_stream++;
     }
 
     /* opcode_stream points to beginning of exception_triage_thread */
@@ -78,7 +81,7 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
      *
      *  and
      *
-     * (only applicable to iOS 13.x);
+     * (only applicable to iOS 13.x)
      *  CMP             Wn, #4
      *  B.CC            xxx
      *
@@ -157,15 +160,18 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
 
     uint32_t cmn_w0_negative_3 = 0x31000c1f;
 
-    /* both cmp Wn, 4 --> cmn Wn, -3 */
+    /* cmp Wn, 4 --> cmn Wn, -3 */
     *cmp_wn_4_first = cmn_w0_negative_3 | (*cmp_wn_4_first & 0x3e0);
-    *cmp_wn_4_second = cmn_w0_negative_3 | (*cmp_wn_4_second & 0x3e0);
 
     /* b.cs --> b.lt */
     *b_cs = (*b_cs & ~0xf) | 0xb;
 
-    /* b.cc --> b.ge */
-    *b_cc = (*b_cc & ~0xf) | 0xa;
+    if(g_kern_version_major == iOS_13_x){
+        *cmp_wn_4_second = cmn_w0_negative_3 | (*cmp_wn_4_second & 0x3e0);
+
+        /* b.cc --> b.ge */
+        *b_cc = (*b_cc & ~0xf) | 0xa;
+    }
 
     puts("svc_stalker: patched exception_triage_thread");
 
@@ -173,8 +179,8 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
 }
 
 static bool hijack_sleh_synchronous(uint32_t **scratch_space_out,
-        uint64_t *num_free_instrs_out, uint64_t *stalker_cache_base,
-        uint64_t sleh_synchronous_hijacker_addr, uint64_t sleh_synchronous_addr){
+        uint64_t *num_free_instrs_out, uint64_t sleh_synchronous_hijacker_addr,
+        uint64_t sleh_synchronous_addr){
     uint32_t *scratch_space = *scratch_space_out;
     uint64_t num_free_instrs = *num_free_instrs_out;
 
@@ -745,8 +751,7 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
             &num_free_instrs);
 
     if(!hijack_sleh_synchronous(&scratch_space, &num_free_instrs,
-                stalker_cache_base, sleh_synchronous_hijacker_addr,
-                g_sleh_synchronous_addr)){
+                sleh_synchronous_hijacker_addr, g_sleh_synchronous_addr)){
         puts("svc_stalker: failed to");
         puts("   write sleh_synchronous");
         puts("   branch to its hijacker");
@@ -760,10 +765,6 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     WRITE_QWORD_TO_SCRATCH_SPACE(xnu_ptr_to_va(stalker_cache_base));
 
     uint64_t return_interceptor_addr = (uint64_t)scratch_space;
-
-    /* virtual addr of return_interceptor */
-    /* STALKER_CACHE_WRITE(stalker_cache_cursor, */
-            /* xnu_ptr_to_va((void *)return_interceptor_addr)); */
 
     g_return_interceptor_addr = xnu_ptr_to_va((void *)return_interceptor_addr);
 

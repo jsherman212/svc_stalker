@@ -117,7 +117,14 @@ bool sysctl__kern_children_and_register_oid_finder_14(xnu_pf_patch_t *patch,
     else
         addr_va = get_adrp_add_va_target(opcode_stream + 7);
 
-    g_sysctl__kern_children_addr = addr_va;
+    g_sysctl__kern_children_addr = *(uint64_t *)xnu_va_to_ptr(addr_va);
+
+    /* tagged pointer */
+    if((g_sysctl__kern_children_addr & 0xffff000000000000) != 0xffff000000000000){
+        /* untag and slide */
+        g_sysctl__kern_children_addr |= ((uint64_t)0xffff << 48);
+        g_sysctl__kern_children_addr += kernel_slide;
+    }
 
     /* the BL right after the adrp/adr is branching to sysctl_register_oid */
     uint32_t *sysctl_register_oid = get_branch_dst_ptr(opcode_stream[9],
