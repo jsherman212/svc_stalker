@@ -2,7 +2,7 @@
 #define OFFSETS
 
 extern uint64_t *stalker_cache_base;
-extern uint64_t *stalker_cache_cursor;
+/* extern uint64_t *stalker_cache_cursor; */
 
 /* This file contains offsets which will be written to the stalker cache
  * as well as offsets needed before XNU boots.
@@ -75,5 +75,14 @@ extern uint64_t g_return_interceptor_addr;
 /* START offsets not added to stalker cache */
 extern uint64_t g_exec_scratch_space_addr;
 extern uint64_t g_exec_scratch_space_size;
+
+extern bool g_patched_mach_syscall;
+
+/* this limit is safe */
+enum { g_max_ter_calls = 50 };
+extern uint32_t *g_platform_syscall_ter_calls[g_max_ter_calls];
+extern uint32_t *g_thread_syscall_return_ter_calls[g_max_ter_calls];
+extern uint32_t *g_unix_syscall_return_ter_calls[g_max_ter_calls];
+
 
 #endif

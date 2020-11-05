@@ -9,7 +9,7 @@
 #include "pf/pfs.h"
 
 uint64_t *stalker_cache_base = NULL;
-uint64_t *stalker_cache_cursor = NULL;
+static uint64_t *stalker_cache_cursor = NULL;
 
 uint32_t g_kern_version_major = 0;
 
@@ -110,10 +110,6 @@ struct kextrange {
     char *sect;
 };
 
-/* static bool xnu_pf_range_eq(xnu_pf_range_t *left, xnu_pf_range_t *right){ */
-/*     return left->va == right->va && left->size == right->size; */
-/* } */
-
 /* purpose of this function is to add patchfinder ranges for kexts in such
  * a way that there are no duplicates in `*ranges`
  */
@@ -195,7 +191,7 @@ static void add_kext_range(struct kextrange **ranges, const char *kext,
     *nkextranges_out = nkextranges + 1;
 }
 
-static void stalker_prep2(const char *cmd, char *args){
+static void stalker_prep(const char *cmd, char *args){
     /* all the patchfinders in pf/pfs.h currently do 32 bit */
     xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
 
@@ -250,36 +246,28 @@ static void stalker_prep2(const char *cmd, char *args){
     xnu_pf_patchset_destroy(patchset);
 }
 
-#if 0
 static void stalker_patch_ss(const char *cmd, char *args){
-    /* XXX fine for iOS 14 */
-    uint64_t stalker_main_patcher_match[] = {
-        0xb9408a60,     /* LDR Wn, [X19, #0x88] (trap_no = state->__x[16]) */
-        0xd538d080,     /* MRS Xn, TPIDR_EL1    (Xn = current_thread()) */
-        0x12800000,     /* MOV Wn, 0xFFFFFFFF   (Wn = THROTTLE_LEVEL_NONE) */
-    };
+    xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
 
-    const size_t num_matches = sizeof(stalker_main_patcher_match) / 
-        sizeof(*stalker_main_patcher_match);
+    /* get the last patchfinder, which will be the one which
+     * patches sleh_synchronous
+     */
+    struct pf *stalker_main_patcher = &stalker_main_patcher_pf[g_kern_version_major];
 
-    uint64_t stalker_main_patcher_masks[] = {
-        0xffffffe0,     /* ignore Wn in LDR */
-        0xffffffe0,     /* ignore Xn in MRS */
-        0xffffffe0,     /* ignore Wn in MOV */
-    };
+    /* for(int i=0; !PFS_END(g_all_pfs[i]); i++) */
+    /*      stalker_main_patcher = &g_all_pfs[i][g_kern_version_major]; */
+
+    printf("Got pf '%s'\n", stalker_main_patcher->pf_name);
 
     xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
 
-    xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
-    xnu_pf_maskmatch(patchset, "stalker main patcher", stalker_main_patcher_match,
-            stalker_main_patcher_masks, num_matches, false,
-            stalker_main_patcher);
+    xnu_pf_maskmatch(patchset, (char *)stalker_main_patcher->pf_name,
+            stalker_main_patcher->pf_matches, stalker_main_patcher->pf_masks,
+            stalker_main_patcher->pf_mmcount, false, stalker_main_patcher->pf_callback);
     xnu_pf_emit(patchset);
     xnu_pf_apply(__TEXT_EXEC, patchset);
-
     xnu_pf_patchset_destroy(patchset);
 }
-#endif
 
 static void (*next_preboot_hook)(void);
 
@@ -295,43 +283,12 @@ static void stalker_preboot_hook(void){
         next_preboot_hook();
 }
 
-#if 0
-static void stalker_main_patcher_noboot(const char *cmd, char *args){
-    uint64_t stalker_main_patcher_match[] = {
-        0xb9408a60,     /* LDR Wn, [X19, #0x88] (trap_no = state->__x[16]) */
-        0xd538d080,     /* MRS Xn, TPIDR_EL1    (Xn = current_thread()) */
-        0x12800000,     /* MOV Wn, 0xFFFFFFFF   (Wn = THROTTLE_LEVEL_NONE) */
-    };
-
-    const size_t num_matches = sizeof(stalker_main_patcher_match) / 
-        sizeof(*stalker_main_patcher_match);
-
-    uint64_t stalker_main_patcher_masks[] = {
-        0xffffffe0,     /* ignore Wn in LDR */
-        0xffffffe0,     /* ignore Xn in MRS */
-        0xffffffe0,     /* ignore Wn in MOV */
-    };
-
-    xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
-
-    xnu_pf_patchset_t *patchset = xnu_pf_patchset_create(XNU_PF_ACCESS_32BIT);
-    xnu_pf_maskmatch(patchset, "stalker main patcher", stalker_main_patcher_match,
-            stalker_main_patcher_masks, num_matches, false,
-            stalker_main_patcher);
-    xnu_pf_emit(patchset);
-    xnu_pf_apply(__TEXT_EXEC, patchset);
-
-    xnu_pf_patchset_destroy(patchset);
-}
-#endif
-
 void module_entry(void){
     puts("svc_stalker: loaded!");
 
-    /* XXX now I need to keep a counter in the pf file */
-    /* memset(g_platform_syscall_ter_calls, 0, sizeof(uint32_t *) * g_max_ter_calls); */
-    /* memset(g_thread_syscall_return_ter_calls, 0, sizeof(uint32_t *) * g_max_ter_calls); */
-    /* memset(g_unix_syscall_return_ter_calls, 0, sizeof(uint32_t *) * g_max_ter_calls); */
+    memset(g_platform_syscall_ter_calls, 0, sizeof(uint32_t *) * g_max_ter_calls);
+    memset(g_thread_syscall_return_ter_calls, 0, sizeof(uint32_t *) * g_max_ter_calls);
+    memset(g_unix_syscall_return_ter_calls, 0, sizeof(uint32_t *) * g_max_ter_calls);
 
     mh_execute_header = xnu_header();
     kernel_slide = xnu_slide_value(mh_execute_header);
@@ -341,9 +298,7 @@ void module_entry(void){
 
     command_register("stalker-getkernelv", "get kernel version", stalker_getkernelv);
     command_register("stalker-prep", "prep to patch sleh_synchronous", stalker_prep);
-    /* command_register("stalker-patch-ss", "patch sleh_synchronous", stalker_patch_ss); */
-    /* command_register("stalker-mp-noboot", "patch sleh_synchronous without booting", */
-    /*         stalker_main_patcher_noboot); */
+    command_register("stalker-patch-ss", "patch sleh_synchronous", stalker_patch_ss);
 }
 
 const char *module_name = "svc_stalker";

@@ -2,6 +2,7 @@
 #define PFS
 
 #include "pf_common.h"
+#include "ss_patcher.h"
 
 #include "13/pf.h"
 #include "14/pf.h"
@@ -645,6 +646,33 @@ struct pf g_all_pfs[MAXPF][NUM_SUPPORTED_VERSIONS] = {
             6, platform_syscall_scanner_13, "__TEXT_EXEC"),
     },
     { PF_END, PF_END },
+};
+
+struct pf stalker_main_patcher_pf[NUM_SUPPORTED_VERSIONS] = {
+    PF_DECL32("svc_stalker main patcher iOS 13",
+        LISTIZE({
+            0xb9408a60,     /* ldr wn, [x19, #0x88] (trap_no = state->__x[16]) */
+            0xd538d080,     /* mrs xn, tpidr_el1    (xn = current_thread()) */
+            0x12800000,     /* mov wn, 0xffffffff   (wn = throttle_level_none) */
+        }),
+        LISTIZE({
+            0xffffffe0,     /* ignore Wn in LDR */
+            0xffffffe0,     /* ignore Xn in MRS */
+            0xffffffe0,     /* ignore Wn in MOV */
+        }),
+        3, stalker_main_patcher, "__TEXT_EXEC"),
+    PF_DECL32("svc_stalker main patcher iOS 14",
+        LISTIZE({
+            0xb9408a60,     /* ldr wn, [x19, #0x88] (trap_no = state->__x[16]) */
+            0xd538d080,     /* mrs xn, tpidr_el1    (xn = current_thread()) */
+            0x12800000,     /* mov wn, 0xffffffff   (wn = throttle_level_none) */
+        }),
+        LISTIZE({
+            0xffffffe0,     /* ignore Wn in LDR */
+            0xffffffe0,     /* ignore Xn in MRS */
+            0xffffffe0,     /* ignore Wn in MOV */
+        }),
+        3, stalker_main_patcher, "__TEXT_EXEC"),
 };
 
 #endif

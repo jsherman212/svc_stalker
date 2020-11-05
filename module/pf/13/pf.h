@@ -25,7 +25,4 @@ bool lck_grp_alloc_init_finder_13(xnu_pf_patch_t *, void *);
 bool lck_rw_alloc_init_finder_13(xnu_pf_patch_t *, void *);
 bool unix_syscall_patcher_13(xnu_pf_patch_t *, void *);
 
-/* Always the last patchfinder in the array */
-bool stalker_main_patcher_13(xnu_pf_patch_t *, void *);
-
 #endif
