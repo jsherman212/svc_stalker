@@ -117,16 +117,12 @@ static void add_kext_range(struct kextrange **ranges, const char *kext,
         const char *seg, const char *sect, size_t *nkextranges_out){
     size_t nkextranges = *nkextranges_out;
 
-    /* printf("kext %p seg %p sect %p nkextranges %zu\n", kext, seg, sect, nkextranges); */
-
     if(nkextranges == MAXKEXTRANGE)
         return;
 
     /* first, check if this kext is already present */
     for(size_t i=0; i<nkextranges; i++){
         struct kextrange *kr = ranges[i];
-
-        /* printf("Looking at kextrange %zu\n", i); */
 
         /* kext will never be NULL, otherwise, this function would have
          * no point
@@ -185,9 +181,7 @@ static void add_kext_range(struct kextrange **ranges, const char *kext,
         kr->sect = sectn;
     }
 
-    /* printf("%s: ranges[%zu] = %p\n", __func__, nkextranges, kr); */
     ranges[nkextranges] = kr;
-    
     *nkextranges_out = nkextranges + 1;
 }
 
@@ -204,21 +198,9 @@ static void stalker_prep(const char *cmd, char *args){
         if(IS_PF_UNUSED(pf))
             continue;
 
-        /* printf("%s: chose '%s'\n", __func__, pf->pf_name); */
-
-        /* xnu_pf_range_t *pf_range = NULL; */
-
         const char *pf_kext = pf->pf_kext;
         const char *pf_segment = pf->pf_segment;
         const char *pf_section = pf->pf_section;
-
-        /* if(pf_kext) */
-        /*     printf("kext '%s'\n", pf_kext); */
-        
-        /* printf("segment '%s'\n", pf_segment); */
-
-        /* if(pf_section) */
-        /*     printf("section '%s'\n", pf_section); */
 
         if(pf_kext){
             add_kext_range(kextranges, pf_kext, pf_segment, pf_section,
@@ -229,16 +211,12 @@ static void stalker_prep(const char *cmd, char *args){
                 pf->pf_masks, pf->pf_mmcount, false, pf->pf_callback);
     }
 
-    /* printf("%s: nkextranges %zu\n", __func__, nkextranges); */
-
     xnu_pf_emit(patchset);
 
     xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
     xnu_pf_apply(__TEXT_EXEC, patchset);
 
     for(size_t i=0; i<nkextranges; i++){
-        /* printf("%s: kextrange %zu: '%s'\n", __func__, i, kextranges[i]->kext); */
-
         xnu_pf_range_t *range = kextranges[i]->range;
         xnu_pf_apply(range, patchset);
     }
@@ -253,11 +231,6 @@ static void stalker_patch_ss(const char *cmd, char *args){
      * patches sleh_synchronous
      */
     struct pf *stalker_main_patcher = &stalker_main_patcher_pf[g_kern_version_major];
-
-    /* for(int i=0; !PFS_END(g_all_pfs[i]); i++) */
-    /*      stalker_main_patcher = &g_all_pfs[i][g_kern_version_major]; */
-
-    printf("Got pf '%s'\n", stalker_main_patcher->pf_name);
 
     xnu_pf_range_t *__TEXT_EXEC = xnu_pf_segment(mh_execute_header, "__TEXT_EXEC");
 
@@ -277,10 +250,137 @@ static void stalker_preboot_hook(void){
     printf("%s: stalker cache = %p va %#llx\n", __func__, stalker_cache_base,
             xnu_ptr_to_va(stalker_cache_base));
 
-    printf("svc_stalker: inited stalker cache\n");
+    uint64_t *cursor = stalker_cache_base;
+
+    STALKER_CACHE_WRITE(cursor, g_proc_pid_addr);
+
+    if(g_kern_version_major == iOS_13){
+        STALKER_CACHE_WRITE(cursor, g_kalloc_canblock_addr);
+        STALKER_CACHE_WRITE(cursor, g_kfree_addr_addr);
+    }
+    else{
+        STALKER_CACHE_WRITE(cursor, g_kalloc_external_addr);
+        STALKER_CACHE_WRITE(cursor, g_kfree_ext_addr);
+    }
+
+    STALKER_CACHE_WRITE(cursor, g_sysctl__kern_children_addr);
+    STALKER_CACHE_WRITE(cursor, g_sysctl_register_oid_addr);
+    STALKER_CACHE_WRITE(cursor, g_sysctl_handle_long_addr);
+    STALKER_CACHE_WRITE(cursor, g_name2oid_addr);
+    STALKER_CACHE_WRITE(cursor, g_sysctl_geometry_lock_addr);
+    STALKER_CACHE_WRITE(cursor, g_lck_rw_lock_shared_addr);
+    STALKER_CACHE_WRITE(cursor, g_lck_rw_done_addr);
+    STALKER_CACHE_WRITE(cursor, g_h_s_c_sbn_epilogue_addr);
+    STALKER_CACHE_WRITE(cursor, g_mach_syscall_addr);
+    STALKER_CACHE_WRITE(cursor, g_offsetof_act_context);
+    STALKER_CACHE_WRITE(cursor, g_thread_exception_return_addr);
+    STALKER_CACHE_WRITE(cursor, g_platform_syscall_start_addr);
+    STALKER_CACHE_WRITE(cursor, g_platform_syscall_end_addr);
+    STALKER_CACHE_WRITE(cursor, g_thread_syscall_return_start_addr);
+    STALKER_CACHE_WRITE(cursor, g_thread_syscall_return_end_addr);
+    STALKER_CACHE_WRITE(cursor, g_unix_syscall_return_start_addr);
+    STALKER_CACHE_WRITE(cursor, g_unix_syscall_return_end_addr);
+    STALKER_CACHE_WRITE(cursor, g_lck_grp_alloc_init_addr);
+    STALKER_CACHE_WRITE(cursor, g_lck_rw_alloc_init_addr);
+    STALKER_CACHE_WRITE(cursor, g_sleh_synchronous_addr);
+    STALKER_CACHE_WRITE(cursor, g_current_proc_addr);
+    STALKER_CACHE_WRITE(cursor, g_exception_triage_addr);
+    STALKER_CACHE_WRITE(cursor, g_common_fxns_get_stalker_cache_addr);
+    STALKER_CACHE_WRITE(cursor, g_stalker_ctl_from_table_addr);
+    STALKER_CACHE_WRITE(cursor, g_should_intercept_call_addr);
+    STALKER_CACHE_WRITE(cursor, g_get_next_free_stalker_ctl_addr);
+    STALKER_CACHE_WRITE(cursor, g_is_sysctl_registered_addr);
+    STALKER_CACHE_WRITE(cursor, g_send_exception_msg_addr);
+    STALKER_CACHE_WRITE(cursor, g_get_flag_ptr_for_call_num_addr);
+    STALKER_CACHE_WRITE(cursor, g_stalker_table_ptr);
+    STALKER_CACHE_WRITE(cursor, g_svc_stalker_sysctl_name_ptr);
+    STALKER_CACHE_WRITE(cursor, g_svc_stalker_sysctl_descr_ptr);
+    STALKER_CACHE_WRITE(cursor, g_svc_stalker_sysctl_fmt_ptr);
+    STALKER_CACHE_WRITE(cursor, g_svc_stalker_sysctl_mib_ptr);
+    STALKER_CACHE_WRITE(cursor, g_svc_stalker_sysctl_mib_count_ptr);
+    STALKER_CACHE_WRITE(cursor, g_handle_svc_hook_addr);
+    STALKER_CACHE_WRITE(cursor, g_svc_stalker_ctl_callnum);
+    STALKER_CACHE_WRITE(cursor, g_return_interceptor_addr);
+
+    /* reserve stalker cache space for stalker lock and current call ID
+     *
+     * Current call ID is used by mini_strace to know when a system call
+     * has completed.
+     */
+    STALKER_CACHE_WRITE(cursor, 0);
+    STALKER_CACHE_WRITE(cursor, 0);
+
+    printf("svc_stalker: initialized stalker cache\n");
 
     if(next_preboot_hook)
         next_preboot_hook();
+}
+
+static void mock_stalker_preboot_hook(const char *cmd, char *args){
+    printf("%s: stalker cache = %p va %#llx\n", __func__, stalker_cache_base,
+            xnu_ptr_to_va(stalker_cache_base));
+
+    uint64_t *cursor = stalker_cache_base;
+
+    STALKER_CACHE_WRITE(cursor, g_proc_pid_addr);
+
+    if(g_kern_version_major == iOS_13){
+        STALKER_CACHE_WRITE(cursor, g_kalloc_canblock_addr);
+        STALKER_CACHE_WRITE(cursor, g_kfree_addr_addr);
+    }
+    else{
+        STALKER_CACHE_WRITE(cursor, g_kalloc_external_addr);
+        STALKER_CACHE_WRITE(cursor, g_kfree_ext_addr);
+    }
+
+    STALKER_CACHE_WRITE(cursor, g_sysctl__kern_children_addr);
+    STALKER_CACHE_WRITE(cursor, g_sysctl_register_oid_addr);
+    STALKER_CACHE_WRITE(cursor, g_sysctl_handle_long_addr);
+    STALKER_CACHE_WRITE(cursor, g_name2oid_addr);
+    STALKER_CACHE_WRITE(cursor, g_sysctl_geometry_lock_addr);
+    STALKER_CACHE_WRITE(cursor, g_lck_rw_lock_shared_addr);
+    STALKER_CACHE_WRITE(cursor, g_lck_rw_done_addr);
+    STALKER_CACHE_WRITE(cursor, g_h_s_c_sbn_epilogue_addr);
+    STALKER_CACHE_WRITE(cursor, g_mach_syscall_addr);
+    STALKER_CACHE_WRITE(cursor, g_offsetof_act_context);
+    STALKER_CACHE_WRITE(cursor, g_thread_exception_return_addr);
+    STALKER_CACHE_WRITE(cursor, g_platform_syscall_start_addr);
+    STALKER_CACHE_WRITE(cursor, g_platform_syscall_end_addr);
+    STALKER_CACHE_WRITE(cursor, g_thread_syscall_return_start_addr);
+    STALKER_CACHE_WRITE(cursor, g_thread_syscall_return_end_addr);
+    STALKER_CACHE_WRITE(cursor, g_unix_syscall_return_start_addr);
+    STALKER_CACHE_WRITE(cursor, g_unix_syscall_return_end_addr);
+    STALKER_CACHE_WRITE(cursor, g_lck_grp_alloc_init_addr);
+    STALKER_CACHE_WRITE(cursor, g_lck_rw_alloc_init_addr);
+    STALKER_CACHE_WRITE(cursor, g_sleh_synchronous_addr);
+    STALKER_CACHE_WRITE(cursor, g_current_proc_addr);
+    STALKER_CACHE_WRITE(cursor, g_exception_triage_addr);
+    STALKER_CACHE_WRITE(cursor, g_common_fxns_get_stalker_cache_addr);
+    STALKER_CACHE_WRITE(cursor, g_stalker_ctl_from_table_addr);
+    STALKER_CACHE_WRITE(cursor, g_should_intercept_call_addr);
+    STALKER_CACHE_WRITE(cursor, g_get_next_free_stalker_ctl_addr);
+    STALKER_CACHE_WRITE(cursor, g_is_sysctl_registered_addr);
+    STALKER_CACHE_WRITE(cursor, g_send_exception_msg_addr);
+    STALKER_CACHE_WRITE(cursor, g_get_flag_ptr_for_call_num_addr);
+    STALKER_CACHE_WRITE(cursor, g_stalker_table_ptr);
+    STALKER_CACHE_WRITE(cursor, g_svc_stalker_sysctl_name_ptr);
+    STALKER_CACHE_WRITE(cursor, g_svc_stalker_sysctl_descr_ptr);
+    STALKER_CACHE_WRITE(cursor, g_svc_stalker_sysctl_fmt_ptr);
+    STALKER_CACHE_WRITE(cursor, g_svc_stalker_sysctl_mib_ptr);
+    STALKER_CACHE_WRITE(cursor, g_svc_stalker_sysctl_mib_count_ptr);
+    STALKER_CACHE_WRITE(cursor, g_handle_svc_hook_addr);
+    STALKER_CACHE_WRITE(cursor, g_svc_stalker_ctl_callnum);
+    STALKER_CACHE_WRITE(cursor, g_return_interceptor_addr);
+
+    /* reserve stalker cache space for stalker lock and current call ID
+     *
+     * Current call ID is used by mini_strace to know when a system call
+     * has completed.
+     */
+    STALKER_CACHE_WRITE(cursor, 0);
+    STALKER_CACHE_WRITE(cursor, 0);
+
+    printf("svc_stalker: inited stalker cache\n");
 }
 
 void module_entry(void){
@@ -299,6 +399,7 @@ void module_entry(void){
     command_register("stalker-getkernelv", "get kernel version", stalker_getkernelv);
     command_register("stalker-prep", "prep to patch sleh_synchronous", stalker_prep);
     command_register("stalker-patch-ss", "patch sleh_synchronous", stalker_patch_ss);
+    /* command_register("aaaa", "aaa", mock_stalker_preboot_hook); */
 }
 
 const char *module_name = "svc_stalker";

@@ -2,7 +2,6 @@
 #define OFFSETS
 
 extern uint64_t *stalker_cache_base;
-/* extern uint64_t *stalker_cache_cursor; */
 
 /* This file contains offsets which will be written to the stalker cache
  * as well as offsets needed before XNU boots.

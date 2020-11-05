@@ -272,7 +272,10 @@ static void anything_missing(void){
         chk(!g_kfree_ext_addr, "kfree_ext not found\n");
     }
 
-    chk(!g_patched_mach_syscall, "did not patch mach_syscall\n");
+    /* XXX XXX XXX ONLY WHEN TESTING */
+    /* chk(!g_patched_mach_syscall, "did not patch mach_syscall\n"); */
+    /* XXX XXX XXX */
+
     chk(!g_sysctl__kern_children_addr, "sysctl__kern_children\n"
                                         "  not found\n");
     chk(!g_sysctl_register_oid_addr, "sysctl_register_oid not found\n");
@@ -304,11 +307,6 @@ static void anything_missing(void){
 bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     anything_missing();
 
-    printf("%s: it doesn't look like there's anything missing\n", __func__);
-
-    // XXX XXX XXX XXX
-    return true;
-
     stalker_cache_base = alloc_static(PAGE_SIZE);
 
     if(!stalker_cache_base){
@@ -319,7 +317,6 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
 
         stalker_fatal_error();
     }
-
 
     /* This function performs all the patches to enable call interception
      * functionality. In this order:
@@ -372,8 +369,7 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
         temp--;
     }
 
-    /* uint64_t sleh_synchronous_addr = xnu_ptr_to_va(temp); */
-
+    /* save this so sleh_synchronous_hijacker knows where to branch back to */
     g_sleh_synchronous_addr = xnu_ptr_to_va(temp);
 
     uint64_t branch_from = (uint64_t)opcode_stream;
@@ -387,21 +383,18 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
         if(instr_limit-- == 0){
             puts("svc_stalker: couldn't find");
             puts("     current_proc");
-            return 0;
+
+            stalker_fatal_error();
         }
 
         opcode_stream++;
     }
 
-    /* int32_t imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28); */
-    /* uint64_t current_proc_addr = imm26 + xnu_ptr_to_va(opcode_stream); */
-
     uint32_t *current_proc = get_branch_dst_ptr(*opcode_stream, opcode_stream);
+
     g_current_proc_addr = xnu_ptr_to_va(current_proc);
 
     puts("svc_stalker: found current_proc");
-
-    /* STALKER_CACHE_WRITE(stalker_cache_cursor, current_proc_addr); */
 
     /* now we need to find exception_triage. We can do this by going forward
      * until we hit a BRK, as it's right after the call to exception_triage
@@ -423,16 +416,12 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     /* we're at BRK n, go up one for the branch to exception_triage */
     opcode_stream--;
 
-    /* imm26 = sign_extend(bits(*opcode_stream, 0, 25) << 2, 28); */
-    /* uint64_t exception_triage_addr = imm26 + xnu_ptr_to_va(opcode_stream); */
-
     uint32_t *exception_triage = get_branch_dst_ptr(*opcode_stream,
             opcode_stream);
+
     g_exception_triage_addr = xnu_ptr_to_va(exception_triage);
 
     puts("svc_stalker: found exception_triage");
-
-    /* STALKER_CACHE_WRITE(stalker_cache_cursor, exception_triage_addr); */
 
     if(!patch_exception_triage_thread(exception_triage)){
         puts("svc_stalker: failed");
@@ -523,8 +512,6 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
             g_send_exception_msg_addr = va_ptr;
         else if(i == 6)
             g_get_flag_ptr_for_call_num_addr = va_ptr;
-
-        /* STALKER_CACHE_WRITE(stalker_cache_cursor, va_ptr); */
     }
 
     /* Please see stalker_table.h
@@ -552,7 +539,6 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
         stalker_fatal_error();
     }
 
-    /* STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(stalker_table)); */
     g_stalker_table_ptr = xnu_ptr_to_va(stalker_table);
 
     const uint8_t *stalker_table_end = stalker_table + stalker_table_sz;
@@ -607,12 +593,6 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     uint32_t *sysctl_mibp = (uint32_t *)((uint64_t)(sysctl_fmtp + 8) & ~7);
     uint32_t *sysctl_mib_countp = (uint32_t *)(sysctl_mibp + CTL_MAXNAME);
 
-    /* STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(sysctl_namep)); */
-    /* STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(sysctl_descrp)); */
-    /* STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(sysctl_fmtp)); */
-    /* STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(sysctl_mibp)); */
-    /* STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(sysctl_mib_countp)); */
-
     g_svc_stalker_sysctl_name_ptr = xnu_ptr_to_va(sysctl_namep);
     g_svc_stalker_sysctl_descr_ptr = xnu_ptr_to_va(sysctl_descrp);
     g_svc_stalker_sysctl_fmt_ptr = xnu_ptr_to_va(sysctl_fmtp);
@@ -623,7 +603,6 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     WRITE_QWORD_TO_SCRATCH_SPACE(xnu_ptr_to_va(stalker_cache_base));
 
     /* write handle_svc_hook kva so sleh_synchronous_hijacker can call it */
-    /* STALKER_CACHE_WRITE(stalker_cache_cursor, xnu_ptr_to_va(scratch_space)); */
     g_handle_svc_hook_addr = xnu_ptr_to_va(scratch_space);
 
     /* Needs to be done before we patch the sysent entry so scratch_space lies
@@ -714,8 +693,6 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
         sysent_stream += sizeof_struct_sysent;
     }
 
-    /* STALKER_CACHE_WRITE(stalker_cache_cursor, (uint64_t)patched_syscall_num); */
-
     g_svc_stalker_ctl_callnum = (uint64_t)patched_syscall_num;
 
     scratch_space = write_svc_stalker_ctl_instrs(scratch_space, &num_free_instrs);
@@ -782,9 +759,6 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
 
     puts("svc_stalker: patched sleh_synchronous");
 
-    /* so sleh_synchronous_hijacker knows where to branch back to */
-    /* STALKER_CACHE_WRITE(stalker_cache_cursor, sleh_synchronous_addr); */
-
     /* allow return_interceptor access to stalker cache */
     WRITE_QWORD_TO_SCRATCH_SPACE(xnu_ptr_to_va(stalker_cache_base));
 
@@ -813,14 +787,6 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     puts("svc_stalker: patched platform_syscall");
     puts("svc_stalker: patched thread_syscall_return");
     puts("svc_stalker: patched unix_syscall_return");
-
-    /* reserve stalker cache space for stalker lock and current call ID
-     *
-     * Current call ID is used by mini_strace to know when a system call
-     * has completed.
-     */
-    /* STALKER_CACHE_WRITE(stalker_cache_cursor, 0); */
-    /* STALKER_CACHE_WRITE(stalker_cache_cursor, 0); */
 
     printf( "****** IMPORTANT *****\n"
             "* System call #%d has\n"
