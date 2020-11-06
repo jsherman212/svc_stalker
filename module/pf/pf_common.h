@@ -60,42 +60,4 @@ struct pf {
 
 #define PF_END { .pf_unused = 0x41 }
 
-#define iOS_13_x    (19)
-#define iOS_14_x    (20)
-
-#define VERSION_BIAS iOS_13_x
-
-#define WRITE_INSTR_TO_SCRATCH_SPACE(opcode) \
-    do { \
-        if(num_free_instrs < 2){ \
-            printf("svc_stalker: ran out\n" \
-                    "  of executable scratch\n" \
-                    "  space in function %s\n", \
-                    __func__); \
-            stalker_fatal_error(); \
-        } \
-        *scratch_space = (opcode); \
-        scratch_space++; \
-        num_free_instrs--; \
-    } while (0) \
-
-#define WRITE_QWORD_TO_SCRATCH_SPACE(qword) \
-    do { \
-        if(num_free_instrs < 2){ \
-            printf("svc_stalker: ran out\n" \
-                    "  of executable scratch\n" \
-                    "  space in function %s\n", \
-                    __func__); \
-            stalker_fatal_error(); \
-        } \
-        *(uint64_t *)scratch_space = (qword); \
-        scratch_space += 2; \
-        num_free_instrs -= 2; \
-    } while (0); \
-
-#define STALKER_CACHE_WRITE(cursor, thing) \
-    do { \
-        *cursor++ = (thing); \
-    } while (0) \
-
 #endif

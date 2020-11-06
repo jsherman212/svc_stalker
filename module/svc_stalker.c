@@ -240,6 +240,11 @@ static void stalker_patch_ss(const char *cmd, char *args){
     xnu_pf_patchset_destroy(patchset);
 }
 
+#define STALKER_CACHE_WRITE(cursor, thing) \
+    do { \
+        *cursor++ = (thing); \
+    } while (0) \
+
 static void (*next_preboot_hook)(void);
 
 static void stalker_preboot_hook(void){

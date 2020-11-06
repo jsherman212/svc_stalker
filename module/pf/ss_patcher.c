@@ -19,6 +19,35 @@
 #include "../el1/sleh_synchronous_hijacker_instrs.h"
 #include "../el1/svc_stalker_ctl_instrs.h"
 
+#define WRITE_INSTR_TO_SCRATCH_SPACE(opcode) \
+    do { \
+        if(num_free_instrs < 2){ \
+            printf("svc_stalker: ran out\n" \
+                    "  of executable scratch\n" \
+                    "  space in function %s\n", \
+                    __func__); \
+            stalker_fatal_error(); \
+        } \
+        *scratch_space = (opcode); \
+        scratch_space++; \
+        num_free_instrs--; \
+    } while (0) \
+
+#define WRITE_QWORD_TO_SCRATCH_SPACE(qword) \
+    do { \
+        if(num_free_instrs < 2){ \
+            printf("svc_stalker: ran out\n" \
+                    "  of executable scratch\n" \
+                    "  space in function %s\n", \
+                    __func__); \
+            stalker_fatal_error(); \
+        } \
+        *(uint64_t *)scratch_space = (qword); \
+        scratch_space += 2; \
+        num_free_instrs -= 2; \
+    } while (0); \
+
+
 static void patch_thread_exception_return_calls(uint32_t ***all_ter_call_arrays,
         size_t n_ter_call_arrays, uint64_t return_interceptor_addr){
     for(int i=0; i<n_ter_call_arrays; i++){
@@ -179,12 +208,11 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
 }
 
 static bool hijack_sleh_synchronous(uint32_t **scratch_space_out,
-        uint64_t *num_free_instrs_out, uint64_t sleh_synchronous_hijacker_addr,
-        uint64_t sleh_synchronous_addr){
+        uint64_t *num_free_instrs_out, uint64_t sleh_synchronous_hijacker_addr){
     uint32_t *scratch_space = *scratch_space_out;
     uint64_t num_free_instrs = *num_free_instrs_out;
 
-    uint32_t *curaddr = xnu_va_to_ptr(sleh_synchronous_addr);
+    uint32_t *curaddr = xnu_va_to_ptr(g_sleh_synchronous_addr);
     uint32_t replaced_instr = *curaddr;
 
     *curaddr = assemble_b((uint64_t)curaddr, sleh_synchronous_hijacker_addr);
@@ -751,7 +779,7 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
             &num_free_instrs);
 
     if(!hijack_sleh_synchronous(&scratch_space, &num_free_instrs,
-                sleh_synchronous_hijacker_addr, g_sleh_synchronous_addr)){
+                sleh_synchronous_hijacker_addr)){
         puts("svc_stalker: failed to");
         puts("   write sleh_synchronous");
         puts("   branch to its hijacker");

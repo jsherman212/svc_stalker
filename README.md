@@ -5,13 +5,12 @@
 <sup>*Output from intercepting some calls for Call of Duty: Mobile from
 example/mini_strace.c*</sup>
 
-**Currently working on checkrain 11/iOS 14 support in this branch**
-
 svc_stalker is a pongoOS module which modifies XNU to call `exception_triage`
-during a supervisor call exception, sending a Mach exception message to userland
-exception ports.
+before and after supervisor call exceptions, sending a Mach exception message
+to userland exception ports.
 
-svc_stalker supports checkra1n 0.11.0 and up.
+svc_stalker supports iOS 13.x and iOS 14.x on checkra1n 0.11.0 and up. 4K
+devices are not supported.
 
 When `catch_mach_exception_raise` is called, the PID of the process which made
 the call is placed in `code[0]`. `code[1]` will either be `BEFORE_CALL (0)`
@@ -111,8 +110,7 @@ not apply for platform system calls (call number `0x80000000`)
 - `ENOMEM` if:
     - `kalloc_canblock` fails while allocating `pid`'s call list.
 
-### Notes
-
+## Other Notes
 **You need to register exception ports for your process before you enable
 call interception for it.** Nothing checks if you've done this.
 
@@ -123,10 +121,6 @@ exception ports before registering your own and restoring them when you're
 done intercepting calls.
 
 **A maximum of 1023 processes can have their calls intercepted simultaneously.**
-
-## Other Notes
-At the moment, this project assumes a 16k page size. I've only tested this on
-phones running iOS 13 and higher.
 
 I try my best to make sure the patchfinder works on all kernels iOS 13+, so
 if something isn't working, please file an issue.

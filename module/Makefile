@@ -19,8 +19,7 @@ $(TARGET_DIRS) :
 	$(MAKE) -C $@
 
 OBJECT_FILES = $(shell find ./common ./pf -type f -name "*.o")
-INSTR_FILES = $(shell find ./el1 -type f -name "*_instrs.h")
 
-svc_stalker : $(OBJECT_FILES) $(INSTR_FILES) svc_stalker.c common/common.h \
+svc_stalker : $(OBJECT_FILES) svc_stalker.c common/common.h \
 	pf/offsets.h pf/pfs.h
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJECT_FILES) svc_stalker.c -o svc_stalker

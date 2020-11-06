@@ -15,4 +15,9 @@ extern uint64_t kernel_slide;
 
 #define PAGE_SIZE                   (0x4000)
 
+#define iOS_13_x                    (19)
+#define iOS_14_x                    (20)
+
+#define VERSION_BIAS                iOS_13_x
+
 #endif
