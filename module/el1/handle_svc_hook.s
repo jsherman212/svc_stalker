@@ -43,10 +43,13 @@ _main:
     ; oid_number
     mov w19, OID_AUTO
     str w19, [sp, SYSCTL_OID_STRUCT+0x10]
-    ; oid_kind, (CTLTYPE_INT | CTLFLAG_RD | CTLFLAG_ANYBODY)
+    ; oid_kind, (CTLTYPE_INT | CTLFLAG_RD | CTLFLAG_ANYBODY | CTLFLAG_OID2)
+    ; need CTLFLAG_OID2 for >= iOS 14.2, but it causes some memory corruption
+    ; later? TODO
     mov w19, CTLTYPE_INT
     orr w19, w19, CTLFLAG_RD
     orr w19, w19, CTLFLAG_ANYBODY
+    ; orr w19, w19, CTLFLAG_OID2
     str w19, [sp, SYSCTL_OID_STRUCT+0x14]
     ; oid_arg1, pointer to svc_stalker_ctl call number
     add x19, x28, SVC_STALKER_CTL_CALLNUM

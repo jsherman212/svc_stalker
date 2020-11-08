@@ -230,7 +230,7 @@ bool sysent_finder_13(xnu_pf_patch_t *patch, void *cacheable_stream){
     return false;
 }
 
-/* confirmed working on all kernels 13.0-14.1 */
+/* confirmed working on all kernels 13.0-13.7 */
 bool kalloc_canblock_finder_13(xnu_pf_patch_t *patch, void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
 
@@ -257,7 +257,7 @@ bool kalloc_canblock_finder_13(xnu_pf_patch_t *patch, void *cacheable_stream){
     return true;
 }
 
-/* confirmed working on all kernels 13.0-14.1 */
+/* confirmed working on all kernels 13.0-13.7 */
 bool kfree_addr_finder_13(xnu_pf_patch_t *patch, void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
 
@@ -418,7 +418,7 @@ bool mach_syscall_patcher_13(xnu_pf_patch_t *patch, void *cacheable_stream){
     return true;
 }
 
-/* confirmed working on all kernels 13.0-14.1 */
+/* confirmed working on all kernels 13.0-13.7 */
 bool ExceptionVectorsBase_finder_13(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     /* What I'd really like to do is generate executable pages now and
@@ -482,7 +482,7 @@ bool ExceptionVectorsBase_finder_13(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-14.1 */
+/* confirmed working on all kernels 13.0-13.7 */
 bool sysctl__kern_children_finder_13(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -517,7 +517,7 @@ bool sysctl__kern_children_finder_13(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-14.1 */
+/* confirmed working on all kernels 13.0-13.7 */
 bool sysctl_register_oid_finder_13(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     xnu_pf_disable_patch(patch);
@@ -584,7 +584,8 @@ bool name2oid_and_its_dependencies_finder_13(xnu_pf_patch_t *patch,
 
     g_lck_rw_lock_shared_addr = xnu_ptr_to_va(lck_rw_lock_shared);
 
-    uint32_t *name2oid = get_branch_dst_ptr(opcode_stream[6], opcode_stream + 6);
+    uint32_t *name2oid = get_branch_dst_ptr(opcode_stream[6],
+            opcode_stream + 6);
 
     g_name2oid_addr = xnu_ptr_to_va(name2oid);
 
@@ -732,6 +733,29 @@ bool platform_syscall_scanner_13(xnu_pf_patch_t *patch, void *cacheable_stream){
         opcode_stream--;
     }
 
+    /* okay now we have sub sp, sp, n, but clang decided to do some stupid
+     * thing on some kernels where it placed some sanity checks before the
+     * prologue. So lets check for 
+     *
+     * ldr w8, [x0]
+     * cmp w8, 0x14
+     * b.ne n
+     * ldr w9, [x0, 0x14]
+     * b n
+     * ldr x9, [x0, 0x20]
+     *
+     * and if it is not there Clang did not do that thing
+     */
+    uint32_t maybe_ldr_x9_x0_0x20 = opcode_stream[-1];
+
+    if(maybe_ldr_x9_x0_0x20 == 0xf9401009){
+        /* okay so it looks like Clang did that thing. Go back six instructions
+         * for the actual start of platform_syscall
+         */
+
+        opcode_stream -= 6;
+    }
+
     /* now we're at the start of platform_syscall, so get its size */
     g_platform_syscall_start_addr = xnu_ptr_to_va(opcode_stream);
 
@@ -812,7 +836,7 @@ bool unix_syscall_return_scanner_13(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working in all kernels 13.0-14.1 */
+/* confirmed working in all kernels 13.0-13.7 */
 bool lck_grp_alloc_init_finder_13(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     xnu_pf_disable_patch(patch);
@@ -829,7 +853,7 @@ bool lck_grp_alloc_init_finder_13(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working in all kernels 13.0-14.1 */
+/* confirmed working in all kernels 13.0-13.7 */
 bool lck_rw_alloc_init_finder_13(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     xnu_pf_disable_patch(patch);

@@ -6,11 +6,11 @@
 example/mini_strace.c*</sup>
 
 svc_stalker is a pongoOS module which modifies XNU to call `exception_triage`
-before and after supervisor call exceptions, sending a Mach exception message
-to userland exception ports.
+during supervisor call exceptions, sending a Mach exception message to userland
+exception ports.
 
-svc_stalker supports iOS 13.x and iOS 14.x on checkra1n 0.11.0 and up. 4K
-devices are not supported.
+svc_stalker supports iOS 13.x and iOS 14.x on checkra1n 0.11.0 and up. Devices
+with a 4K page size are not supported.
 
 When `catch_mach_exception_raise` is called, the PID of the process which made
 the call is placed in `code[0]`. `code[1]` will either be `BEFORE_CALL (0)`
@@ -55,7 +55,7 @@ Also, if the device hangs after `bootx`, try again.
 
 ## svc_stalker_ctl
 svc_stalker will patch the first `_enosys` system call to instead represent
-`svc_stalker_ctl`. You can find its implementation at `module/svc_stalker_ctl.s`
+`svc_stalker_ctl`. You can find its implementation at `module/el1/svc_stalker_ctl.s`
 and example usage at `example/mini_strace.c`.
 
 `svc_stalker_ctl` is your way of managing call interception for different

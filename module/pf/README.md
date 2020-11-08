@@ -16,8 +16,7 @@ offsets.h
 - offsets for the stalker cache and stalker_main_patcher
 
 pf_common.h
-- definition for `struct pf` and a bunch of macros related to its
-initialization
+- definition for `struct pf` and macros related to its initialization
 
 pfs.h
 - array of `pf` structs which represent svc_stalker's patchfinders

@@ -47,7 +47,6 @@
         num_free_instrs -= 2; \
     } while (0); \
 
-
 static void patch_thread_exception_return_calls(uint32_t ***all_ter_call_arrays,
         size_t n_ter_call_arrays, uint64_t return_interceptor_addr){
     for(int i=0; i<n_ter_call_arrays; i++){
@@ -78,8 +77,12 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
         uint32_t instr_limit = 5;
 
         while((*opcode_stream & 0xfc000000) != 0x14000000){
-            if(instr_limit-- == 0)
+            if(instr_limit-- == 0){
+                printf("%s: did not find branch\n"
+                        "to exception_triage_thread\n",
+                        __func__);
                 return false;
+            }
 
             opcode_stream++;
         }
@@ -89,7 +92,9 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
 
         while((*opcode_stream & 0xffc003ff) != 0x910003ff){
             if(instr_limit-- == 0){
-                printf("%s: didn't find B exception_triage", __func__);
+                printf("%s: did not find branch\n"
+                        "to exception_triage_thread\n",
+                        __func__);
                 return false;
             }
 
@@ -207,7 +212,7 @@ static bool patch_exception_triage_thread(uint32_t *opcode_stream){
     return true;
 }
 
-static bool hijack_sleh_synchronous(uint32_t **scratch_space_out,
+static void hijack_sleh_synchronous(uint32_t **scratch_space_out,
         uint64_t *num_free_instrs_out, uint64_t sleh_synchronous_hijacker_addr){
     uint32_t *scratch_space = *scratch_space_out;
     uint64_t num_free_instrs = *num_free_instrs_out;
@@ -222,8 +227,6 @@ static bool hijack_sleh_synchronous(uint32_t **scratch_space_out,
 
     *scratch_space_out = scratch_space;
     *num_free_instrs_out = num_free_instrs;
-
-    return true;
 }
 
 /* these functions are so stalker_main_patcher doesn't
@@ -358,18 +361,16 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
      *      scratch space.
      *  - It writes the code from handle_svc_hook.s into the executable
      *      scratch space.
-     *  - It writes the branch from inlined handle_svc inside sleh_synchronous
-     *      to handle_svc_hook.
      *  - It finds the first enosys system call and patches it to instead point
      *      to where the code from svc_stalker_ctl.s will be inside the
      *      executable scratch space.
      *  - It writes the code from svc_stalker_ctl.s into the executable
      *      scratch space.
      *  - It writes the code from hook_system_check_sysctlbyname_hook.s into
-     *      the executable scratch space, and restores the five instrs
-     *      it overwrote in doing so.
+     *      the executable scratch space.
      *  - It writes the branch from hook_system_check_sysctlbyname to
-     *      hook_system_check_sysctlbyname_hook.
+     *      hook_system_check_sysctlbyname_hook, and restores the five instrs
+     *      it overwrote while doing so.
      *  - It writes the code from sleh_synchronous_hijacker and changes
      *      sleh_synchronous's first instruction to branch to it.
      *  - It writes the code from return_interceptor.s into the executable
@@ -524,7 +525,6 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
 
     scratch_space = write_common_functions_instrs(scratch_space, &num_free_instrs);
 
-    /* now, add the offset of each common function to the stalker cache */
     for(int i=0; i<g_num_common_functions_function_starts; i++){
         uint32_t cur_fxn_start = g_common_functions_function_starts[i];
         uint64_t va_ptr = xnu_ptr_to_va(common_functions_base + cur_fxn_start);
@@ -778,14 +778,8 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     scratch_space = write_sleh_synchronous_hijacker_instrs(scratch_space,
             &num_free_instrs);
 
-    if(!hijack_sleh_synchronous(&scratch_space, &num_free_instrs,
-                sleh_synchronous_hijacker_addr)){
-        puts("svc_stalker: failed to");
-        puts("   write sleh_synchronous");
-        puts("   branch to its hijacker");
-
-        stalker_fatal_error();
-    }
+    hijack_sleh_synchronous(&scratch_space, &num_free_instrs,
+                sleh_synchronous_hijacker_addr);
 
     puts("svc_stalker: patched sleh_synchronous");
 
@@ -827,6 +821,11 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
             "* number.\n"
             "**********************\n",
             patched_syscall_num);
+
+    /* iphone se 14.2 */
+    /* uint32_t *sysctl_panic = xnu_va_to_ptr(0xFFFFFFF007544E44 + kernel_slide); */
+    /* nop */
+    /* *sysctl_panic = 0xd503201f; */
 
     return true;
 }

@@ -22,7 +22,6 @@ _main:
     add x29, sp, STACK-0x10
 
     adr x19, STALKER_CACHE_PTR_PTR
-    ; XXX from now on, X28 == stalker cache pointer, do not modify X28
     ldr x28, [x19]
 
     ; MIB array

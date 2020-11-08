@@ -325,7 +325,7 @@ struct pf g_all_pfs[MAXPF][NUM_SUPPORTED_VERSIONS] = {
             }),
             3, XNU_PF_ACCESS_32BIT, lck_grp_alloc_init_finder_13,
             "com.apple.security.sandbox", "__TEXT_EXEC", NULL),
-        PF_DECL_FULL("hook_system_check_sysctlbyname finder iOS 14",
+        PF_DECL_FULL("lck_grp_alloc_init finder iOS 14",
             LISTIZE({
                 0x910063e3,     /* add x3, sp, 0x18 */
                 0x910023e5,     /* add x5, sp, 0x8 */
@@ -486,7 +486,7 @@ struct pf g_all_pfs[MAXPF][NUM_SUPPORTED_VERSIONS] = {
                 0x0,            /* ignore this instruction */
             }),
             8, name2oid_and_its_dependencies_finder_13, "__TEXT_EXEC"),
-        PF_DECL32("sysctl_handle_long finder iOS 14",
+        PF_DECL32("name2oid and its dependencies finder iOS 14",
             LISTIZE({
                 0x10000000,     /* adrp xn, n or adr xn, n (n = _sysctl_geometry_lock) */
                 0xf9400000,     /* ldr x0, [xn, n] */
@@ -522,7 +522,7 @@ struct pf g_all_pfs[MAXPF][NUM_SUPPORTED_VERSIONS] = {
                 0xffffffff,     /* match exactly */
             }),
             3, thread_exception_return_finder_13, "__TEXT_EXEC"),
-        PF_DECL32("sysent finder iOS 14",
+        PF_DECL32("thread_exception_return finder iOS 14",
             LISTIZE({
                 0xd538d080,     /* mrs x0, tpidr_el1 */
                 0x91000015,     /* add x21, x0, n */
@@ -626,7 +626,7 @@ struct pf g_all_pfs[MAXPF][NUM_SUPPORTED_VERSIONS] = {
                 0xffffffff,     /* match exactly */
             }),
             6, platform_syscall_scanner_13, "__TEXT_EXEC"),
-        PF_DECL32("platform_syscall scanner iOS 13",
+        PF_DECL32("platform_syscall scanner iOS 14",
             LISTIZE({
                 0xd538d080,     /* mrs x0, TPIDR_EL1 */
                 0x94000000,     /* bl n */

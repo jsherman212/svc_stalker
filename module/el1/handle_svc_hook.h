@@ -17,8 +17,9 @@
 #define OID_AUTO                    (-1)
 
 #define CTLTYPE_INT                 (2)
-#define CTLFLAG_RD                  (0x80000000)
+#define CTLFLAG_OID2                (0x00400000)
 #define CTLFLAG_ANYBODY             (0x10000000)
+#define CTLFLAG_RD                  (0x80000000)
 
 #define SYSCTL_OID_VERSION          (1)
 
