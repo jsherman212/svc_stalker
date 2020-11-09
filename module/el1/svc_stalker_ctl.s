@@ -124,29 +124,10 @@ delete_pid:
 
     mov w24, 0x1
     sub x0, x23, x24, lsl CALL_LIST_DISPLACEMENT_SHIFT
-
-    ldr x23, [x28, IOS_VERSION]
-    cmp x23, iOS_13_x
-    b.eq iOS_13_x_kfree
-    ; fall thru
-
-    mov x1, x0
-    mov x0, xzr
-    mov w2, 0x1
-    add w2, wzr, w2, lsl 0xe
-    ldr x23, [x28, KFREE_EXT]
+    add x1, xzr, x24, lsl 0xe
+    ldr x23, [x28, COMMON_KFREE]
     blr x23
 
-    ; will release stalker lock
-    b delete_pid_success
-
-iOS_13_x_kfree:
-    ; params are already set up for this call
-    ldr x23, [x28, KFREE_ADDR]
-    blr x23
-    ; fall thru
-
-delete_pid_success:
     str xzr, [x22, STALKER_CTL_CALL_LIST_OFF]
     ; will release stalker lock
     b success_release
@@ -178,33 +159,10 @@ call_manage:
     ; one page
     mov x0, 0x1
     add x0, xzr, x0, lsl 0xe
-
-    ldr x22, [x28, IOS_VERSION]
-    cmp x22, iOS_13_x
-    b.eq iOS_13_x_kalloc
-    ; fall thru
-
-    ; kalloc_external only takes a size, and we already set that up in X0
-    ldr x22, [x28, KALLOC_EXTERNAL]
+    ldr x22, [x28, COMMON_KALLOC]
     blr x22
     cbz x0, out_enomem
 
-    b zero_loop_prep
-
-iOS_13_x_kalloc:
-    str x0, [sp, CALL_LIST_KALLOC_SZ]
-    ; kalloc_canblock expects a pointer for size
-    add x0, sp, CALL_LIST_KALLOC_SZ
-    ; don't want to block
-    mov w1, wzr
-    ; no allocation site
-    mov x2, xzr
-    ldr x22, [x28, KALLOC_CANBLOCK]
-    blr x22
-    cbz x0, out_enomem
-    ; fall thru
-
-zero_loop_prep:
     mov x22, x0
     mov w23, 0x1
     add x23, x0, x23, lsl 0xe

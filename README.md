@@ -108,7 +108,7 @@ not apply for platform system calls (call number `0x80000000`)
 - `ENOENT` if:
     - Call interception is not enabled for `pid`.
 - `ENOMEM` if:
-    - `kalloc_canblock` fails while allocating `pid`'s call list.
+    - `kalloc_canblock` or `kalloc_external` fails while allocating `pid`'s call list.
 
 ## Other Notes
 **You need to register exception ports for your process before you enable
