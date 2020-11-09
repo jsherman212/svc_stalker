@@ -21,6 +21,9 @@ _main:
     cmp w4, ESR_EC_SVC_64
     b.ne done
 
+    ; if I put b done here, 14.2 does not crash during boot
+    b done
+
     ; save original stack frame
     stp x29, x30, [sp, -0x10]!
     mov x29, sp

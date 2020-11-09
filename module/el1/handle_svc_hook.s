@@ -29,6 +29,9 @@ _main:
     adr x19, STALKER_CACHE_PTR_PTR
     ldr x28, [x19]
 
+    ; mov x7, 0x4141
+    ; brk 0
+
     ldr x19, [x28, IS_SYSCTL_REGISTERED]
     blr x19
     ; if we've already registered the sysctl, don't do it again

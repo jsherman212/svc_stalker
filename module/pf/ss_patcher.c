@@ -60,8 +60,10 @@ static void patch_thread_exception_return_calls(uint32_t ***all_ter_call_arrays,
     }
 }
 
-/* confirmed working on all kernels 13.0-14.1 */
+/* confirmed working on all kernels 13.0-14.2 */
 static bool patch_exception_triage_thread(uint32_t *opcode_stream){
+    /* XXX this is not the culprit */
+
     /* patch exception_triage_thread to return to its caller on EXC_SYSCALL and
      * EXC_MACH_SYSCALL
      *
@@ -337,7 +339,7 @@ static void anything_missing(void){
         stalker_fatal_error();
 }
 
-/* confirmed working on all kernels 13.0-14.1 */
+/* confirmed working on all kernels 13.0-14.2 */
 bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     anything_missing();
 
@@ -401,8 +403,13 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
         temp--;
     }
 
+
     /* save this so sleh_synchronous_hijacker knows where to branch back to */
     g_sleh_synchronous_addr = xnu_ptr_to_va(temp);
+
+    printf("%s: got sleh_synchronous @ %#llx\n", __func__,
+            g_sleh_synchronous_addr - kernel_slide);
+
 
     uint64_t branch_from = (uint64_t)opcode_stream;
 
@@ -778,6 +785,7 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     scratch_space = write_sleh_synchronous_hijacker_instrs(scratch_space,
             &num_free_instrs);
 
+    /* XXX we do not crash syncdefaultsd if this is commented on 14.2 */
     hijack_sleh_synchronous(&scratch_space, &num_free_instrs,
                 sleh_synchronous_hijacker_addr);
 
@@ -801,6 +809,10 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     size_t n_ter_call_arrays = sizeof(all_ter_call_arrays) /
         sizeof(*all_ter_call_arrays);
 
+    /* XXX syncdefaultsd didnt crash one time when this was commented on 14.2
+     *
+     * This does not seem to be the issue, though
+     */
     patch_thread_exception_return_calls(all_ter_call_arrays, n_ter_call_arrays,
             return_interceptor_addr);
 

@@ -728,12 +728,12 @@ bool platform_syscall_scanner_13(xnu_pf_patch_t *patch, void *cacheable_stream){
 
     while((*opcode_stream & 0xffc003ff) != 0xd10003ff){
         if(instr_limit-- == 0)
-            return 0;
+            return false;
 
         opcode_stream--;
     }
 
-    /* okay now we have sub sp, sp, n, but clang decided to do some stupid
+    /* okay now we have sub sp, sp, n, but clang decided to do some weird
      * thing on some kernels where it placed some sanity checks before the
      * prologue. So lets check for 
      *
