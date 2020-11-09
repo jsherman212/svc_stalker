@@ -378,6 +378,108 @@ get_flag_ptr_for_call_num_done:
     add sp, sp, 0x40
     ret
 
+; This function picks the correct kalloc function for the device
+;
+; Arguments
+;   X0, allocation size
+;
+; Locks taken: none
+;
+; Returns: pointer to kalloc mem or NULL
+INDICATE_FUNCTION_START
+_common_kalloc:
+    sub sp, sp, 0x40
+    stp x22, x21, [sp]
+    stp x20, x19, [sp, 0x10]
+    stp x29, x30, [sp, 0x20]
+    add x29, sp, 0x20
+
+    cbz x0, common_kalloc_done
+
+    mov x19, x0
+    bl _common_fxns_get_stalker_cache
+    mov x20, x0
+
+    ldr x21, [x20, IOS_VERSION]
+    cmp x21, iOS_13_x
+    b.eq iOS_13_x_kalloc
+    ; fall thru
+
+    mov x0, x19
+    ldr x19, [x20, KALLOC_EXTERNAL]
+    blr x19
+
+    b common_kalloc_done
+
+iOS_13_x_kalloc:
+    str x19, [sp, 0x30]
+    add x0, sp, 0x30
+    mov w1, wzr
+    mov x2, xzr
+    ldr x19, [x20, KALLOC_CANBLOCK]
+    blr x19
+    ; fall thru
+
+common_kalloc_done:
+    ldp x29, x30, [sp, 0x20]
+    ldp x20, x19, [sp, 0x10]
+    ldp x22, x21, [sp]
+    add sp, sp, 0x40
+    ret
+
+; This function picks the correct kfree function for the device
+;
+; Arguments
+;   X0, pointer
+;   X1, allocation size (ignored on 13.x, needed on 14.x)
+;
+; Locks taken: none
+;
+; Returns: nothing
+INDICATE_FUNCTION_START
+_common_kfree:
+    sub sp, sp, 0x30
+    stp x22, x21, [sp]
+    stp x20, x19, [sp, 0x10]
+    stp x29, x30, [sp, 0x20]
+    add x29, sp, 0x20
+
+    cbz x0, common_kfree_done
+
+    mov x19, x0
+    mov x20, x1
+
+    bl _common_fxns_get_stalker_cache
+    mov x21, x0
+
+    ldr x22, [x21, IOS_VERSION]
+    cmp x22, iOS_13_x
+    b.eq iOS_13_x_kfree
+    ; fall thru
+
+    cbz x20, common_kfree_done
+
+    mov x0, xzr
+    mov x1, x19
+    mov x2, x20
+    ldr x19, [x21, KFREE_EXT]
+    blr x19
+
+    b common_kfree_done
+
+iOS_13_x_kfree:
+    mov x0, x19
+    ldr x19, [x21, KFREE_ADDR]
+    blr x19
+    ; fall thru
+
+common_kfree_done:
+    ldp x29, x30, [sp, 0x20]
+    ldp x20, x19, [sp, 0x10]
+    ldp x22, x21, [sp]
+    add sp, sp, 0x30
+    ret
+
     ; so clang doesn't complain when linking
 _main:
     ret

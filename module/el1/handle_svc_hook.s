@@ -24,11 +24,20 @@ _main:
     stp x29, x30, [sp, STACK-0x10]
     add x29, sp, STACK-0x10
 
+    ; XXX if I put b done here, 14.2 does not crash during boot
+    ; b done
+
     str x0, [sp, SAVED_STATE_PTR]
 
     adr x19, STALKER_CACHE_PTR_PTR
     ldr x28, [x19]
 
+    ; XXX if I put b try_create_stalker_lock here, 14.2 does not crash
+    ; during boot
+    ; b try_create_stalker_lock
+
+    ; XXX if I uncomment this, it crashes, but the panic seems to be
+    ; manifested as an EXC_GUARD crash for syncdefaultsd??
     ; mov x7, 0x4141
     ; brk 0
 
@@ -38,49 +47,47 @@ _main:
     cbnz x0, try_create_stalker_lock
 
     ; set up the kern.svc_stalker_ctl_callnum sysctl
-    ; oid_parent, _kern
+    ; on >=14.2, Apple has depricated non-OID2 sysctls. For non OID2 sysctls,
+    ; sysctl_register_oid would deep-copy the first parameter, but this is
+    ; not done for OID2 sysctls. So we need to kalloc it instead of passing
+    ; a stack address.
+    ; I don't care if this is raced, leaking a little bit of mem isn't
+    ; the end of the world
+
+    mov x0, SIZEOF_STRUCT_SYSCTL_OID
+    ldr x19, [x28, COMMON_KALLOC]
+    blr x19
+    cbz x0, done
+    
     ldr x19, [x28, SYSCTL__KERN_CHILDREN_PTR]
-    str x19, [sp, SYSCTL_OID_STRUCT]
-    ; oid_link.sle_next
-    str xzr, [sp, SYSCTL_OID_STRUCT+0x8]
-    ; oid_number
+    str x19, [x0, OFFSETOF_OID_PARENT]
+    str xzr, [x0, OFFSETOF_OID_LINK]
     mov w19, OID_AUTO
-    str w19, [sp, SYSCTL_OID_STRUCT+0x10]
-    ; oid_kind, (CTLTYPE_INT | CTLFLAG_RD | CTLFLAG_ANYBODY | CTLFLAG_OID2)
-    ; need CTLFLAG_OID2 for >= iOS 14.2, but it causes some memory corruption
-    ; later? TODO
+    str w19, [x0, OFFSETOF_OID_NUMBER]
     mov w19, CTLTYPE_INT
     orr w19, w19, CTLFLAG_RD
     orr w19, w19, CTLFLAG_ANYBODY
-    ; orr w19, w19, CTLFLAG_OID2
-    str w19, [sp, SYSCTL_OID_STRUCT+0x14]
-    ; oid_arg1, pointer to svc_stalker_ctl call number
+    orr w19, w19, CTLFLAG_OID2
+    str w19, [x0, OFFSETOF_OID_KIND]
     add x19, x28, SVC_STALKER_CTL_CALLNUM
-    str x19, [sp, SYSCTL_OID_STRUCT+0x18]
-    ; oid_arg2, nothing
-    str wzr, [sp, SYSCTL_OID_STRUCT+0x20]
+    str x19, [x0, OFFSETOF_OID_ARG1]
+    str wzr, [x0, OFFSETOF_OID_ARG2]
     ; oid_name, "kern.svc_stalker_ctl_callnum"
     ldr x19, [x28, SVC_STALKER_SYSCTL_NAME_PTR]
     ; skip "kern."
     add x19, x19, 0x5
-    str x19, [sp, SYSCTL_OID_STRUCT+0x28]
-    ; oid_handler
+    str x19, [x0, OFFSETOF_OID_NAME]
     ldr x19, [x28, SYSCTL_HANDLE_LONG]
-    str x19, [sp, SYSCTL_OID_STRUCT+0x30]
-    ; oid_fmt
+    str x19, [x0, OFFSETOF_OID_HANDLER]
     ldr x19, [x28, SVC_STALKER_SYSCTL_FMT_PTR]
-    str x19, [sp, SYSCTL_OID_STRUCT+0x38]
-    ; oid_descr
+    str x19, [x0, OFFSETOF_OID_FMT]
     ldr x19, [x28, SVC_STALKER_SYSCTL_DESCR_PTR]
-    str x19, [sp, SYSCTL_OID_STRUCT+0x40]
-    ; oid_version
+    str x19, [x0, OFFSETOF_OID_DESCR]
     mov w19, SYSCTL_OID_VERSION
-    str w19, [sp, SYSCTL_OID_STRUCT+0x48]
-    ; oid_refcnt
-    str wzr, [sp, SYSCTL_OID_STRUCT+0x4c]
+    str w19, [x0, OFFSETOF_OID_VERSION]
+    str wzr, [x0, OFFSETOF_OID_REFCNT]
 
     ; register this sysctl
-    add x0, sp, SYSCTL_OID_STRUCT
     ldr x19, [x28, SYSCTL_REGISTER_OID]
     blr x19
 

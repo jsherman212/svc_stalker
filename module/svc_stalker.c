@@ -292,6 +292,8 @@ static void stalker_preboot_hook(void){
     STALKER_CACHE_WRITE(cursor, g_is_sysctl_registered_addr);
     STALKER_CACHE_WRITE(cursor, g_send_exception_msg_addr);
     STALKER_CACHE_WRITE(cursor, g_get_flag_ptr_for_call_num_addr);
+    STALKER_CACHE_WRITE(cursor, g_common_kalloc_addr);
+    STALKER_CACHE_WRITE(cursor, g_common_kfree_addr);
     STALKER_CACHE_WRITE(cursor, g_stalker_table_ptr);
     STALKER_CACHE_WRITE(cursor, g_svc_stalker_sysctl_name_ptr);
     STALKER_CACHE_WRITE(cursor, g_svc_stalker_sysctl_descr_ptr);

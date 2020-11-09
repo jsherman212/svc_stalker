@@ -57,6 +57,8 @@ extern uint64_t g_get_next_free_stalker_ctl_addr;
 extern uint64_t g_is_sysctl_registered_addr;
 extern uint64_t g_send_exception_msg_addr;
 extern uint64_t g_get_flag_ptr_for_call_num_addr;
+extern uint64_t g_common_kalloc_addr;
+extern uint64_t g_common_kfree_addr;
 /* XXX end common functions */
 extern uint64_t g_stalker_table_ptr;
 extern uint64_t g_svc_stalker_sysctl_name_ptr;

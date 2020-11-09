@@ -62,8 +62,6 @@ static void patch_thread_exception_return_calls(uint32_t ***all_ter_call_arrays,
 
 /* confirmed working on all kernels 13.0-14.2 */
 static bool patch_exception_triage_thread(uint32_t *opcode_stream){
-    /* XXX this is not the culprit */
-
     /* patch exception_triage_thread to return to its caller on EXC_SYSCALL and
      * EXC_MACH_SYSCALL
      *
@@ -550,6 +548,10 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
             g_send_exception_msg_addr = va_ptr;
         else if(i == 6)
             g_get_flag_ptr_for_call_num_addr = va_ptr;
+        else if(i == 7)
+            g_common_kalloc_addr = va_ptr;
+        else if(i == 8)
+            g_common_kfree_addr = va_ptr;
     }
 
     /* Please see stalker_table.h

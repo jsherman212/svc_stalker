@@ -77,4 +77,4 @@ printf(HEADER "#endif\n");
 
 # clean up
 system("rm ./dis");
-system("rm ./$ARGV[0]");
+# system("rm ./$ARGV[0]");

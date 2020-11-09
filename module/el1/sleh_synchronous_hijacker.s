@@ -22,7 +22,7 @@ _main:
     b.ne done
 
     ; if I put b done here, 14.2 does not crash during boot
-    b done
+    ; b done
 
     ; save original stack frame
     stp x29, x30, [sp, -0x10]!
@@ -39,6 +39,7 @@ _main:
     add sp, sp, 0x20
 
     ; set LR to return_interceptor
+    ; XXX commenting this out does not solve the issue on 14.2
     ldr x30, [x3, RETURN_INTERCEPTOR]
 
 done:
