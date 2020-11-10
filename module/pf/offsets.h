@@ -71,7 +71,7 @@ extern uint64_t g_svc_stalker_ctl_callnum;
 extern uint64_t g_sleh_synchronous_addr;
 extern uint64_t g_return_interceptor_addr;
 
-/* stalker lock and current call ID are initialized inside of module/el1/ */
+/* stalker lock is initialized inside of module/el1/handle_svc_hook.s */
 
 /* START offsets not added to stalker cache */
 extern uint64_t g_exec_scratch_space_addr;
@@ -84,6 +84,6 @@ enum { g_max_ter_calls = 50 };
 extern uint32_t *g_platform_syscall_ter_calls[g_max_ter_calls];
 extern uint32_t *g_thread_syscall_return_ter_calls[g_max_ter_calls];
 extern uint32_t *g_unix_syscall_return_ter_calls[g_max_ter_calls];
-
+/* END offsets not added to stalker cache */
 
 #endif

@@ -182,9 +182,7 @@ zero_loop:
 
     TAKE_STALKER_LOCK x28, x23
     str x24, [x22, STALKER_CTL_CALL_LIST_OFF]
-    RELEASE_STALKER_LOCK x28, x23
-
-    b add_call
+    ; fall thru
 
 add_call_release:
     RELEASE_STALKER_LOCK x28, x23

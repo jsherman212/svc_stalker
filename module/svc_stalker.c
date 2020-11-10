@@ -51,8 +51,14 @@ static bool getkernelv_callback(xnu_pf_patch_t *patch, void *cacheable_stream){
 
     if(g_kern_version_major == iOS_13_x)
         printf("svc_stalker: iOS 13.x detected\n");
-    else if(g_kern_version_major == iOS_14_x)
+    else if(g_kern_version_major == iOS_14_x){
         printf("svc_stalker: iOS 14.x detected\n");
+
+        if(socnum == 0x8010 || socnum == 0x8011 || socnum == 0x8012 ||
+                socnum == 0x8015){
+            queue_rx_string("sep auto\n");
+        }
+    }
     else{
         printf("svc_stalker: error: unknown\n"
                 "  major %d\n",

@@ -33,6 +33,7 @@ static void scan_for_ter_13(uint32_t *opcode_stream, uint64_t fxn_len,
     }
 }
 
+/* same as above, but for iOS 14.x */
 static void scan_for_ter_14(uint32_t *opcode_stream, uint64_t fxn_len,
         uint32_t **ter_calls_out){
     uint32_t cur_ter_calls_idx = 0;
@@ -160,7 +161,7 @@ uint64_t g_exec_scratch_space_addr = 0;
 /* don't count the first opcode */
 uint64_t g_exec_scratch_space_size = -sizeof(uint32_t);
 
-/* confirmed working on all kernels 13.0-14.1 */
+/* confirmed working on all kernels 13.0-14.2 */
 bool proc_pid_finder_13(xnu_pf_patch_t *patch, void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
 
@@ -187,7 +188,7 @@ bool proc_pid_finder_13(xnu_pf_patch_t *patch, void *cacheable_stream){
     return true;
 }
 
-/* confirmed working on all kernels 13.0-14.1 */
+/* confirmed working on all kernels 13.0-14.2 */
 bool sysent_finder_13(xnu_pf_patch_t *patch, void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
 
@@ -318,7 +319,7 @@ bool kfree_addr_finder_13(xnu_pf_patch_t *patch, void *cacheable_stream){
     return true;
 }
 
-/* confirmed working on all kernels 13.0-14.1 */
+/* confirmed working on all kernels 13.0-14.2 */
 bool mach_syscall_patcher_13(xnu_pf_patch_t *patch, void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
 
@@ -537,7 +538,7 @@ bool sysctl_register_oid_finder_13(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-14.1 */
+/* confirmed working on all kernels 13.0-14.2 */
 bool sysctl_handle_long_finder_13(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -556,7 +557,7 @@ bool sysctl_handle_long_finder_13(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-14.1 */
+/* confirmed working on all kernels 13.0-14.2 */
 bool name2oid_and_its_dependencies_finder_13(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -604,7 +605,7 @@ bool name2oid_and_its_dependencies_finder_13(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-14.1 */
+/* confirmed working on all kernels 13.0-14.2 */
 bool hook_system_check_sysctlbyname_finder_13(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     uint32_t *opcode_stream = (uint32_t *)cacheable_stream;
@@ -654,7 +655,7 @@ bool hook_system_check_sysctlbyname_finder_13(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-14.1 */
+/* confirmed working on all kernels 13.0-14.2 */
 bool thread_exception_return_finder_13(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     /* we're guarenteed to have landed in thread_exception_return */
@@ -676,7 +677,7 @@ bool thread_exception_return_finder_13(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-14.1 */
+/* confirmed working on all kernels 13.0-14.2 */
 bool thread_syscall_return_scanner_13(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     /* The purpose of this is to scan thread_syscall_return for all
@@ -714,7 +715,7 @@ bool thread_syscall_return_scanner_13(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working in all kernels 13.0-14.1 */
+/* confirmed working in all kernels 13.0-14.2 */
 bool platform_syscall_scanner_13(xnu_pf_patch_t *patch, void *cacheable_stream){
     /* purpose is the same as the above function */
 
@@ -785,7 +786,7 @@ bool platform_syscall_scanner_13(xnu_pf_patch_t *patch, void *cacheable_stream){
     return true;
 }
 
-/* confirmed working in all kernels 13.0-14.1 */
+/* confirmed working in all kernels 13.0-14.2 */
 bool unix_syscall_return_scanner_13(xnu_pf_patch_t *patch,
         void *cacheable_stream){
     xnu_pf_disable_patch(patch);
@@ -894,7 +895,7 @@ bool lck_rw_alloc_init_finder_13(xnu_pf_patch_t *patch,
     return true;
 }
 
-/* confirmed working on all kernels 13.0-14.1 */
+/* confirmed working on all kernels 13.0-14.2 */
 bool unix_syscall_patcher_13(xnu_pf_patch_t *patch, void *cacheable_stream){
     /* handle_svc_hook OR's a unique 32 bit value into the upper 32 bits
      * of the calling userspace thread's X16. This works because system

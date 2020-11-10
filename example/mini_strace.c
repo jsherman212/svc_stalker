@@ -59,7 +59,7 @@ static int _concat_internal(char **dst, const char *src, va_list args){
     return w;
 }
 
-int concat(char **dst, const char *src, ...){
+static int concat(char **dst, const char *src, ...){
     va_list args;
     va_start(args, src);
 

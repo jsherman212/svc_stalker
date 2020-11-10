@@ -10,6 +10,11 @@
 ;
 ; We've come from sleh_synchronous, it has three arguments, second being ESR_EL1.
 ; (because of that we can clobber x3, x4, x5, x6, and x7)
+;
+; !!! Be very careful when adding code before b.ne done. If you cause a crash
+; then, the kernel will call sleh_synchronous, which will call this code,
+; then you'll crash and the kernel will call sleh_synchronous, which will call
+; this code, and on and on until the stack is corrupted.
 
 _main:
     adr x3, STALKER_CACHE_PTR_PTR
@@ -20,9 +25,6 @@ _main:
     lsr w4, w1, 0x1a
     cmp w4, ESR_EC_SVC_64
     b.ne done
-
-    ; if I put b done here, 14.2 does not crash during boot
-    ; b done
 
     ; save original stack frame
     stp x29, x30, [sp, -0x10]!
@@ -39,7 +41,6 @@ _main:
     add sp, sp, 0x20
 
     ; set LR to return_interceptor
-    ; XXX commenting this out does not solve the issue on 14.2
     ldr x30, [x3, RETURN_INTERCEPTOR]
 
 done:

@@ -6,7 +6,7 @@
 
 #include "handle_svc_hook.h"
 
-; I guess this no longer "literally" an inlined handle_svc hook since we're
+; I guess this is no longer "literally" an inlined handle_svc hook since we're
 ; called from sleh_synchronous_hijacker... but we would have reached
 ; inlined handle_svc shortly after sleh_synchronous_hijacker returns so I
 ; think the name still fits
@@ -24,22 +24,10 @@ _main:
     stp x29, x30, [sp, STACK-0x10]
     add x29, sp, STACK-0x10
 
-    ; XXX if I put b done here, 14.2 does not crash during boot
-    ; b done
-
     str x0, [sp, SAVED_STATE_PTR]
 
     adr x19, STALKER_CACHE_PTR_PTR
     ldr x28, [x19]
-
-    ; XXX if I put b try_create_stalker_lock here, 14.2 does not crash
-    ; during boot
-    ; b try_create_stalker_lock
-
-    ; XXX if I uncomment this, it crashes, but the panic seems to be
-    ; manifested as an EXC_GUARD crash for syncdefaultsd??
-    ; mov x7, 0x4141
-    ; brk 0
 
     ldr x19, [x28, IS_SYSCTL_REGISTERED]
     blr x19

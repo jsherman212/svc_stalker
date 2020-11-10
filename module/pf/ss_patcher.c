@@ -401,13 +401,8 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
         temp--;
     }
 
-
     /* save this so sleh_synchronous_hijacker knows where to branch back to */
     g_sleh_synchronous_addr = xnu_ptr_to_va(temp);
-
-    printf("%s: got sleh_synchronous @ %#llx\n", __func__,
-            g_sleh_synchronous_addr - kernel_slide);
-
 
     uint64_t branch_from = (uint64_t)opcode_stream;
 
@@ -787,7 +782,6 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     scratch_space = write_sleh_synchronous_hijacker_instrs(scratch_space,
             &num_free_instrs);
 
-    /* XXX we do not crash syncdefaultsd if this is commented on 14.2 */
     hijack_sleh_synchronous(&scratch_space, &num_free_instrs,
                 sleh_synchronous_hijacker_addr);
 
@@ -811,10 +805,6 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
     size_t n_ter_call_arrays = sizeof(all_ter_call_arrays) /
         sizeof(*all_ter_call_arrays);
 
-    /* XXX syncdefaultsd didnt crash one time when this was commented on 14.2
-     *
-     * This does not seem to be the issue, though
-     */
     patch_thread_exception_return_calls(all_ter_call_arrays, n_ter_call_arrays,
             return_interceptor_addr);
 
@@ -835,11 +825,6 @@ bool stalker_main_patcher(xnu_pf_patch_t *patch, void *cacheable_stream){
             "* number.\n"
             "**********************\n",
             patched_syscall_num);
-
-    /* iphone se 14.2 */
-    /* uint32_t *sysctl_panic = xnu_va_to_ptr(0xFFFFFFF007544E44 + kernel_slide); */
-    /* nop */
-    /* *sysctl_panic = 0xd503201f; */
 
     return true;
 }

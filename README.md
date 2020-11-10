@@ -46,7 +46,8 @@ shell: `/Applications/checkra1n.app/Contents/MacOS/checkra1n -p`
 
 In the same directory you built the loader and the module, do
 `loader/loader module/svc_stalker`. svc_stalker will patch XNU and in a few
-seconds your device will boot.
+seconds your device will boot. `loader` will wait a couple more seconds after
+issuing `stalker-getkernelv` in case SEPROM needs to be exploited.
 
 ## Known Issues
 Sometimes a couple of my phones would get stuck at "Booting" after checkra1n's KPF

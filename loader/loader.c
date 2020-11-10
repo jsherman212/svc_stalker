@@ -156,33 +156,6 @@ int main(int argc, char **argv, const char **envp){
         libusb_exit(NULL);
         return 1;
     }
-#if 0
-    err = pongo_send_command(pongo_device, "xargs -v\n");
-
-    if(err < 0){
-        printf("pongo_send_command: %s\n", libusb_error_name(err));
-        libusb_release_interface(pongo_device, 0);
-        libusb_close(pongo_device);
-        libusb_exit(NULL);
-        return 1;
-    }
-
-    sleep(1);
-
-    err = pongo_send_command(pongo_device, "xfb\n");
-
-    if(err < 0){
-        printf("pongo_send_command: %s\n", libusb_error_name(err));
-        libusb_release_interface(pongo_device, 0);
-        libusb_close(pongo_device);
-        libusb_exit(NULL);
-        return 1;
-    }
-
-    sleep(1);
-#endif
-
-/* #if 0 */
 
     err = pongo_send_command(pongo_device, "modload\n");
 
@@ -209,7 +182,8 @@ int main(int argc, char **argv, const char **envp){
         return 1;
     }
 
-    sleep(1);
+    /* we may have had to pwn SEPROM, so wait a bit longer before we continue */
+    sleep(4);
 
     err = pongo_send_command(pongo_device, "stalker-prep\n");
 
@@ -221,8 +195,7 @@ int main(int argc, char **argv, const char **envp){
         return 1;
     }
 
-    /* wait a bit longer for that to finish */
-    sleep(1);
+    usleep(800 * 1000);
 
     err = pongo_send_command(pongo_device, "stalker-patch-ss\n");
 
@@ -234,9 +207,7 @@ int main(int argc, char **argv, const char **envp){
         return 1;
     }
 
-    sleep(1);
-
-/* #endif */
+    usleep(800 * 1000);
 
     err = pongo_send_command(pongo_device, "bootx\n");
 
