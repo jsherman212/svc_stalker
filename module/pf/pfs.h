@@ -225,22 +225,23 @@ struct pf g_all_pfs[MAXPF][NUM_SUPPORTED_VERSIONS] = {
                 0x0,            /* ignore this instruction */
             }),
             8, sysctl__kern_children_finder_13, "__TEXT_EXEC"),
-        PF_DECL32("sysctl__kern_children & sysctl_register_oid finder iOS 14",
+        PF_DECL_FULL("sysctl__kern_children & sysctl_register_oid finder iOS 14",
             LISTIZE({
-                0x9e670260,     /* fmov d0, x19 */
-                0x0e205800,     /* cnt v0.8b, v0.8b */
-                0x2e303800,     /* uaddlv h0, v0.8b */
-                0x1e260008,     /* fmov w8, s0 */
-                0x7100827f,     /* cmp w19, 0x20 */
+                0x94000000,     /* bl n */
+                0x10000008,     /* adrp x8, n or adr x8, n */
+                0x0,            /* ignore this instruction */
+                0xad400500,     /* ldp q0, q1, [x8] */
+                0xad0087e0,     /* stp q0, q1, [sp, 0x10] */
             }),
             LISTIZE({
-                0xffffffff,     /* match exactly */
-                0xffffffff,     /* match exactly */
-                0xffffffff,     /* match exactly */
+                0xfc000000,     /* ignore immediate */
+                0x1f00001f,     /* ignore immediate */
+                0x0,            /* ignore this instruction */
                 0xffffffff,     /* match exactly */
                 0xffffffff,     /* match exactly */
             }),
-            5, sysctl__kern_children_and_register_oid_finder_14, "__TEXT_EXEC"),
+            5, XNU_PF_ACCESS_32BIT, sysctl__kern_children_and_register_oid_finder_14,
+            "com.apple.kec.corecrypto", "__TEXT_EXEC", NULL),
     },
     {
         PF_DECL32("sysctl_register_oid finder iOS 13",

@@ -1,7 +1,7 @@
 CC = clang
 SDK = $(shell xcrun --sdk iphoneos --show-sdk-path)
 CFLAGS = -isysroot $(SDK) -arch arm64 -Wno-string-plus-int -fno-stack-protector
-CFLAGS += -D_FORTIFY_SOURCE=0 -nostdlib
+CFLAGS += -D_FORTIFY_SOURCE=0 -nostdlib -pedantic
 LDFLAGS = -Xlinker -kext
 
 export CC
