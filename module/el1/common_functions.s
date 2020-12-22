@@ -8,7 +8,7 @@
 
 ; Common functions shared across all parts of this project.
 ;
-; In order to know when a function starts, I'll put udf 0xffff right
+; In order to know when a function starts, I'll put mov x18, x18 right
 ; before it. When hookgen.pl sees it, it'll write its file offset to a
 ; "function starts" array in common_instrs.h. In svc_stalker.c, I'll use that
 ; function starts array to calculate the virtual address of each of these
@@ -17,7 +17,7 @@
 ; it at the end.
 
 .macro INDICATE_FUNCTION_START
-    udf 0xffff
+    mov x18, x18
 .endmacro
 
 ; XXX this needs to be the first function in this file!!!
