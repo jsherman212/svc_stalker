@@ -5,6 +5,8 @@
 <sup>*Output from intercepting some calls for Call of Duty: Mobile from
 example/mini_strace.c*</sup>
 
+# This project has been made obsolete by [xnuspy](https://github.com/jsherman212/xnuspy)
+
 svc_stalker is a pongoOS module which modifies XNU to call `exception_triage`
 during supervisor call exceptions, sending a Mach exception message to userland
 exception ports.
